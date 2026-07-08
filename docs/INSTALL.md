@@ -27,8 +27,7 @@ To install, enable, and start the service:
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
 ```
 
-Until the GitHub repo exists, use `HOMESUITE_REPO_URL` to point the installer at
-another Git remote:
+To install from a fork or alternate remote, set `HOMESUITE_REPO_URL`:
 
 ```bash
 HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git \

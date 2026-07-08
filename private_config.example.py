@@ -49,3 +49,8 @@ SONARR_URL = 'http://sonarr.local:8989'
 SONARR_API_KEY = ''
 LIDARR_URL = 'http://lidarr.local:8686'
 LIDARR_API_KEY = ''
+
+
+# Uptime Kuma read-only status page
+UPTIME_KUMA_URL = 'http://uptime-kuma.local:3001'
+UPTIME_KUMA_STATUS_PAGE_SLUG = 'home'
