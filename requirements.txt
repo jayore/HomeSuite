@@ -1,0 +1,24 @@
+# HomeSuite Python dependencies for native Raspberry Pi installs.
+#
+# Raspberry Pi OS packages provide some hardware bindings more reliably than pip.
+# See docs/INSTALL.md and scripts/install.sh for the apt packages installed first.
+
+aiohttp>=3.9,<4
+gTTS>=2.5,<3
+httpx>=0.28,<1
+numpy>=1.26
+openai>=1.65,<2
+pydantic>=2.10,<3
+pygame>=2.6,<3
+pyytlounge>=3.2,<4
+requests>=2.32,<3
+scipy>=1.13
+sounddevice>=0.5,<1
+webrtcvad>=2.0.10,<3
+websocket-client>=1.8,<2
+websockets>=15,<16
+
+# Optional integrations used when configured.
+gpiozero>=1.6,<2
+pigpio>=1.78
+pvporcupine>=4,<5
