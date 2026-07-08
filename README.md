@@ -1,37 +1,73 @@
 # HomeSuite
 
-HomeSuite is a local-first command layer for Home Assistant, media playback, and homelab status. It lets one natural-language command brain answer from a physical Raspberry Pi appliance, a shell, HTTP, Telegram, Raycast, scheduled jobs, and future satellite devices.
+HomeSuite is a deterministic assistant layer for Home Assistant. It gives your home a single command brain that can be reached from voice, text, HTTP, Telegram, Raycast-style launchers, scheduled jobs, physical buttons, and future satellite devices.
 
-The project started as PiPhone: a vintage telephone with a Raspberry Pi inside it. Lifting the handset started a push-to-talk session, the handset became the microphone and speaker, and physical buttons mapped to house actions. HomeSuite keeps that appliance spirit, but the useful part has grown into a broader home-control runtime.
+The core idea is simple: Home Assistant remains the source of truth for devices, rooms, scenes, scripts, and state. HomeSuite sits above it and turns natural language into predictable actions.
 
-## What It Does
+## Why It Exists
 
-HomeSuite routes plain-language requests through deterministic handlers first, then falls back to conversational AI only when no device or media command claims the request. That keeps home-control behavior predictable while still allowing normal questions and follow-up conversation.
+Most assistants are either too rigid or too magical. HomeSuite tries to sit in the useful middle.
 
-Current public-alpha capabilities include:
+It is designed to:
 
-* Home Assistant lights, switches, locks, scenes, scripts, and state queries
-* Sonos playback, grouping, volume, sources, announcements, and TTS routing
-* Plex movie/show playback with follow-up context like "watch it"
-* Spotify search/playback helpers for Sonos-backed music setups
-* Apple TV transport and app launch behavior
-* YouTube lounge control, channel digests, and playlist/reel helpers
-* alarms, timers, and scheduled natural-language commands
-* homelab status via Home Assistant and optional direct service APIs
-* qBittorrent status and completed-download actions
-* Seerr request status
-* Uptime Kuma status page summaries
-* Synology/Reolink/Speedtest-style status when exposed through Home Assistant
-* HTTP and WebSocket access for external clients
-* Telegram, Raycast, menu-bar, and physical-button style frontends
+* understand natural phrases without requiring exact command syntax
+* route home and media actions through deterministic code, not AI guesses
+* use AI for conversation, summarization, and interpretation where it helps
+* preserve context so a conversation can lead into a real action
+* expose the same command brain through many frontends
+* stay local-first and understandable enough to debug
 
-See [docs/FEATURES.md](docs/FEATURES.md) for example phrases and supported surfaces.
+That means you can ask a question conversationally, then follow up with an action, while the action itself still goes through a real handler that checks your actual services and devices.
+
+## What It Can Do
+
+HomeSuite is built around a shared natural-language command runtime. Current public-alpha areas include:
+
+* Home Assistant device control: lights, switches, locks, scenes, scripts, and state questions
+* room-aware media control for Sonos, Apple TV, Plex, Spotify, and YouTube
+* media playback by title or description, resolved against your real libraries and services
+* homelab and self-hosted service status through Home Assistant and optional direct APIs
+* qBittorrent, Seerr, Uptime Kuma, NAS, camera, and internet-status style queries
+* alarms, timers, reminders, and scheduled commands
+* local or Sonos-routed speech output
+* AI conversation with continuity into deterministic follow-up actions
+* HTTP and WebSocket APIs for external clients
+
+See [docs/FEATURES.md](docs/FEATURES.md) for example phrases.
+
+## How It Works
+
+HomeSuite routes each request in layers:
+
+1. Normalize the text and attach request context, such as source and room.
+2. Let deterministic handlers try to claim the request.
+3. If a handler claims it, execute the action through Home Assistant, Plex, Spotify, qBittorrent, or another configured service.
+4. If no handler claims it and the request looks conversational, send it to AI fallback.
+5. Store useful context from answers so later commands can refer back to the conversation.
+
+AI can help identify what you are talking about, but HomeSuite avoids letting AI directly operate your home. Actions are carried out by deterministic integrations.
+
+## Ways To Talk To It
+
+The same command brain can be reached through several surfaces:
+
+* a local Raspberry Pi voice appliance
+* `command_repl.py` for command-line testing
+* `ppchat.py` for chat-style text interaction
+* HTTP `POST /command`
+* WebSocket `/ws`
+* Telegram bot frontend
+* scheduler and alarm jobs
+* physical button mappings
+* external clients such as Raycast or a menu-bar app
+
+Companion clients should live separately from the core runtime as the ecosystem grows. This repo is the HomeSuite brain, API, install path, and docs.
 
 ## Status
 
-HomeSuite is public-alpha software. It works as a real daily-driver system in the original deployment, but the public install path is still new. Expect to configure Home Assistant entities, service credentials, rooms, and audio hardware for your own home.
+HomeSuite is public-alpha software. It is already used as a daily-driver home assistant layer in its original deployment, but the public install and configuration experience is still young.
 
-The first supported install target is a native Raspberry Pi OS style deployment. Docker and satellite packaging may come later, especially for a central "brain" plus lightweight device model.
+The first supported install target is a native Raspberry Pi OS style deployment. Docker and satellite packaging may come later, especially for a central brain plus lightweight device model.
 
 ## Quick Install
 
@@ -85,22 +121,6 @@ Only the example files are meant to be committed in public deployments:
 * `local_prefs.example.py`
 
 Real local config files should stay private.
-
-## Interfaces
-
-The core runtime is `main.py`, but the same command brain can be reached through several surfaces:
-
-* handset / local voice appliance
-* `command_repl.py`
-* `ppchat.py`
-* HTTP `POST /command`
-* WebSocket `/ws`
-* Telegram bot frontend
-* scheduler and alarms
-* physical button mappings
-* external clients such as Raycast or a menu-bar app
-
-The companion clients are intentionally separate from the core. As those projects become publishable, they should live in their own repos and link back here. This repo should remain the HomeSuite runtime, API, docs, and install path.
 
 ## HTTP API
 
