@@ -127,8 +127,8 @@ The AI fallback can leave short-lived media breadcrumbs. Follow-up actions still
 The same command brain can be used from:
 
 * local handset or wake-word appliance
-* `command_repl.py`
-* `ppchat.py`
+* `pptest` and `pplive`
+* `ppchattest` and `ppchat`
 * HTTP `POST /command`
 * WebSocket `/ws`
 * Telegram bot frontend

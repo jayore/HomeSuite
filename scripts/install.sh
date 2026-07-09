@@ -82,6 +82,8 @@ fi
 
 mkdir -p logs state backups
 
+HOMESUITE_DIR="$INSTALL_DIR" scripts/install_shortcuts.sh
+
 if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
   if [[ ! -f deploy/systemd/homesuite.service.template ]]; then
     echo "Missing deploy/systemd/homesuite.service.template" >&2
@@ -106,9 +108,9 @@ HomeSuite install complete.
 Next steps:
   1. Edit $INSTALL_DIR/private_config.py with your Home Assistant/OpenAI/service credentials.
   2. Edit $INSTALL_DIR/local_prefs.py for this device's room, audio, and hardware role.
-  3. Test command routing:
-       cd $INSTALL_DIR
-       .venv/bin/python tools/test_commands.py "service status" --capture
+  3. Check setup and test command routing:
+       homesuite-doctor
+       pptest "service status"
   4. Start or restart the service when ready:
        sudo systemctl restart homesuite.service
 

@@ -1,6 +1,6 @@
 # Integrations
 
-HomeSuite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `tools/doctor.py` when you want a quick read on what is ready.
+HomeSuite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `homesuite-doctor` when you want a quick read on what is ready.
 
 ## Core
 
@@ -122,8 +122,8 @@ YOUTUBE_OAUTH_REFRESH_TOKEN = "..."
 HomeSuite includes helper scripts:
 
 ```bash
-.venv/bin/python tools/youtube_pair.py
-.venv/bin/python tools/youtube_oauth.py
+homesuite-youtube-pair
+homesuite-youtube-oauth
 ```
 
 YouTube Data API docs: https://developers.google.com/youtube/v3/getting-started

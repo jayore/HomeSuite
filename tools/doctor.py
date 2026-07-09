@@ -85,7 +85,7 @@ class Doctor:
         if self.live:
             self.check_live_services()
         else:
-            self.add("Live checks", "SKIP", "network reachability", "Run tools/doctor.py --live to test configured services.")
+            self.add("Live checks", "SKIP", "network reachability", "Run homesuite-doctor --live to test configured services.")
         self.print_report()
         return 1 if any(c.required and c.status == "FAIL" for c in self.checks) else 0
 

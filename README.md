@@ -52,8 +52,8 @@ AI can help identify what you are talking about, but HomeSuite avoids letting AI
 The same command brain can be reached through several surfaces:
 
 * a local Raspberry Pi voice appliance
-* `command_repl.py` for command-line testing
-* `ppchat.py` for chat-style text interaction
+* `pptest` and `pplive` for command-line testing
+* `ppchattest` and `ppchat` for chat-style text interaction
 * HTTP `POST /command`
 * WebSocket `/ws`
 * Telegram bot frontend
@@ -102,9 +102,11 @@ nano local_prefs.py
 Then check your setup and test routing:
 
 ```bash
-.venv/bin/python tools/doctor.py
-.venv/bin/python tools/test_commands.py "service status" --capture
+homesuite-doctor
+pptest "service status"
 ```
+
+The installer creates shortcuts in `$HOME/.local/bin`, including `homesuite-doctor`, `pptest`, `pplive`, `ppchattest`, and `ppchat`.
 
 Start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and service-specific setup lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
 
@@ -155,7 +157,8 @@ Important files:
 * `spoken_text.py` - TTS-only text normalization
 * `homelab_controls.py` and `homelab_clients.py` - homelab status and direct service APIs
 * `unified_server.py` - in-process HTTP/WebSocket server
-* `tools/test_commands.py` - command harness for validation
+* `homesuite-doctor` - setup/configuration diagnostics
+* `pptest` and `pplive` - shortcut command harnesses for validation
 
 More docs:
 

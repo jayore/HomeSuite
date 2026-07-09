@@ -46,8 +46,22 @@ HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git \
 * copies `private_config.example.py` to `private_config.py` if missing
 * copies `local_prefs.example.py` to `local_prefs.py` if missing
 * creates `logs/`, `state/`, and `backups/`
+* installs convenience shortcuts into `$HOME/.local/bin`
 * optionally installs `/etc/systemd/system/homesuite.service` from the service
   template
+
+## Shortcut Commands
+
+The installer writes shortcuts to `$HOME/.local/bin`:
+
+* `homesuite-doctor` - configuration and reachability checks
+* `pptest "your phrase"` - safe one-shot command test with captured output
+* `pplive "your phrase"` - one-shot live command that can control devices
+* `ppchattest` - safe chat-style test shell
+* `ppchat` - live chat-style shell
+* `homesuite-youtube-pair` and `homesuite-youtube-oauth` - YouTube setup helpers
+
+If the commands are not found immediately after install, open a new shell or add `$HOME/.local/bin` to `PATH`.
 
 ## Configuration files
 
@@ -97,9 +111,9 @@ After editing config, run the doctor and test command routing before starting th
 
 ```bash
 cd ~/homesuite
-.venv/bin/python tools/doctor.py
-.venv/bin/python tools/doctor.py --live
-.venv/bin/python tools/test_commands.py "service status" --capture
+homesuite-doctor
+homesuite-doctor --live
+pptest "service status"
 ```
 
 For syntax checks:

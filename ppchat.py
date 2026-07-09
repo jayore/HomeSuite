@@ -27,7 +27,7 @@ def main():
     _quiet_console_logging()
 
     banner = "LIVE MODE" if live else "TEST MODE"
-    print(f"\n💬 PiPhone Chat ({banner})")
+    print(f"\nHomeSuite Chat ({banner})")
     if live:
         print("⚠️  Messages will control real devices")
     print("Type natural commands or questions.")
@@ -44,7 +44,7 @@ def main():
                 print(result.response_text)
 
         except (EOFError, KeyboardInterrupt):
-            print("\n👋 Exiting PiPhone Chat")
+            print("\nExiting HomeSuite Chat")
             sys.exit(0)
 
 

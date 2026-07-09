@@ -46,8 +46,8 @@ HANDSET_PRESENT = False
 Run the doctor command after editing config:
 
 ```bash
-.venv/bin/python tools/doctor.py
-.venv/bin/python tools/doctor.py --live
+homesuite-doctor
+homesuite-doctor --live
 ```
 
 ## OpenAI
@@ -149,8 +149,8 @@ Google's YouTube Data API guide explains the need for a Google account, a Cloud 
 HomeSuite also has local tools:
 
 ```bash
-.venv/bin/python tools/youtube_pair.py
-.venv/bin/python tools/youtube_oauth.py
+homesuite-youtube-pair
+homesuite-youtube-oauth
 ```
 
 These are still public-alpha quality and may need refinement for a clean first-run setup.

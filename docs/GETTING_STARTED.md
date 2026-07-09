@@ -16,7 +16,15 @@ To also install and start the systemd service:
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
 ```
 
-The installer creates `~/homesuite`, a Python virtual environment, local config files, state folders, and optionally a `homesuite.service` unit.
+The installer creates `~/homesuite`, a Python virtual environment, local config files, state folders, convenience shortcuts, and optionally a `homesuite.service` unit.
+
+The most useful shortcuts are:
+
+* `homesuite-doctor` - check local configuration
+* `pptest "your phrase"` - safe one-shot command test
+* `pplive "your phrase"` - one-shot live command that can control devices
+* `ppchattest` - safe chat-style test shell
+* `ppchat` - live chat-style shell
 
 ## 2. Edit Local Config
 
@@ -54,13 +62,13 @@ Leave optional service keys blank until you actually connect those services. Mis
 Check your local setup:
 
 ```bash
-.venv/bin/python tools/doctor.py
+homesuite-doctor
 ```
 
 Run safe network checks for configured services:
 
 ```bash
-.venv/bin/python tools/doctor.py --live
+homesuite-doctor --live
 ```
 
 Fix any `FAIL` items first. `WARN` and `SKIP` items are usually optional services or next-step polish.
@@ -70,14 +78,14 @@ Fix any `FAIL` items first. `WARN` and `SKIP` items are usually optional service
 Use capture mode before starting live audio or hardware flows:
 
 ```bash
-.venv/bin/python tools/test_commands.py "what lights are on?" --capture
-.venv/bin/python tools/test_commands.py "service status" --capture
+pptest "what lights are on?"
+pptest "service status"
 ```
 
 For chat-style text testing:
 
 ```bash
-.venv/bin/python ppchat.py
+ppchattest
 ```
 
 ## 5. Start or Restart the Service
@@ -112,8 +120,8 @@ See [INTEGRATIONS.md](INTEGRATIONS.md) for the keys each service needs and where
 
 When something does not work:
 
-1. Run `.venv/bin/python tools/doctor.py --live`.
-2. Run the phrase through `tools/test_commands.py "your phrase" --capture`.
+1. Run `homesuite-doctor --live`.
+2. Run the phrase through `pptest "your phrase"`.
 3. Check `logs/`.
 4. Confirm the entity, room, or service works directly in Home Assistant.
 
