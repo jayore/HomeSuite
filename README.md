@@ -4,7 +4,7 @@ Home Suite is a context-aware plain-English command brain for Home Assistant hom
 
 Home Assistant remains the source of truth for devices, rooms, scenes, scripts, and state. Home Suite sits above it and turns natural language into predictable actions.
 
-In practice, Home Suite is for people who want to say or type things like `turn off the downstairs lights`, `dim it`, `play music here`, `announce dinner is ready`, `turn off the porch lights at sunset`, `watch the movie where people live in a simulation`, `is anything down?`, or `what is this movie about?`, and have those requests route through their actual home systems instead of a black-box assistant guessing what to do.
+The goal is not to build another black-box assistant. It is to give your Home Assistant setup a plain-English surface while still routing real actions through explicit, inspectable integrations.
 
 **Name note:** the user-facing name is **Home Suite**. The GitHub repository, install directory, service name, and commands still use `HomeSuite` / `homesuite` as technical identifiers.
 
