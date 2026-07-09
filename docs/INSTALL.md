@@ -1,7 +1,7 @@
-# HomeSuite install guide
+# Home Suite install guide
 
-This is the first public-alpha install path for HomeSuite. It targets a native
-Raspberry Pi OS or Debian-like install because HomeSuite currently touches local
+This is the first public-alpha install path for Home Suite. It targets a native
+Raspberry Pi OS or Debian-like install because Home Suite currently touches local
 audio, optional GPIO, systemd, Home Assistant, and optional wake-word hardware
 directly.
 
@@ -74,7 +74,7 @@ If the commands are not found immediately after install, open a new shell or add
 
 ## Configuration files
 
-HomeSuite uses two local configuration files:
+Home Suite uses two local configuration files:
 
 * `private_config.py` contains credentials, tokens, URLs, and service API keys.
 * `local_prefs.py` contains per-device overrides such as room, audio routing,

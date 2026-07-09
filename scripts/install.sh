@@ -10,7 +10,7 @@ SKIP_APT=0
 
 usage() {
   cat <<'USAGE'
-HomeSuite native installer
+Home Suite native installer
 
 Usage:
   scripts/install.sh [--systemd] [--start] [--skip-apt]
@@ -43,7 +43,7 @@ else
   SUDO=""
 fi
 
-echo "Installing HomeSuite into $INSTALL_DIR"
+echo "Installing Home Suite into $INSTALL_DIR"
 
 if [[ "$SKIP_APT" != "1" ]]; then
   echo "Installing OS packages..."
@@ -103,7 +103,7 @@ fi
 
 cat <<EOF
 
-HomeSuite install complete.
+Home Suite install complete.
 
 Next steps:
   1. Edit $INSTALL_DIR/private_config.py with your Home Assistant/OpenAI/service credentials.

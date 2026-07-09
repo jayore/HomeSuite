@@ -1,6 +1,6 @@
-# HomeSuite Docs
+# Home Suite Docs
 
-Start here if you are installing or evaluating HomeSuite:
+Start here if you are installing or evaluating Home Suite:
 
 * [Getting started](GETTING_STARTED.md)
 * [Install guide](INSTALL.md)
@@ -9,4 +9,4 @@ Start here if you are installing or evaluating HomeSuite:
 * [Features and things to try](FEATURES.md)
 * [FAQ](FAQ.md)
 
-The public docs focus on installing, configuring, and using HomeSuite.
+The public docs focus on installing, configuring, and using Home Suite.

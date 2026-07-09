@@ -1,8 +1,8 @@
 # Integrations
 
-HomeSuite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `homesuite-doctor` when you want a quick read on what is ready.
+Home Suite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `homesuite-doctor` when you want a quick read on what is ready.
 
-As a rule, start with Home Assistant integrations when they expose enough state and control. Add direct API credentials only when HomeSuite can do something meaningfully richer with them, such as qBittorrent download actions, Seerr request summaries, Plex library matching, or Spotify library operations.
+As a rule, start with Home Assistant integrations when they expose enough state and control. Add direct API credentials only when Home Suite can do something meaningfully richer with them, such as qBittorrent download actions, Seerr request summaries, Plex library matching, or Spotify library operations.
 
 ## Core
 
@@ -41,11 +41,11 @@ OPENAI_API_KEY = "..."
 
 Get an API key from: https://platform.openai.com/api-keys
 
-Model selection lives in `app_config.py` defaults and can be overridden per device in `local_prefs.py`. Use a capable model for conversation and interpretation, then let HomeSuite's deterministic natural-language routes perform the actual home actions.
+Model selection lives in `app_config.py` defaults and can be overridden per device in `local_prefs.py`. Use a capable model for conversation and interpretation, then let Home Suite's deterministic natural-language routes perform the actual home actions.
 
 Because routine control commands use the deterministic NLP layer first, model choice mostly affects open-ended conversation, summaries, and interpretation tasks rather than every light switch or media command.
 
-### HomeSuite HTTP API
+### Home Suite HTTP API
 
 What it enables:
 
@@ -60,16 +60,16 @@ HOMESUITE_HTTP_API_KEY = "choose-a-long-random-local-key"
 PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
-Use the same key in any client that calls HomeSuite. Treat it like a local control token because a client with this key can send commands to your home.
+Use the same key in any client that calls Home Suite. Treat it like a local control token because a client with this key can send commands to your home.
 
 ## Choosing Home Assistant vs Direct APIs
 
-Home Assistant is the portable baseline. If a service is already integrated there, HomeSuite can often query it without another token.
+Home Assistant is the portable baseline. If a service is already integrated there, Home Suite can often query it without another token.
 
 Direct APIs are useful when:
 
 * Home Assistant does not expose enough detail
-* HomeSuite needs an action Home Assistant does not provide
+* Home Suite needs an action Home Assistant does not provide
 * the service has a read-only/status endpoint that is safer than an admin credential
 * media matching needs access to the real library or account
 
@@ -136,7 +136,7 @@ YOUTUBE_OAUTH_CLIENT_SECRET = "..."
 YOUTUBE_OAUTH_REFRESH_TOKEN = "..."
 ```
 
-HomeSuite includes helper scripts:
+Home Suite includes helper scripts:
 
 ```bash
 homesuite-youtube-pair
@@ -162,7 +162,7 @@ UPTIME_KUMA_URL = "http://your-kuma-host:3001"
 UPTIME_KUMA_STATUS_PAGE_SLUG = "home"
 ```
 
-HomeSuite reads a public/read-only status page rather than storing an admin password. If your status page is `http://host:3001/status/home`, use `UPTIME_KUMA_URL = "http://host:3001"` and `UPTIME_KUMA_STATUS_PAGE_SLUG = "home"`.
+Home Suite reads a public/read-only status page rather than storing an admin password. If your status page is `http://host:3001/status/home`, use `UPTIME_KUMA_URL = "http://host:3001"` and `UPTIME_KUMA_STATUS_PAGE_SLUG = "home"`.
 
 Uptime Kuma status page docs: https://github.com/louislam/uptime-kuma/wiki/Status-Page
 
@@ -230,9 +230,9 @@ Servarr docs:
 
 ### Synology, Reolink, Speedtest, and Other Home Assistant Integrations
 
-HomeSuite prefers Home Assistant for broad status integrations when possible. If Synology, Reolink, Speedtest.net, or similar services are already integrated with Home Assistant, HomeSuite can query the entities Home Assistant exposes without storing separate credentials.
+Home Suite prefers Home Assistant for broad status integrations when possible. If Synology, Reolink, Speedtest.net, or similar services are already integrated with Home Assistant, Home Suite can query the entities Home Assistant exposes without storing separate credentials.
 
-Use sensible entity names in Home Assistant first. That makes HomeSuite's natural-language processing easier to route and debug.
+Use sensible entity names in Home Assistant first. That makes Home Suite's natural-language processing easier to route and debug.
 
 ## Remote Text Access
 
@@ -240,7 +240,7 @@ Use sensible entity names in Home Assistant first. That makes HomeSuite's natura
 
 What it enables:
 
-* Telegram chat frontend for the same HomeSuite command brain
+* Telegram chat frontend for the same Home Suite command brain
 
 Config keys:
 

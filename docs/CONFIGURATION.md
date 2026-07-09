@@ -1,6 +1,6 @@
 # Configuration Guide
 
-HomeSuite uses two local files that the installer creates for you:
+Home Suite uses two local files that the installer creates for you:
 
 * `private_config.py` - credentials, tokens, service URLs, and API keys
 * `local_prefs.py` - device-specific room, audio, hardware, and behavior overrides
@@ -18,9 +18,9 @@ Use `private_config.py` for values that are shared across a deployment, such as 
 
 ## Optional Integrations
 
-Most integrations are optional. Leave service-specific values blank in `private_config.py` until you actually connect that service. HomeSuite should still start, and commands for missing services should return a plain not-configured response instead of crashing.
+Most integrations are optional. Leave service-specific values blank in `private_config.py` until you actually connect that service. Home Suite should still start, and commands for missing services should return a plain not-configured response instead of crashing.
 
-Avoid placeholder URLs for services you do not run. A blank value tells HomeSuite and `homesuite-doctor` that the service is intentionally not configured.
+Avoid placeholder URLs for services you do not run. A blank value tells Home Suite and `homesuite-doctor` that the service is intentionally not configured.
 
 For a service-by-service setup guide, see [INTEGRATIONS.md](INTEGRATIONS.md).
 
@@ -60,7 +60,7 @@ Set `OPENAI_API_KEY` from the OpenAI API key page:
 
 * https://platform.openai.com/api-keys
 
-HomeSuite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Home commands first go through HomeSuite's deterministic natural-language processing and handlers; OpenAI is mainly for open-ended conversation and interpretation.
+Home Suite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Home commands first go through Home Suite's deterministic natural-language processing and handlers; OpenAI is mainly for open-ended conversation and interpretation.
 
 Most routine home-control commands should not call OpenAI. This keeps common actions faster and conservative with token usage, while preserving AI for cases where language understanding or conversation actually helps.
 
@@ -77,11 +77,11 @@ Create a long-lived access token from your Home Assistant user profile. Home Ass
 
 * https://www.home-assistant.io/docs/authentication/
 
-HomeSuite depends heavily on Home Assistant for entity state, service calls, scenes, scripts, rooms, media players, and many homelab integrations. Good Home Assistant naming makes HomeSuite dramatically easier to use: keep area names, entity names, scenes, and scripts human-readable.
+Home Suite depends heavily on Home Assistant for entity state, service calls, scenes, scripts, rooms, media players, and many homelab integrations. Good Home Assistant naming makes Home Suite dramatically easier to use: keep area names, entity names, scenes, and scripts human-readable.
 
-## HomeSuite HTTP API Key
+## Home Suite HTTP API Key
 
-Set a local API key for clients that call HomeSuite over HTTP/WebSocket:
+Set a local API key for clients that call Home Suite over HTTP/WebSocket:
 
 ```python
 HOMESUITE_HTTP_API_KEY = "a-long-random-string"
@@ -120,7 +120,7 @@ Create a Spotify app in the Spotify Developer Dashboard. Spotify's app page expl
 
 * https://developer.spotify.com/documentation/web-api/concepts/apps
 
-The refresh-token flow is still rough in this public-alpha release. Expect to use your own OAuth helper or future HomeSuite tooling to obtain `SPOTIFY_REFRESH_TOKEN` with the scopes needed for playback, library, and playlist access.
+The refresh-token flow is still rough in this public-alpha release. Expect to use your own OAuth helper or future Home Suite tooling to obtain `SPOTIFY_REFRESH_TOKEN` with the scopes needed for playback, library, and playlist access.
 
 ## Telegram
 
@@ -136,7 +136,7 @@ Create a bot with Telegram's BotFather. Telegram documents that `/newbot` genera
 
 * https://core.telegram.org/bots/features#botfather
 
-Keep allowlists tight. A Telegram bot connected to HomeSuite can control your home.
+Keep allowlists tight. A Telegram bot connected to Home Suite can control your home.
 
 ## YouTube
 
@@ -152,7 +152,7 @@ Google's YouTube Data API guide explains the need for a Google account, a Cloud 
 
 * https://developers.google.com/youtube/v3/getting-started
 
-HomeSuite also has local tools:
+Home Suite also has local tools:
 
 ```bash
 homesuite-youtube-pair
@@ -198,7 +198,7 @@ For Radarr/Sonarr/Lidarr, API keys are normally in each app's Settings area unde
 * https://wiki.servarr.com/sonarr/settings
 * https://wiki.servarr.com/lidarr/settings
 
-HomeSuite currently uses Seerr directly for request status and can read Radarr/Sonarr/Lidarr via Home Assistant integrations where configured.
+Home Suite currently uses Seerr directly for request status and can read Radarr/Sonarr/Lidarr via Home Assistant integrations where configured.
 
 ## Uptime Kuma
 
@@ -209,7 +209,7 @@ UPTIME_KUMA_URL = "http://uptime-kuma.local:3001"
 UPTIME_KUMA_STATUS_PAGE_SLUG = "home"
 ```
 
-HomeSuite reads a public/read-only Uptime Kuma status page rather than storing a Kuma admin password. Uptime Kuma documents status pages here:
+Home Suite reads a public/read-only Uptime Kuma status page rather than storing a Kuma admin password. Uptime Kuma documents status pages here:
 
 * https://github.com/louislam/uptime-kuma/wiki/Status-Page
 
@@ -234,7 +234,7 @@ Wake-word setup depends heavily on hardware, microphone, and runtime mode. Treat
 
 ## Companion Clients
 
-Companion clients should use the HomeSuite HTTP API:
+Companion clients should use the Home Suite HTTP API:
 
 ```text
 POST /command
@@ -249,4 +249,4 @@ Recommended repo split as the ecosystem grows:
 * `homesuite-telegram` - Telegram-specific packaging/docs if it grows beyond the built-in frontend
 * `homesuite-satellite` - lightweight satellite device client
 
-Keep credentials in the core HomeSuite install or each client's local settings. Do not bake shared tokens into companion repos.
+Keep credentials in the core Home Suite install or each client's local settings. Do not bake shared tokens into companion repos.

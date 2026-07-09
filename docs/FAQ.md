@@ -2,7 +2,7 @@
 
 ## Do I Need Every Service In The Example Config?
 
-No. HomeSuite is designed around optional integrations. Start with Home Assistant, an OpenAI API key, and local device preferences. Leave Plex, Spotify, Telegram, Uptime Kuma, qBittorrent, Seerr, YouTube, and wake-word settings blank until you actually use them.
+No. Home Suite is designed around optional integrations. Start with Home Assistant, an OpenAI API key, and local device preferences. Leave Plex, Spotify, Telegram, Uptime Kuma, qBittorrent, Seerr, YouTube, and wake-word settings blank until you actually use them.
 
 Run:
 
@@ -14,7 +14,7 @@ Blank optional services should show as `SKIP`, not `FAIL`.
 
 ## Does AI Control My Home?
 
-Not directly. HomeSuite first uses a deterministic natural-language processing layer to parse and route commands. AI can help with conversation, summarization, and interpreting context, but actual home actions should still route through code paths that can be tested with:
+Not directly. Home Suite first uses a deterministic natural-language processing layer to parse and route commands. AI can help with conversation, summarization, and interpreting context, but actual home actions should still route through code paths that can be tested with:
 
 ```bash
 pptest
@@ -28,7 +28,7 @@ That design is intentional. It keeps real device control easier to inspect, test
 
 Because home control benefits from being boring in the best way: explicit, predictable, testable, and conservative.
 
-HomeSuite's deterministic natural-language layer handles most commands without AI. That has practical benefits:
+Home Suite's deterministic natural-language layer handles most commands without AI. That has practical benefits:
 
 * fewer AI calls and lower token usage
 * faster responses for common commands
@@ -38,11 +38,17 @@ HomeSuite's deterministic natural-language layer handles most commands without A
 
 AI is still useful for conversation, summaries, ambiguous references, and media/context interpretation. It just does not get to bypass the command layer and operate devices on its own.
 
-## Why Does HomeSuite Depend So Much On Home Assistant?
+## Why Not Just Use Home Assistant Entity IDs?
 
-Home Assistant is the source of truth for devices, rooms, scenes, scripts, and a lot of service state. HomeSuite works best when Home Assistant already has clean area names, entity names, scenes, scripts, and integrations.
+You can, and Home Assistant remains the underlying source of truth. Home Suite adds the plain-English layer on top: rooms, aliases, defaults, scenes, scripts, media focus, room focus, and follow-up context.
 
-When in doubt, make the thing sensible in Home Assistant first. Add direct HomeSuite API credentials only when they unlock something Home Assistant does not expose well.
+The goal is that day-to-day commands can sound like `turn off the downstairs lights`, `play music here`, or `announce dinner is ready in the kitchen` instead of forcing you to remember exact entity IDs or dashboard paths.
+
+## Why Does Home Suite Depend So Much On Home Assistant?
+
+Home Assistant is the source of truth for devices, rooms, scenes, scripts, and a lot of service state. Home Suite works best when Home Assistant already has clean area names, entity names, scenes, scripts, and integrations.
+
+When in doubt, make the thing sensible in Home Assistant first. Add direct Home Suite API credentials only when they unlock something Home Assistant does not expose well.
 
 ## What Should I Run First?
 
@@ -75,13 +81,13 @@ Use `pptest` and `ppchattest` while setting up. Use `pplive`, `ppchat`, or the s
 * handset or push-to-talk hardware
 * speaker routing defaults
 
-If you eventually run multiple HomeSuite devices, they may share similar `private_config.py` values but have different `local_prefs.py` files.
+If you eventually run multiple Home Suite devices, they may share similar `private_config.py` values but have different `local_prefs.py` files.
 
 ## Should I Use Docker?
 
-The first supported public-alpha install path is native Raspberry Pi OS or Debian-like Linux. Docker may be useful later for a central server role, but HomeSuite currently has local audio, optional GPIO, wake-word, and systemd assumptions that are simpler to support natively first.
+The first supported public-alpha install path is native Raspberry Pi OS or Debian-like Linux. Docker may be useful later for a central server role, but Home Suite currently has local audio, optional GPIO, wake-word, and systemd assumptions that are simpler to support natively first.
 
-## Can I Run HomeSuite Without Voice Hardware?
+## Can I Run Home Suite Without Voice Hardware?
 
 Yes. Start with text:
 
@@ -94,7 +100,7 @@ Voice, wake word, handset behavior, and Sonos-routed speech can be added later.
 
 ## Can I Use It From Other Apps?
 
-Yes. HomeSuite exposes an HTTP/WebSocket API when the server is enabled. Companion clients should send commands to the same core runtime rather than reimplementing logic.
+Yes. Home Suite exposes an HTTP/WebSocket API when the server is enabled. Companion clients should send commands to the same core runtime rather than reimplementing logic.
 
 The important endpoint for simple clients is:
 

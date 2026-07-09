@@ -1,8 +1,8 @@
 # Getting Started
 
-This guide takes a fresh HomeSuite install to the first useful command. Start small: get Home Assistant and conversational fallback working, then add optional media and homelab services one at a time.
+This guide takes a fresh Home Suite install to the first useful command. Start small: get Home Assistant and conversational fallback working, then add optional media and homelab services one at a time.
 
-The goal of first setup is not to configure everything. The goal is to make `homesuite-doctor` pass its core checks, open `pptest`, and get one safe test phrase returning a sensible result.
+The goal of first setup is not to configure everything. The goal is to make `homesuite-doctor` pass its core checks, open `pptest`, and get one safe plain-English phrase returning a sensible result.
 
 ## Before You Start
 
@@ -153,4 +153,4 @@ When something does not work:
 3. Check `logs/`.
 4. Confirm the entity, room, or service works directly in Home Assistant.
 
-HomeSuite is easiest to debug when each integration is added and tested separately. If a phrase behaves oddly, first confirm whether HomeSuite's natural-language router claimed it or handed it to conversational fallback; `pptest` output and `logs/` are usually enough to tell.
+Home Suite is easiest to debug when each integration is added and tested separately. If a phrase behaves oddly, first confirm whether Home Suite's natural-language router claimed it or handed it to conversational fallback; `pptest` output and `logs/` are usually enough to tell.

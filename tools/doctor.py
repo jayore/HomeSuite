@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""First-run configuration checks for HomeSuite.
+"""First-run configuration checks for Home Suite.
 
 The default mode checks files and required config values without contacting
 external services. Pass --live for safe reachability checks against services
@@ -125,7 +125,7 @@ class Doctor:
         self.add(
             "Core",
             "OK" if self.has_value(api_key) else "WARN",
-            "HomeSuite HTTP API key",
+            "Home Suite HTTP API key",
             "configured" if self.has_value(api_key) else "missing; needed for HTTP/WebSocket clients",
         )
 
@@ -244,7 +244,7 @@ class Doctor:
             self.add("Live checks", "WARN", "Telegram bot", str(exc))
 
     def print_report(self) -> None:
-        print("HomeSuite doctor")
+        print("Home Suite doctor")
         print("================")
         current_group = None
         for check in self.checks:
@@ -267,7 +267,7 @@ class Doctor:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Check HomeSuite first-run configuration.")
+    parser = argparse.ArgumentParser(description="Check Home Suite first-run configuration.")
     parser.add_argument("--live", action="store_true", help="also test reachability for configured services")
     parser.add_argument("--timeout", type=float, default=5.0, help="per-request timeout for --live checks")
     args = parser.parse_args(argv)

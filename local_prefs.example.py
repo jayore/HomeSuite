@@ -1,4 +1,4 @@
-"""Example per-device HomeSuite overrides.
+"""Example per-device Home Suite overrides.
 
 Copy this file to local_prefs.py on each device and uncomment only the values
 that should differ from app_config.py. Keep local_prefs.py out of git because it
@@ -43,7 +43,7 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 
 # Optional explicit room for assistant speech when ASSISTANT_AUDIO_OUTPUT_MODE="sonos".
-# If unset, HomeSuite falls back to request room, then DEFAULT_SONOS_ROOM.
+# If unset, Home Suite falls back to request room, then DEFAULT_SONOS_ROOM.
 # ASSISTANT_AUDIO_OUTPUT_ROOM = "living_room"
 
 

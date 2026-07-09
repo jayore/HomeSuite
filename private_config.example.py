@@ -1,4 +1,4 @@
-"""Example private deployment config for PiPhone / HomeSuite-style deployments.
+"""Example private deployment config for Home Suite deployments.
 
 Copy this file to private_config.py and fill in values for the services you use.
 Leave unused optional values as empty strings or empty lists.
@@ -9,7 +9,7 @@ OPENAI_API_KEY = ""
 HA_URL = "http://homeassistant.local:8123"
 HA_TOKEN = ""
 
-# HomeSuite HTTP and WebSocket API
+# Home Suite HTTP and WebSocket API
 HOMESUITE_HTTP_API_KEY = ""
 # Legacy alias accepted by older deployments and clients.
 PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
