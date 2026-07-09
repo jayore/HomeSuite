@@ -19,7 +19,9 @@ It is designed to:
 * expose the same command brain through many frontends
 * stay local-first and understandable enough to debug
 
-That means you can ask a question conversationally, then follow up with an action, while the action itself still goes through a real handler that checks your actual services and devices. AI can help interpret context, but HomeSuite tries to keep real home actions inspectable and testable.
+That means you can ask a question conversationally, then follow up with an action, while the action itself still goes through a real handler that checks your actual services and devices. AI can help interpret context, but HomeSuite keeps real home actions inspectable and testable.
+
+Most routine commands do not need an AI call at all. That keeps common control paths faster, cheaper, more predictable, and conservative with token usage.
 
 ## What To Expect
 
@@ -60,13 +62,14 @@ HomeSuite routes each request in layers:
 4. If no handler claims it and the request looks conversational, send it to AI fallback.
 5. Store useful context from answers so later commands can refer back to the conversation.
 
-AI can help identify what you are talking about, but HomeSuite avoids letting AI directly operate your home. Actions are carried out by deterministic integrations after the natural-language router decides what should happen.
+AI can help identify what you are talking about, but HomeSuite does not let AI directly operate your home. Actions are carried out by deterministic integrations after the natural-language router decides what should happen.
 
 ## Core Ideas
 
 * **Home Assistant first:** rooms, entities, scenes, scripts, and most device state should be made sensible in Home Assistant before teaching HomeSuite about them.
-* **NLP before AI:** HomeSuite first uses deterministic natural-language processing to parse and route commands. Commands that operate your home are claimed by code paths you can test with `pptest`.
+* **NLP before AI:** HomeSuite first uses deterministic natural-language processing to parse and route commands. Most home-control phrases should never need an AI call.
 * **AI where it helps:** conversational fallback, summaries, and media/context interpretation can use AI, but AI is not given direct unsupervised control of your home.
+* **Conservative by default:** deterministic routes make common actions faster, cheaper, easier to test, and more cautious with tokens and credentials.
 * **One runtime, many surfaces:** voice, chat, HTTP, Telegram, scheduler jobs, and future satellites all feed the same command router.
 * **Optional integrations:** configure only the services you use. Missing optional services should degrade gracefully.
 

@@ -62,6 +62,8 @@ Set `OPENAI_API_KEY` from the OpenAI API key page:
 
 HomeSuite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Home commands first go through HomeSuite's deterministic natural-language processing and handlers; OpenAI is mainly for open-ended conversation and interpretation.
 
+Most routine home-control commands should not call OpenAI. This keeps common actions faster and conservative with token usage, while preserving AI for cases where language understanding or conversation actually helps.
+
 ## Home Assistant
 
 Set:

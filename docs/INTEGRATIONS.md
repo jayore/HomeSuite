@@ -43,6 +43,8 @@ Get an API key from: https://platform.openai.com/api-keys
 
 Model selection lives in `app_config.py` defaults and can be overridden per device in `local_prefs.py`. Use a capable model for conversation and interpretation, then let HomeSuite's deterministic natural-language routes perform the actual home actions.
 
+Because routine control commands use the deterministic NLP layer first, model choice mostly affects open-ended conversation, summaries, and interpretation tasks rather than every light switch or media command.
+
 ### HomeSuite HTTP API
 
 What it enables:

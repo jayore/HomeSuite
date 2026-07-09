@@ -22,7 +22,21 @@ pptest
 
 Then type the phrase you want to test. For a single reproducible command, use `pptest "your phrase"`.
 
-That design is intentional. It keeps real device control easier to inspect, test, and debug.
+That design is intentional. It keeps real device control easier to inspect, test, and debug. It also means routine home-control commands usually do not spend AI tokens or wait on an AI response.
+
+## Why Not Let AI Execute Actions Directly?
+
+Because home control benefits from being boring in the best way: explicit, predictable, testable, and conservative.
+
+HomeSuite's deterministic natural-language layer handles most commands without AI. That has practical benefits:
+
+* fewer AI calls and lower token usage
+* faster responses for common commands
+* more predictable routing
+* easier debugging with `pptest`
+* a smaller security surface for real device actions
+
+AI is still useful for conversation, summaries, ambiguous references, and media/context interpretation. It just does not get to bypass the command layer and operate devices on its own.
 
 ## Why Does HomeSuite Depend So Much On Home Assistant?
 
