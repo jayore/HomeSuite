@@ -2,6 +2,8 @@
 
 HomeSuite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `homesuite-doctor` when you want a quick read on what is ready.
 
+As a rule, start with Home Assistant integrations when they expose enough state and control. Add direct API credentials only when HomeSuite can do something meaningfully richer with them, such as qBittorrent download actions, Seerr request summaries, Plex library matching, or Spotify library operations.
+
 ## Core
 
 ### Home Assistant
@@ -39,7 +41,7 @@ OPENAI_API_KEY = "..."
 
 Get an API key from: https://platform.openai.com/api-keys
 
-Model selection lives in `app_config.py` defaults and can be overridden per device in `local_prefs.py`.
+Model selection lives in `app_config.py` defaults and can be overridden per device in `local_prefs.py`. Use a capable model for conversation and interpretation, then let deterministic handlers perform the actual home actions.
 
 ### HomeSuite HTTP API
 
@@ -56,7 +58,20 @@ HOMESUITE_HTTP_API_KEY = "choose-a-long-random-local-key"
 PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
-Use the same key in any client that calls HomeSuite.
+Use the same key in any client that calls HomeSuite. Treat it like a local control token because a client with this key can send commands to your home.
+
+## Choosing Home Assistant vs Direct APIs
+
+Home Assistant is the portable baseline. If a service is already integrated there, HomeSuite can often query it without another token.
+
+Direct APIs are useful when:
+
+* Home Assistant does not expose enough detail
+* HomeSuite needs an action Home Assistant does not provide
+* the service has a read-only/status endpoint that is safer than an admin credential
+* media matching needs access to the real library or account
+
+Do not add direct credentials just because a service has an API. Start with the smallest setup that answers the commands you actually want.
 
 ## Media
 
@@ -256,4 +271,4 @@ PTT_ENABLED = False
 HANDSET_PRESENT = False
 ```
 
-Hardware and audio setup varies by device. Start with text or capture-mode command tests before enabling live wake-word or handset flows.
+Hardware and audio setup varies by device. Start with text or capture-mode command tests before enabling live wake-word or handset flows. Once the text path works, add audio routing, microphone input, wake word, and any physical controls one layer at a time.

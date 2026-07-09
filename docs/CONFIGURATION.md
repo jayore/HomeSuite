@@ -14,15 +14,19 @@ cp local_prefs.example.py local_prefs.py
 
 Never commit real local config files to a public repo.
 
+Use `private_config.py` for values that are shared across a deployment, such as Home Assistant tokens and service API keys. Use `local_prefs.py` for values that describe one device, such as its default room, audio output, wake-word behavior, or handset hardware.
+
 ## Optional Integrations
 
 Most integrations are optional. Leave service-specific values blank in `private_config.py` until you actually connect that service. HomeSuite should still start, and commands for missing services should return a plain not-configured response instead of crashing.
+
+Avoid placeholder URLs for services you do not run. A blank value tells HomeSuite and `homesuite-doctor` that the service is intentionally not configured.
 
 For a service-by-service setup guide, see [INTEGRATIONS.md](INTEGRATIONS.md).
 
 ## Minimum Useful Setup
 
-For a basic Home Assistant plus conversational fallback install, set:
+For the currently supported public-alpha path, set:
 
 ```python
 OPENAI_API_KEY = "..."
@@ -56,7 +60,7 @@ Set `OPENAI_API_KEY` from the OpenAI API key page:
 
 * https://platform.openai.com/api-keys
 
-HomeSuite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction.
+HomeSuite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Deterministic home commands still route through HomeSuite handlers; OpenAI is mainly for open-ended conversation and interpretation.
 
 ## Home Assistant
 
@@ -71,7 +75,7 @@ Create a long-lived access token from your Home Assistant user profile. Home Ass
 
 * https://www.home-assistant.io/docs/authentication/
 
-HomeSuite depends heavily on Home Assistant for entity state, service calls, scenes, scripts, rooms, media players, and many homelab integrations.
+HomeSuite depends heavily on Home Assistant for entity state, service calls, scenes, scripts, rooms, media players, and many homelab integrations. Good Home Assistant naming makes HomeSuite dramatically easier to use: keep area names, entity names, scenes, and scripts human-readable.
 
 ## HomeSuite HTTP API Key
 

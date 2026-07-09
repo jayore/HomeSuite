@@ -2,6 +2,8 @@
 
 This is a public-alpha overview of what HomeSuite can do. Exact phrasing depends on your Home Assistant entities, room names, media libraries, and configured services.
 
+Use `pptest "phrase here"` to try examples safely. Use `pplive "phrase here"` only when you are ready for real device effects.
+
 ## Smart Home
 
 Try:
@@ -16,7 +18,7 @@ Try:
 * `what lights are on?`
 * `run movie night`
 
-HomeSuite expects most device control to flow through Home Assistant. Scenes, scripts, areas, entities, and friendly names should be made sensible there first.
+HomeSuite expects most device control to flow through Home Assistant. Scenes, scripts, areas, entities, and friendly names should be made sensible there first. If a phrase does not route well, improve the Home Assistant naming before adding more HomeSuite-specific configuration.
 
 ## Media Control
 
@@ -56,7 +58,7 @@ Try:
 * `play my dinner playlist`
 * `save this song`
 
-Spotify support depends on Spotify API credentials and a playback path that your Sonos/Home Assistant setup can actually start.
+Spotify support depends on Spotify API credentials and a playback path that your Sonos/Home Assistant setup can actually start. If Spotify is blank, HomeSuite should skip or explain that the integration is not configured.
 
 ## YouTube Lounge
 
@@ -87,7 +89,7 @@ Try:
 * `how's the internet?`
 * `any camera alerts?`
 
-HomeSuite prefers Home Assistant for broad status portability. Optional direct APIs add richer qBittorrent and Seerr behavior.
+HomeSuite prefers Home Assistant for broad status portability. Optional direct APIs add richer qBittorrent and Seerr behavior. Uptime Kuma is a good first homelab integration because it can expose a read-only status page.
 
 ## Alarms, Timers, and Scheduling
 

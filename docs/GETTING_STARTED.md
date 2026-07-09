@@ -1,6 +1,20 @@
 # Getting Started
 
-This guide takes a fresh HomeSuite install to the first useful command. Start small: connect Home Assistant, add an OpenAI key if you want conversational fallback, then add optional media and homelab services one at a time.
+This guide takes a fresh HomeSuite install to the first useful command. Start small: get Home Assistant and conversational fallback working, then add optional media and homelab services one at a time.
+
+The goal of first setup is not to configure everything. The goal is to make `homesuite-doctor` pass its core checks and get one safe `pptest` command returning a sensible result.
+
+## Before You Start
+
+You should already have:
+
+* a Raspberry Pi or Debian-like host on the same network as Home Assistant
+* Home Assistant running and reachable from that host
+* a Home Assistant long-lived access token
+* an OpenAI API key for the currently supported conversational path
+* basic comfort editing files over SSH
+
+Optional services such as Plex, Spotify, Uptime Kuma, qBittorrent, Seerr, Telegram, and wake-word hardware can wait until after the core path works.
 
 ## 1. Install
 
@@ -55,7 +69,9 @@ PTT_ENABLED = False
 HANDSET_PRESENT = False
 ```
 
-Leave optional service keys blank until you actually connect those services. Missing optional integrations should produce a clear not-configured response instead of blocking the whole app.
+Leave optional service keys blank until you actually connect those services. For optional integrations, blank is better than fake. Fake hostnames can make diagnostics look configured when nothing is actually reachable.
+
+Missing optional integrations should produce a clear not-configured response instead of blocking the whole app.
 
 ## 3. Run Doctor
 
@@ -71,7 +87,7 @@ Run safe network checks for configured services:
 homesuite-doctor --live
 ```
 
-Fix any `FAIL` items first. `WARN` and `SKIP` items are usually optional services or next-step polish.
+Fix any `FAIL` items first. `WARN` items are usually useful follow-ups. `SKIP` items usually mean optional services are intentionally blank.
 
 ## 4. Try a Command
 
@@ -82,13 +98,17 @@ pptest "what lights are on?"
 pptest "service status"
 ```
 
-For chat-style text testing:
+For chat-style text testing without live device effects:
 
 ```bash
 ppchattest
 ```
 
-## 5. Start or Restart the Service
+## 5. Decide When To Go Live
+
+Use `pptest` and `ppchattest` while configuring. Use `pplive`, `ppchat`, or the systemd service only when you are ready for commands to control real devices.
+
+## 6. Start or Restart the Service
 
 If you installed the systemd unit:
 
@@ -103,7 +123,7 @@ Check the local HTTP health endpoint when the server is enabled:
 curl -sS http://localhost:8765/health
 ```
 
-## 6. Add Optional Integrations
+## 7. Add Optional Integrations
 
 Once the core path works, add services one at a time:
 
@@ -114,7 +134,7 @@ Once the core path works, add services one at a time:
 * Telegram or HTTP clients for remote text access
 * YouTube OAuth for lounge and digest features
 
-See [INTEGRATIONS.md](INTEGRATIONS.md) for the keys each service needs and where to get them.
+See [INTEGRATIONS.md](INTEGRATIONS.md) for the keys each service needs and where to get them. See [FAQ.md](FAQ.md) for common setup questions.
 
 ## Troubleshooting Loop
 
@@ -125,4 +145,4 @@ When something does not work:
 3. Check `logs/`.
 4. Confirm the entity, room, or service works directly in Home Assistant.
 
-HomeSuite is easiest to debug when each integration is added and tested separately.
+HomeSuite is easiest to debug when each integration is added and tested separately. If a phrase behaves oddly, first confirm whether HomeSuite claimed it deterministically or handed it to conversational fallback; `pptest` output and `logs/` are usually enough to tell.

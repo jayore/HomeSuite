@@ -1,11 +1,14 @@
 # HomeSuite install guide
 
 This is the first public-alpha install path for HomeSuite. It targets a native
-Raspberry Pi OS install because HomeSuite currently touches local audio, GPIO,
-systemd, Home Assistant, and optional wake-word hardware directly.
+Raspberry Pi OS or Debian-like install because HomeSuite currently touches local
+audio, optional GPIO, systemd, Home Assistant, and optional wake-word hardware
+directly.
 
 Docker may make sense later for a central brain/server role, but the native Pi
 installer is the simplest path for the current appliance runtime.
+
+For a shorter walkthrough, start with [GETTING_STARTED.md](GETTING_STARTED.md).
 
 ## Quick install
 
@@ -27,11 +30,17 @@ To install, enable, and start the service:
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
 ```
 
-To install from a fork or alternate remote, set `HOMESUITE_REPO_URL`:
+To install from a fork or alternate remote, download the script first and set `HOMESUITE_REPO_URL`:
 
 ```bash
-HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git \
-  bash scripts/install.sh --systemd
+curl -fsSLo install-homesuite.sh https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh
+HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash install-homesuite.sh --systemd
+```
+
+From an existing local checkout, you can also run:
+
+```bash
+HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.sh --systemd
 ```
 
 ## What the installer does
@@ -78,10 +87,8 @@ Public deployments should track only:
 
 Real `private_config.py` and `local_prefs.py` should stay local to each device.
 
-Private development repos may track real `private_config.py` values for convenience.
-Do not push that private history directly to a public GitHub repo. For a public
-launch, create a sanitized public repo or public branch that never includes real
-secrets.
+Do not push real `private_config.py` or `local_prefs.py` files to a public repo.
+If you publish a fork, make sure secrets never existed in that public history.
 
 ## Native service
 
@@ -140,7 +147,7 @@ Known areas that still need more public-release polish:
 
 * first-run interactive configuration
 * generated Home Assistant/entity mapping helpers
-* a server-only mode with no GPIO/audio assumptions
+* clearer OAuth setup helpers for media services
+* a server-only mode with fewer local audio/GPIO assumptions
 * satellite install mode
 * Docker packaging for the central brain role
-* sanitized public GitHub history

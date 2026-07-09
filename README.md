@@ -1,12 +1,14 @@
 # HomeSuite
 
-HomeSuite is a deterministic assistant layer for Home Assistant. It gives your home a single command brain that can be reached from voice, text, HTTP, Telegram, Raycast-style launchers, scheduled jobs, physical buttons, and future satellite devices.
+HomeSuite is a command layer for a Home Assistant home. It lets you control devices, media, homelab services, schedules, and AI conversation through one shared assistant brain that can be reached from voice, text, HTTP, Telegram, physical buttons, and future satellite devices.
 
-The core idea is simple: Home Assistant remains the source of truth for devices, rooms, scenes, scripts, and state. HomeSuite sits above it and turns natural language into predictable actions.
+Home Assistant remains the source of truth for devices, rooms, scenes, scripts, and state. HomeSuite sits above it and turns natural language into predictable actions.
+
+In practice, HomeSuite is for people who want to say or type things like `turn off the downstairs lights`, `watch the movie where people live in a simulation`, `is anything down?`, or `what is this movie about?`, and have those requests route through their actual home systems instead of a black-box assistant guessing what to do.
 
 ## Why It Exists
 
-Most assistants are either too rigid or too magical. HomeSuite tries to sit in the useful middle.
+Most assistants are either too rigid or too magical. HomeSuite tries to sit in the useful middle: natural phrasing on the outside, deterministic handlers on the inside.
 
 It is designed to:
 
@@ -17,7 +19,20 @@ It is designed to:
 * expose the same command brain through many frontends
 * stay local-first and understandable enough to debug
 
-That means you can ask a question conversationally, then follow up with an action, while the action itself still goes through a real handler that checks your actual services and devices.
+That means you can ask a question conversationally, then follow up with an action, while the action itself still goes through a real handler that checks your actual services and devices. AI can help interpret context, but HomeSuite tries to keep real home actions inspectable and testable.
+
+## What To Expect
+
+HomeSuite is not a replacement for Home Assistant, Plex, Spotify, Uptime Kuma, or other services. It is the layer that lets you talk to those systems consistently.
+
+The smallest useful setup is:
+
+* Home Assistant reachable from the HomeSuite host
+* a Home Assistant long-lived access token
+* an OpenAI API key for conversational fallback and interpretation
+* `private_config.py` and `local_prefs.py` filled in for your device
+
+Everything else is optional. If you do not use Plex, Spotify, Telegram, Uptime Kuma, qBittorrent, Seerr, or wake-word hardware, leave those settings blank. The matching commands should explain what is missing instead of breaking startup.
 
 ## What It Can Do
 
@@ -47,6 +62,14 @@ HomeSuite routes each request in layers:
 
 AI can help identify what you are talking about, but HomeSuite avoids letting AI directly operate your home. Actions are carried out by deterministic integrations.
 
+## Core Ideas
+
+* **Home Assistant first:** rooms, entities, scenes, scripts, and most device state should be made sensible in Home Assistant before teaching HomeSuite about them.
+* **Deterministic actions:** commands that operate your home are claimed by code paths you can test with `pptest`.
+* **AI where it helps:** conversational fallback, summaries, and media/context interpretation can use AI, but AI is not given direct unsupervised control of your home.
+* **One runtime, many surfaces:** voice, chat, HTTP, Telegram, scheduler jobs, and future satellites all feed the same command router.
+* **Optional integrations:** configure only the services you use. Missing optional services should degrade gracefully.
+
 ## Ways To Talk To It
 
 The same command brain can be reached through several surfaces:
@@ -65,9 +88,13 @@ Companion clients should live separately from the core runtime as the ecosystem 
 
 ## Status
 
-HomeSuite is public-alpha software. It is already used as a daily-driver home assistant layer in its original deployment, but the public install and configuration experience is still young. Optional services are meant to degrade gracefully: configure the pieces you have, leave the rest blank, and missing integrations should explain what credential or URL is needed.
+HomeSuite is public-alpha software. It is already used as a daily-driver home assistant layer in its original deployment, but the public install and configuration experience is still young. Expect rough edges around first-run setup, hardware differences, OAuth flows, and entity naming.
+
+Optional services are meant to degrade gracefully: configure the pieces you have, leave the rest blank, and missing integrations should explain what credential or URL is needed.
 
 The first supported install target is a native Raspberry Pi OS style deployment. Docker and satellite packaging may come later, especially for a central brain plus lightweight device model.
+
+HomeSuite is best for comfortable tinkerers today. It is not yet a polished consumer appliance, and it assumes you are willing to edit config files and look at logs while setting up your own home.
 
 ## Quick Install
 
@@ -89,6 +116,7 @@ The installer creates:
 * `private_config.py` from `private_config.example.py`
 * `local_prefs.py` from `local_prefs.example.py`
 * `logs/`, `state/`, and `backups/`
+* shortcuts such as `homesuite-doctor`, `pptest`, `pplive`, `ppchattest`, and `ppchat`
 * an optional `homesuite.service` systemd unit
 
 After install, edit your local config files:
@@ -108,7 +136,7 @@ pptest "service status"
 
 The installer creates shortcuts in `$HOME/.local/bin`, including `homesuite-doctor`, `pptest`, `pplive`, `ppchattest`, and `ppchat`.
 
-Start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and service-specific setup lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+If you are new to the project, start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and service-specific setup lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
 
 ## Configuration Model
 
@@ -167,9 +195,12 @@ More docs:
 * [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 * [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 * [docs/FEATURES.md](docs/FEATURES.md)
+* [docs/FAQ.md](docs/FAQ.md)
 * [ROADMAP.md](ROADMAP.md)
 
 ## Security Notes
+
+HomeSuite can control your home. Treat API keys, Home Assistant tokens, Telegram bots, and HTTP clients as sensitive control surfaces.
 
 Never commit your real `private_config.py`. If you fork or publish a deployment repo, create a fresh public history or scrub history carefully. Deleting a secret in a later commit does not remove it from earlier commits.
 
