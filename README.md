@@ -99,13 +99,14 @@ nano private_config.py
 nano local_prefs.py
 ```
 
-Then test routing:
+Then check your setup and test routing:
 
 ```bash
+.venv/bin/python tools/doctor.py
 .venv/bin/python tools/test_commands.py "service status" --capture
 ```
 
-Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md). Credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+Start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and service-specific setup lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
 
 ## Configuration Model
 
@@ -158,8 +159,10 @@ Important files:
 
 More docs:
 
+* [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
 * [docs/INSTALL.md](docs/INSTALL.md)
 * [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+* [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 * [docs/FEATURES.md](docs/FEATURES.md)
 * [ROADMAP.md](ROADMAP.md)
 

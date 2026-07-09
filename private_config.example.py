@@ -15,7 +15,7 @@ HOMESUITE_HTTP_API_KEY = ""
 PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 
 # Plex
-PLEX_URL = "http://plex.local:32400"
+PLEX_URL = ""
 PLEX_TOKEN = ""
 
 # Spotify
@@ -38,19 +38,19 @@ YOUTUBE_OAUTH_CLIENT_SECRET = ""
 YOUTUBE_OAUTH_REFRESH_TOKEN = ""
 
 # Direct homelab service APIs
-QBITTORRENT_URL = 'http://qbittorrent.local:8090'
+QBITTORRENT_URL = ''
 QBITTORRENT_USERNAME = ''
 QBITTORRENT_PASSWORD = ''
-SEERR_URL = 'http://seerr.local:5055'
+SEERR_URL = ''
 SEERR_API_KEY = ''
-RADARR_URL = 'http://radarr.local:7878'
+RADARR_URL = ''
 RADARR_API_KEY = ''
-SONARR_URL = 'http://sonarr.local:8989'
+SONARR_URL = ''
 SONARR_API_KEY = ''
-LIDARR_URL = 'http://lidarr.local:8686'
+LIDARR_URL = ''
 LIDARR_API_KEY = ''
 
 
 # Uptime Kuma read-only status page
-UPTIME_KUMA_URL = 'http://uptime-kuma.local:3001'
-UPTIME_KUMA_STATUS_PAGE_SLUG = 'home'
+UPTIME_KUMA_URL = ''
+UPTIME_KUMA_STATUS_PAGE_SLUG = ''

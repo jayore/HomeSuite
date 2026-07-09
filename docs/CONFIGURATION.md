@@ -18,6 +18,8 @@ Never commit real local config files to a public repo.
 
 Most integrations are optional. Leave service-specific values blank in `private_config.py` until you actually connect that service. HomeSuite should still start, and commands for missing services should return a plain not-configured response instead of crashing.
 
+For a service-by-service setup guide, see [INTEGRATIONS.md](INTEGRATIONS.md).
+
 ## Minimum Useful Setup
 
 For a basic Home Assistant plus conversational fallback install, set:
@@ -39,6 +41,13 @@ ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 WAKEWORD_ENABLED = False
 PTT_ENABLED = False
 HANDSET_PRESENT = False
+```
+
+Run the doctor command after editing config:
+
+```bash
+.venv/bin/python tools/doctor.py
+.venv/bin/python tools/doctor.py --live
 ```
 
 ## OpenAI

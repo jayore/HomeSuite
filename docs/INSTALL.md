@@ -93,10 +93,12 @@ unit users should install.
 
 ## Validation
 
-After editing config, test command routing before starting the live service:
+After editing config, run the doctor and test command routing before starting the live service:
 
 ```bash
 cd ~/homesuite
+.venv/bin/python tools/doctor.py
+.venv/bin/python tools/doctor.py --live
 .venv/bin/python tools/test_commands.py "service status" --capture
 ```
 
