@@ -196,7 +196,6 @@ More docs:
 * [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 * [docs/FEATURES.md](docs/FEATURES.md)
 * [docs/FAQ.md](docs/FAQ.md)
-* [ROADMAP.md](ROADMAP.md)
 
 ## Security Notes
 

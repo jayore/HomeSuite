@@ -2,7 +2,7 @@
 
 This repository is a sanitized public snapshot generated from the private HomeSuite development repo.
 
-Source commit: `ba20781` (`ba20781a1bced3553cd0667d92f8e7ae5a169b51`)
+Source commit: `bea543f` (`bea543fdf7616256cff7631a1b200610a09f7842`)
 
 Excluded from this public snapshot:
 
@@ -17,12 +17,21 @@ Excluded from this public snapshot:
 * `recording*.wav`
 * `scheduled_jobs.json`
 * `.scheduler.lock`
+* `ROADMAP.md`
+* `docs/AI_ARCHITECTURE_PLAN.md`
 * `docs/AI_HANDOFF_LOG.md`
 * `docs/AI_THREAD_GUIDE.md`
 * `docs/AI_WORKFLOW_PREFERENCES.md`
 * `docs/CLAUDE_CODE_WORKFLOW.md`
 * `docs/DEV_AND_TESTING.md`
+* `docs/FUTURE_ARCHITECTURE.md`
 * `docs/handoffs/**`
+* `assets/*.aiff`
+* `assets/Funk.mp3`
+* `assets/Mic_Switch_Off.wav`
+* `assets/Radial-EncoreInfinitum.mp3`
+* `assets/play.mp3`
+* `assets/test.wav`
 * `archive/**`
 * `deploy/systemd/homesuite.service.current`
 * `tools/export_public_repo.py`
