@@ -64,8 +64,8 @@ HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.s
 The installer writes shortcuts to `$HOME/.local/bin`:
 
 * `homesuite-doctor` - configuration and reachability checks
-* `pptest "your phrase"` - safe one-shot command test with captured output
-* `pplive "your phrase"` - one-shot live command that can control devices
+* `pptest` - safe interactive command test shell
+* `pplive` - live interactive command shell that can control devices
 * `ppchattest` - safe chat-style test shell
 * `ppchat` - live chat-style shell
 * `homesuite-youtube-pair` and `homesuite-youtube-oauth` - YouTube setup helpers
@@ -120,8 +120,10 @@ After editing config, run the doctor and test command routing before starting th
 cd ~/homesuite
 homesuite-doctor
 homesuite-doctor --live
-pptest "service status"
+pptest
 ```
+
+At the `homesuite >` prompt, type a phrase such as `service status`.
 
 For syntax checks:
 

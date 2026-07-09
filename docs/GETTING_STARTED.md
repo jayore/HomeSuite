@@ -2,7 +2,7 @@
 
 This guide takes a fresh HomeSuite install to the first useful command. Start small: get Home Assistant and conversational fallback working, then add optional media and homelab services one at a time.
 
-The goal of first setup is not to configure everything. The goal is to make `homesuite-doctor` pass its core checks and get one safe `pptest` command returning a sensible result.
+The goal of first setup is not to configure everything. The goal is to make `homesuite-doctor` pass its core checks, open `pptest`, and get one safe test phrase returning a sensible result.
 
 ## Before You Start
 
@@ -35,8 +35,8 @@ The installer creates `~/homesuite`, a Python virtual environment, local config 
 The most useful shortcuts are:
 
 * `homesuite-doctor` - check local configuration
-* `pptest "your phrase"` - safe one-shot command test
-* `pplive "your phrase"` - one-shot live command that can control devices
+* `pptest` - safe interactive command test shell
+* `pplive` - live interactive command shell that can control devices
 * `ppchattest` - safe chat-style test shell
 * `ppchat` - live chat-style shell
 
@@ -91,12 +91,20 @@ Fix any `FAIL` items first. `WARN` items are usually useful follow-ups. `SKIP` i
 
 ## 4. Try a Command
 
-Use capture mode before starting live audio or hardware flows:
+Use the safe test shell before starting live audio or hardware flows:
 
 ```bash
-pptest "what lights are on?"
-pptest "service status"
+pptest
 ```
+
+Then type phrases such as:
+
+```text
+what lights are on?
+service status
+```
+
+For a one-shot check from the normal shell, use `pptest "service status"`.
 
 For chat-style text testing without live device effects:
 
@@ -106,7 +114,7 @@ ppchattest
 
 ## 5. Decide When To Go Live
 
-Use `pptest` and `ppchattest` while configuring. Use `pplive`, `ppchat`, or the systemd service only when you are ready for commands to control real devices.
+Use `pptest` and `ppchattest` while configuring. Use `pplive`, `ppchat`, or the systemd service only when you are ready for commands to control real devices. You can also run `pplive "exact phrase"` for a single live command.
 
 ## 6. Start or Restart the Service
 
@@ -141,7 +149,7 @@ See [INTEGRATIONS.md](INTEGRATIONS.md) for the keys each service needs and where
 When something does not work:
 
 1. Run `homesuite-doctor --live`.
-2. Run the phrase through `pptest "your phrase"`.
+2. Run the phrase through `pptest`, or use `pptest "your exact phrase"` for a one-shot check.
 3. Check `logs/`.
 4. Confirm the entity, room, or service works directly in Home Assistant.
 

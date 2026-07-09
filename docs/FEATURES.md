@@ -2,7 +2,7 @@
 
 This is a public-alpha overview of what HomeSuite can do. Exact phrasing depends on your Home Assistant entities, room names, media libraries, and configured services.
 
-Use `pptest "phrase here"` to try examples safely. Use `pplive "phrase here"` only when you are ready for real device effects.
+Use `pptest` to try examples safely in an interactive test shell. Use `pptest "phrase here"` for a one-shot check. Use `pplive` only when you are ready for real device effects.
 
 ## Smart Home
 

@@ -127,12 +127,14 @@ nano private_config.py
 nano local_prefs.py
 ```
 
-Then check your setup and test routing:
+Then check your setup and open the safe test shell:
 
 ```bash
 homesuite-doctor
-pptest "service status"
+pptest
 ```
+
+Inside `pptest`, type a phrase such as `service status`. For a single reproducible check, you can also run `pptest "service status"`.
 
 The installer creates shortcuts in `$HOME/.local/bin`, including `homesuite-doctor`, `pptest`, `pplive`, `ppchattest`, and `ppchat`.
 
@@ -186,7 +188,7 @@ Important files:
 * `homelab_controls.py` and `homelab_clients.py` - homelab status and direct service APIs
 * `unified_server.py` - in-process HTTP/WebSocket server
 * `homesuite-doctor` - setup/configuration diagnostics
-* `pptest` and `pplive` - shortcut command harnesses for validation
+* `pptest` and `pplive` - interactive and one-shot command harnesses for validation
 
 More docs:
 

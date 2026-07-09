@@ -17,8 +17,10 @@ Blank optional services should show as `SKIP`, not `FAIL`.
 Not directly. HomeSuite first uses a deterministic natural-language processing layer to parse and route commands. AI can help with conversation, summarization, and interpreting context, but actual home actions should still route through code paths that can be tested with:
 
 ```bash
-pptest "your phrase"
+pptest
 ```
+
+Then type the phrase you want to test. For a single reproducible command, use `pptest "your phrase"`.
 
 That design is intentional. It keeps real device control easier to inspect, test, and debug.
 
@@ -35,8 +37,10 @@ After install and config edits:
 ```bash
 homesuite-doctor
 homesuite-doctor --live
-pptest "what lights are on?"
+pptest
 ```
+
+Then type `what lights are on?` at the prompt. For one-shot debugging, `pptest "what lights are on?"` also works.
 
 Use `pptest` and `ppchattest` while setting up. Use `pplive`, `ppchat`, or the systemd service only when you are ready for commands to affect real devices.
 
@@ -68,7 +72,7 @@ The first supported public-alpha install path is native Raspberry Pi OS or Debia
 Yes. Start with text:
 
 ```bash
-pptest "service status"
+pptest
 ppchattest
 ```
 
@@ -102,7 +106,7 @@ Then see [INTEGRATIONS.md](INTEGRATIONS.md) for the keys that service needs.
 Use this loop:
 
 1. `homesuite-doctor --live`
-2. `pptest "the exact phrase"`
+2. `pptest`, then type the exact phrase, or run `pptest "the exact phrase"`
 3. `logs/`
 4. Home Assistant entity/service names
 
