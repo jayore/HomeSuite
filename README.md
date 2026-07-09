@@ -68,7 +68,7 @@ Home Suite is built around a shared natural-language processing and command runt
 * AI conversation with continuity into deterministic follow-up actions
 * HTTP and WebSocket APIs for external clients
 
-See [docs/FEATURES.md](docs/FEATURES.md) for example phrases.
+See [docs/COMMANDS.md](docs/COMMANDS.md) for example phrases and [docs/FEATURES.md](docs/FEATURES.md) for a capability overview.
 
 ## How It Works
 
@@ -220,6 +220,7 @@ More docs:
 * [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 * [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 * [docs/FEATURES.md](docs/FEATURES.md)
+* [docs/COMMANDS.md](docs/COMMANDS.md)
 * [docs/FAQ.md](docs/FAQ.md)
 
 ## Security Notes
