@@ -14,6 +14,10 @@ cp local_prefs.example.py local_prefs.py
 
 Never commit real local config files to a public repo.
 
+## Optional Integrations
+
+Most integrations are optional. Leave service-specific values blank in `private_config.py` until you actually connect that service. HomeSuite should still start, and commands for missing services should return a plain not-configured response instead of crashing.
+
 ## Minimum Useful Setup
 
 For a basic Home Assistant plus conversational fallback install, set:

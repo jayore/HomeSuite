@@ -2374,6 +2374,16 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     except Exception as e:
         logging.debug(f"Trigger alias verbatim dispatch error: {e}")
 
+    # Spotify library actions before generic scene/script matching.
+    # Phrases like "save this song" can otherwise be stolen by broad HA
+    # runnables. Keep this narrow so normal play/device phrases still flow
+    # through the regular routing order below.
+    if re.search(r"\b(like this|save this|favorite this|add this to library|save this song|like this song|add (?:this|this song|current song|current track) to (?:playlist )?.+)\b", tl):
+        spotify_library_resp = handle_spotify_controls(tl, maybe_say=_maybe_say)
+        if spotify_library_resp is not None:
+            logging.info("CLAIM: spotify_library_controls")
+            return spotify_library_resp
+
     # Warm-cache scene/script fast path. This avoids converting the whole HA
     # cache to a states list for static runnable phrases like button scenes.
     # If the runnable cache is cold or expired, this returns None and the normal

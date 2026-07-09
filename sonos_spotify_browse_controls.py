@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from spotify_webapi_search import SpotifyClient, pick_best_spotify_item, find_user_playlist_uri_by_name
 from spotify_controls import get_artist_top_track_uri
+from integration_config import friendly_missing, missing, spotify_web_configured
 
 
 def _norm(s: str) -> str:
@@ -324,8 +325,8 @@ def handle_sonos_spotify_browse_play(
                 return maybe_say("Playing.")
             logging.error("Sonos Spotify: Discover Weekly fast-path play_media failed")
         else:
-            logging.error("Sonos Spotify: SPOTIFY_DISCOVER_WEEKLY_URI missing/invalid in private_config.py")
-        return None
+            logging.info("CLAIM: sonos_spotify_discover_weekly_not_configured")
+            return "Discover Weekly is not configured yet. Add SPOTIFY_DISCOVER_WEEKLY_URI in private_config.py."
 
     # ------------------------------------------------------------------
     # Explicit typed Spotify requests must respect the requested type.
@@ -336,10 +337,13 @@ def handle_sonos_spotify_browse_play(
     # resolve directly via Spotify Web API.
     # ------------------------------------------------------------------
     if kind in ("artist", "album", "track"):
+        if not spotify_web_configured():
+            logging.info("CLAIM: sonos_spotify_typed_not_configured kind=%r title=%r", kind, title)
+            return friendly_missing("Spotify", missing("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"))
         sp = _get_spotify_client()
         if not sp:
             logging.error("Sonos Spotify typed request: Spotify client unavailable kind=%r title=%r", kind, title)
-            return None
+            return maybe_say("Spotify is configured, but I couldn't reach it right now.")
 
         if kind == "artist":
             search_q = f'artist:"{title}"'

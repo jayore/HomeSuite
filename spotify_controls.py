@@ -6,12 +6,18 @@ import logging
 from typing import Optional, Dict, Tuple
 import requests
 
-from private_config import (
-    SPOTIFY_CLIENT_ID,
-    SPOTIFY_CLIENT_SECRET,
-    SPOTIFY_REFRESH_TOKEN,
-)
+try:
+    from private_config import (
+        SPOTIFY_CLIENT_ID,
+        SPOTIFY_CLIENT_SECRET,
+        SPOTIFY_REFRESH_TOKEN,
+    )
+except Exception:
+    SPOTIFY_CLIENT_ID = ""
+    SPOTIFY_CLIENT_SECRET = ""
+    SPOTIFY_REFRESH_TOKEN = ""
 
+from integration_config import friendly_missing, missing, spotify_web_configured
 
 from spotify_webapi_search import SpotifyClient, find_user_playlist_uri_by_name
 _SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -485,15 +491,19 @@ def handle_spotify_controls(tl: str, *, maybe_say) -> Optional[str]:
 
     # Like / save
     if re.search(r"\b(like this|save this|favorite this|add this to library|save this song|like this song)\b", t):
+        if not spotify_web_configured():
+            return friendly_missing("Spotify", missing("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"))
         ok = like_current_track()
-        return maybe_say("Saved.") if ok else None
+        return maybe_say("Saved.") if ok else maybe_say("I couldn't save that with Spotify.")
 
     # Add to playlist
     m = re.search(r"\badd (?:this|this song|current song|current track) to (?:playlist )?(.+)\b", t)
     if m:
+        if not spotify_web_configured():
+            return friendly_missing("Spotify", missing("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"))
         name = m.group(1).strip()
         ok = add_current_track_to_playlist(name)
-        return maybe_say(f"Added to {name}.") if ok else None
+        return maybe_say(f"Added to {name}.") if ok else maybe_say(f"I couldn't add that to {name} with Spotify.")
 
     return None
 
@@ -881,6 +891,9 @@ def _get_web_spotify_client():
     global _web_spotify_client
     if _web_spotify_client is not None:
         return _web_spotify_client
+    if not spotify_web_configured():
+        logging.info("SpotifyClient unavailable: Spotify Web API is not configured")
+        return None
     try:
         _web_spotify_client = SpotifyClient(
             client_id=SPOTIFY_CLIENT_ID,

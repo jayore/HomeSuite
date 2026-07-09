@@ -15,6 +15,7 @@ try:
 except Exception:
     pass
 from runtime_mode import allow_real_effects
+from integration_config import friendly_missing, missing, plex_configured
 
 # ------------------------------------------------------------
 # Production defaults (safe):
@@ -1229,6 +1230,10 @@ def handle_plex_controls(
     title = _extract_watch_title(tl)
     if not title:
         return None
+
+    if not plex_configured():
+        logging.info("CLAIM: plex_not_configured title=%r", title)
+        return friendly_missing("Plex", missing("PLEX_URL", "PLEX_TOKEN"))
 
     # AI description resolution: if query looks fuzzy and resolver is available,
     # search Plex for library candidates first, then ask AI to pick from actual results.

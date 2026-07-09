@@ -65,7 +65,7 @@ Companion clients should live separately from the core runtime as the ecosystem 
 
 ## Status
 
-HomeSuite is public-alpha software. It is already used as a daily-driver home assistant layer in its original deployment, but the public install and configuration experience is still young.
+HomeSuite is public-alpha software. It is already used as a daily-driver home assistant layer in its original deployment, but the public install and configuration experience is still young. Optional services are meant to degrade gracefully: configure the pieces you have, leave the rest blank, and missing integrations should explain what credential or URL is needed.
 
 The first supported install target is a native Raspberry Pi OS style deployment. Docker and satellite packaging may come later, especially for a central brain plus lightweight device model.
 

@@ -4,6 +4,7 @@ from typing import Optional, Dict, Tuple, Callable
 
 from spotify_controls import get_artist_top_track_uri
 from spotify_resolver import _looks_fuzzy_music_query
+from integration_config import friendly_missing, missing, spotify_web_configured
 
 
 def _norm_pinned_key(query: str) -> str:
@@ -174,6 +175,10 @@ def handle_play_by_name_controls(
         return None
 
     # Resolve (typed resolver preferred)
+    if not spotify_web_configured():
+        logging.info("CLAIM: play_by_name_spotify_not_configured query=%r", query)
+        return friendly_missing("Spotify", missing("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"))
+
     resolved = None
     if resolve_typed_play_request:
         try:

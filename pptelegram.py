@@ -15,12 +15,18 @@ from request_context import (
     set_current_request_context,
 )
 
-from private_config import (
-    TELEGRAM_BOT_TOKEN,
-    TELEGRAM_ALLOWED_USER_IDS,
-    TELEGRAM_ALLOWED_CHAT_IDS,
-)
+try:
+    from private_config import (
+        TELEGRAM_BOT_TOKEN,
+        TELEGRAM_ALLOWED_USER_IDS,
+        TELEGRAM_ALLOWED_CHAT_IDS,
+    )
+except Exception:
+    TELEGRAM_BOT_TOKEN = ""
+    TELEGRAM_ALLOWED_USER_IDS = []
+    TELEGRAM_ALLOWED_CHAT_IDS = []
 
+from integration_config import friendly_missing, missing, telegram_configured
 
 API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
@@ -78,8 +84,6 @@ def _is_allowed(message: dict) -> bool:
 
     return True
 
-    return (from_id in set(TELEGRAM_ALLOWED_USER_IDS or [])) and (chat_id in set(TELEGRAM_ALLOWED_CHAT_IDS or []))
-
 
 def _extract_text(message: dict) -> str:
     text = (message.get("text") or "").strip()
@@ -109,7 +113,7 @@ def _handle_message(gpio_ptt, message: dict) -> Optional[str]:
             pass
 
         if text == "/start":
-            return "PiPhone Telegram bot is ready."
+            return "HomeSuite Telegram bot is ready."
 
         result = handle_text_interaction(gpio_ptt, text)
         return (result.response_text or "").strip() or "Okay."
@@ -118,10 +122,14 @@ def _handle_message(gpio_ptt, message: dict) -> Optional[str]:
 
 
 def main():
+    if not telegram_configured():
+        print(friendly_missing("Telegram", missing("TELEGRAM_BOT_TOKEN")))
+        sys.exit(2)
+
     gpio_ptt = command_runtime.initialize_runtime("live")
     _quiet_console_logging()
 
-    print("PiPhone Telegram bot starting (polling, live mode, allowlisted).")
+    print("HomeSuite Telegram bot starting (polling, live mode, allowlisted).")
 
     offset = None
 
