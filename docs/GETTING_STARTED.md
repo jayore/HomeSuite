@@ -145,4 +145,4 @@ When something does not work:
 3. Check `logs/`.
 4. Confirm the entity, room, or service works directly in Home Assistant.
 
-HomeSuite is easiest to debug when each integration is added and tested separately. If a phrase behaves oddly, first confirm whether HomeSuite claimed it deterministically or handed it to conversational fallback; `pptest` output and `logs/` are usually enough to tell.
+HomeSuite is easiest to debug when each integration is added and tested separately. If a phrase behaves oddly, first confirm whether HomeSuite's natural-language router claimed it or handed it to conversational fallback; `pptest` output and `logs/` are usually enough to tell.

@@ -46,7 +46,7 @@ Try:
 * `what is it about?`
 * `watch it`
 
-Plex actions are deterministic: HomeSuite uses stored context and your actual Plex library rather than letting the AI invent Plex IDs.
+Plex actions use deterministic natural-language routing: HomeSuite uses stored context and your actual Plex library rather than letting AI invent Plex IDs.
 
 ## Spotify and Sonos
 
@@ -122,7 +122,7 @@ Try:
 * `what movie has Darth Vader telling Luke he is his father?`
 * `watch it`
 
-The AI fallback can leave short-lived media breadcrumbs. Follow-up actions still route through deterministic Plex/Spotify handlers.
+The AI fallback can leave short-lived media breadcrumbs. Follow-up actions still route through deterministic Plex/Spotify natural-language handlers.
 
 ## External Interfaces
 

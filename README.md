@@ -8,12 +8,12 @@ In practice, HomeSuite is for people who want to say or type things like `turn o
 
 ## Why It Exists
 
-Most assistants are either too rigid or too magical. HomeSuite tries to sit in the useful middle: natural phrasing on the outside, deterministic handlers on the inside.
+Most assistants are either too rigid or too magical. HomeSuite tries to sit in the useful middle: natural phrasing on the outside, a deterministic natural-language processing and routing layer on the inside.
 
 It is designed to:
 
 * understand natural phrases without requiring exact command syntax
-* route home and media actions through deterministic code, not AI guesses
+* route home and media actions through deterministic natural-language parsing and handlers, not AI guesses
 * use AI for conversation, summarization, and interpretation where it helps
 * preserve context so a conversation can lead into a real action
 * expose the same command brain through many frontends
@@ -36,7 +36,7 @@ Everything else is optional. If you do not use Plex, Spotify, Telegram, Uptime K
 
 ## What It Can Do
 
-HomeSuite is built around a shared natural-language command runtime. Current public-alpha areas include:
+HomeSuite is built around a shared natural-language processing and command runtime. Current public-alpha areas include:
 
 * Home Assistant device control: lights, switches, locks, scenes, scripts, and state questions
 * room-aware media control for Sonos, Apple TV, Plex, Spotify, and YouTube
@@ -55,17 +55,17 @@ See [docs/FEATURES.md](docs/FEATURES.md) for example phrases.
 HomeSuite routes each request in layers:
 
 1. Normalize the text and attach request context, such as source and room.
-2. Let deterministic handlers try to claim the request.
+2. Let the deterministic natural-language routing layer try to claim the request.
 3. If a handler claims it, execute the action through Home Assistant, Plex, Spotify, qBittorrent, or another configured service.
 4. If no handler claims it and the request looks conversational, send it to AI fallback.
 5. Store useful context from answers so later commands can refer back to the conversation.
 
-AI can help identify what you are talking about, but HomeSuite avoids letting AI directly operate your home. Actions are carried out by deterministic integrations.
+AI can help identify what you are talking about, but HomeSuite avoids letting AI directly operate your home. Actions are carried out by deterministic integrations after the natural-language router decides what should happen.
 
 ## Core Ideas
 
 * **Home Assistant first:** rooms, entities, scenes, scripts, and most device state should be made sensible in Home Assistant before teaching HomeSuite about them.
-* **Deterministic actions:** commands that operate your home are claimed by code paths you can test with `pptest`.
+* **NLP before AI:** HomeSuite first uses deterministic natural-language processing to parse and route commands. Commands that operate your home are claimed by code paths you can test with `pptest`.
 * **AI where it helps:** conversational fallback, summaries, and media/context interpretation can use AI, but AI is not given direct unsupervised control of your home.
 * **One runtime, many surfaces:** voice, chat, HTTP, Telegram, scheduler jobs, and future satellites all feed the same command router.
 * **Optional integrations:** configure only the services you use. Missing optional services should degrade gracefully.
@@ -180,7 +180,7 @@ Important files:
 
 * `main.py` - production runtime
 * `command_runtime.py` - shared machine-facing command executor
-* `command_dispatch.py` - main deterministic routing pipeline
+* `command_dispatch.py` - main deterministic natural-language routing pipeline
 * `interaction_flow.py` - text/chat response behavior
 * `spoken_text.py` - TTS-only text normalization
 * `homelab_controls.py` and `homelab_clients.py` - homelab status and direct service APIs

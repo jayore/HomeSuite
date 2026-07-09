@@ -60,7 +60,7 @@ Set `OPENAI_API_KEY` from the OpenAI API key page:
 
 * https://platform.openai.com/api-keys
 
-HomeSuite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Deterministic home commands still route through HomeSuite handlers; OpenAI is mainly for open-ended conversation and interpretation.
+HomeSuite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Home commands first go through HomeSuite's deterministic natural-language processing and handlers; OpenAI is mainly for open-ended conversation and interpretation.
 
 ## Home Assistant
 

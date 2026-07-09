@@ -31,7 +31,7 @@ What it enables:
 
 * conversational fallback
 * summarization and interpretation
-* media breadcrumb extraction for deterministic follow-up actions
+* media breadcrumb extraction for follow-up actions handled by deterministic routes
 
 Config keys:
 
@@ -41,7 +41,7 @@ OPENAI_API_KEY = "..."
 
 Get an API key from: https://platform.openai.com/api-keys
 
-Model selection lives in `app_config.py` defaults and can be overridden per device in `local_prefs.py`. Use a capable model for conversation and interpretation, then let deterministic handlers perform the actual home actions.
+Model selection lives in `app_config.py` defaults and can be overridden per device in `local_prefs.py`. Use a capable model for conversation and interpretation, then let HomeSuite's deterministic natural-language routes perform the actual home actions.
 
 ### HomeSuite HTTP API
 
@@ -230,7 +230,7 @@ Servarr docs:
 
 HomeSuite prefers Home Assistant for broad status integrations when possible. If Synology, Reolink, Speedtest.net, or similar services are already integrated with Home Assistant, HomeSuite can query the entities Home Assistant exposes without storing separate credentials.
 
-Use sensible entity names in Home Assistant first. That makes natural-language queries easier to route and debug.
+Use sensible entity names in Home Assistant first. That makes HomeSuite's natural-language processing easier to route and debug.
 
 ## Remote Text Access
 

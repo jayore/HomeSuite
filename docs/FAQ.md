@@ -14,7 +14,7 @@ Blank optional services should show as `SKIP`, not `FAIL`.
 
 ## Does AI Control My Home?
 
-Not directly. HomeSuite uses deterministic handlers for actions that operate your home. AI can help with conversation, summarization, and interpreting context, but actual actions should still route through code paths that can be tested with:
+Not directly. HomeSuite first uses a deterministic natural-language processing layer to parse and route commands. AI can help with conversation, summarization, and interpreting context, but actual home actions should still route through code paths that can be tested with:
 
 ```bash
 pptest "your phrase"
@@ -106,4 +106,4 @@ Use this loop:
 3. `logs/`
 4. Home Assistant entity/service names
 
-If `pptest` shows a deterministic claim, debug that integration. If it falls through to conversation, the router probably did not recognize the phrase as an action.
+If `pptest` shows that the natural-language router claimed the phrase, debug that integration. If it falls through to conversation, the router probably did not recognize the phrase as an action.
