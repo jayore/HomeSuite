@@ -1,17 +1,5 @@
 # FAQ
 
-## Do I Need Every Service In The Example Config?
-
-No. Home Suite is designed around optional integrations. Start with Home Assistant, an OpenAI API key, and local device preferences. Leave Plex, Spotify, Telegram, Uptime Kuma, qBittorrent, Seerr, YouTube, and wake-word settings blank until you actually use them.
-
-Run:
-
-```bash
-homesuite-doctor
-```
-
-Blank optional services should show as `SKIP`, not `FAIL`.
-
 ## Does AI Control My Home?
 
 Not directly. Home Suite first uses a deterministic natural-language processing layer to parse and route commands. AI can help with conversation, summarization, and interpreting context, but actual home actions should still route through code paths that can be tested with:
@@ -83,9 +71,17 @@ Use `pptest` and `ppchattest` while setting up. Use `pplive`, `ppchat`, or the s
 
 If you eventually run multiple Home Suite devices, they may share similar `private_config.py` values but have different `local_prefs.py` files.
 
-## Should I Use Docker?
+## Do I Need Every Service In The Example Config?
 
-The first supported public-alpha install path is native Raspberry Pi OS or Debian-like Linux. Docker may be useful later for a central server role, but Home Suite currently has local audio, optional GPIO, wake-word, and systemd assumptions that are simpler to support natively first.
+No. Home Suite is designed around optional integrations. Start with Home Assistant, an OpenAI API key, and local device preferences. Leave Plex, Spotify, Telegram, Uptime Kuma, qBittorrent, Seerr, YouTube, and wake-word settings blank until you actually use them.
+
+Run:
+
+```bash
+homesuite-doctor
+```
+
+Blank optional services should show as `SKIP`, not `FAIL`.
 
 ## Can I Run Home Suite Without Voice Hardware?
 
@@ -108,6 +104,10 @@ The important endpoint for simple clients is:
 POST /command
 X-API-Key: <HOMESUITE_HTTP_API_KEY>
 ```
+
+## Should I Use Docker?
+
+The first supported public-alpha install path is native Raspberry Pi OS or Debian-like Linux. Docker may be useful later for a central server role, but Home Suite currently has local audio, optional GPIO, wake-word, and systemd assumptions that are simpler to support natively first.
 
 ## Why Did A Command Say An Integration Is Not Configured?
 
