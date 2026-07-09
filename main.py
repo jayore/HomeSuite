@@ -1090,6 +1090,8 @@ OPENAI_CLIENT = (openai.OpenAI(api_key=OPENAI_API_KEY) if openai is not None els
 is_speaking = False
 is_processing = False
 button_pressed = False
+_WAKEWORD_LISTENER = None
+_WAKEWORD_DETECTION_IN_PROGRESS = False
 
 last_start_chime_ts = 0.0
 
