@@ -45,6 +45,7 @@ _DEFAULT_PROFILE: Dict[str, Any] = {
     "command_noise_suppression_level": 0,
     "command_auto_gain_dbfs": 0,
     "command_volume_multiplier": 1.0,
+    "ptt_volume_multiplier": 1.0,
     "aec_mode": "none",
 }
 
@@ -124,7 +125,12 @@ def get_audio_input_profile() -> Dict[str, Any]:
         except (TypeError, ValueError):
             pass
 
-    for key in ("verify_interval_sec", "volume_multiplier", "command_volume_multiplier"):
+    for key in (
+        "verify_interval_sec",
+        "volume_multiplier",
+        "command_volume_multiplier",
+        "ptt_volume_multiplier",
+    ):
         try:
             profile[key] = float(profile.get(key, _DEFAULT_PROFILE[key]))
         except (TypeError, ValueError):
@@ -165,6 +171,7 @@ def profile_for_log(profile: Dict[str, Any]) -> Dict[str, Any]:
         "command_noise_suppression_level",
         "command_auto_gain_dbfs",
         "command_volume_multiplier",
+        "ptt_volume_multiplier",
         "aec_mode",
     )
     return {key: profile.get(key) for key in keys}

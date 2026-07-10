@@ -41,6 +41,19 @@ try:
 except Exception:
     webrtcvad = None
 
+
+def scale_int16_audio(samples, multiplier: float):
+    """Scale PCM safely while preserving int16 shape and clipping limits."""
+    audio = np.asarray(samples, dtype=np.int16)
+    gain = float(multiplier)
+    if gain == 1.0 or audio.size == 0:
+        return audio
+    return np.clip(
+        np.rint(audio.astype(np.float32) * gain),
+        -32768,
+        32767,
+    ).astype(np.int16)
+
 from app_config import (
     MAX_UTTERANCE_SECONDS,
     VAD_MODE,
@@ -258,6 +271,8 @@ def _rt_stream_create_runtime(
     pre_roll_frames: int,
     *,
     manual_commit: bool = False,
+    transcriber=None,
+    fast_48k_downsample: bool = False,
 ):
     """
     Create a small runtime object for shared realtime-streaming STT capture.
@@ -268,27 +283,29 @@ def _rt_stream_create_runtime(
     if not _rt_stream_mode_enabled():
         return None
 
-    try:
-        from realtime_streaming_stt import StreamingTranscriber
-    except Exception as e:
-        logging.error(f"STT_RT_STREAM_ERR import failed: {e}")
-        return None
-
-    try:
-        rt_model = (os.getenv("PIPHONE_RT_MODEL", "") or "").strip() or "gpt-4o-transcribe"
-        rt_lang = (os.getenv("PIPHONE_RT_LANG", "en") or "en").strip()
+    rt_model = (os.getenv("PIPHONE_RT_MODEL", "") or "").strip() or "gpt-4o-transcribe"
+    rt_lang = (os.getenv("PIPHONE_RT_LANG", "en") or "en").strip()
+    rt = transcriber
+    if rt is None:
         try:
-            rt = StreamingTranscriber(
-                model=rt_model,
-                language=rt_lang,
-                manual_commit=manual_commit,
-                timeout_s=(8.0 if manual_commit else 4.0),
-            )
-        except TypeError:
-            rt = StreamingTranscriber(model=rt_model)
-    except Exception as e:
-        logging.error(f"STT_RT_STREAM_ERR init failed: {e}")
-        return None
+            from realtime_streaming_stt import StreamingTranscriber
+        except Exception as e:
+            logging.error(f"STT_RT_STREAM_ERR import failed: {e}")
+            return None
+
+        try:
+            try:
+                rt = StreamingTranscriber(
+                    model=rt_model,
+                    language=rt_lang,
+                    manual_commit=manual_commit,
+                    timeout_s=(8.0 if manual_commit else 4.0),
+                )
+            except TypeError:
+                rt = StreamingTranscriber(model=rt_model)
+        except Exception as e:
+            logging.error(f"STT_RT_STREAM_ERR init failed: {e}")
+            return None
 
     try:
         from collections import deque as _rt_deque
@@ -319,10 +336,11 @@ def _rt_stream_create_runtime(
         "dump_sr": None,
         "dump_bytes": bytearray(),
         "final_text": "",
+        "fast_48k_downsample": bool(fast_48k_downsample),
     }
 
 
-def _rt_stream_prepare_pcm(arr, sr: int):
+def _rt_stream_prepare_pcm(arr, sr: int, *, fast_48k_downsample: bool = False):
     """
     Prepare PCM for realtime-streaming STT transport.
 
@@ -335,7 +353,15 @@ def _rt_stream_prepare_pcm(arr, sr: int):
 
     if sr == 48000:
         try:
-            if _resample_poly is not None:
+            if fast_48k_downsample:
+                # A two-tap boxcar is a cheap anti-alias filter for the exact
+                # 2:1 speech transport conversion. It avoids running SciPy's
+                # filter setup on every 10 ms PTT frame on lower-power Pis.
+                even = arr[: arr.size - (arr.size % 2)].astype(np.int32, copy=False)
+                ds_i16 = ((even[0::2] + even[1::2]) // 2).astype(np.int16)
+                pcm_sr = 24000
+                pcm_bytes = ds_i16.tobytes()
+            elif _resample_poly is not None:
                 ds = _resample_poly(arr.astype("float32", copy=False), up=1, down=2)
                 ds_i16 = np.clip(np.rint(ds), -32768, 32767).astype(np.int16)
                 pcm_sr = 24000
@@ -359,7 +385,11 @@ def _rt_stream_append_frame(runtime, arr, sr: int):
         return
 
     try:
-        pcm_sr, pcm_bytes = _rt_stream_prepare_pcm(arr, sr)
+        pcm_sr, pcm_bytes = _rt_stream_prepare_pcm(
+            arr,
+            sr,
+            fast_48k_downsample=bool(runtime.get("fast_48k_downsample")),
+        )
         runtime["pre_roll_pcm"].append((pcm_sr, pcm_bytes))
 
         rt_is_voice = False

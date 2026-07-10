@@ -224,6 +224,37 @@ class AudioProfileTests(unittest.TestCase):
 
 
 class WakewordFrontendTests(unittest.TestCase):
+    def test_fast_48k_downsample_averages_pairs(self):
+        from audio_capture import _rt_stream_prepare_pcm
+
+        pcm = np.array([0, 2, 10, 14, -10, -14], dtype=np.int16)
+        sample_rate, payload = _rt_stream_prepare_pcm(
+            pcm,
+            48000,
+            fast_48k_downsample=True,
+        )
+        self.assertEqual(sample_rate, 24000)
+        np.testing.assert_array_equal(
+            np.frombuffer(payload, dtype=np.int16),
+            np.array([1, 12, -12], dtype=np.int16),
+        )
+
+    def test_int16_gain_scales_and_clips(self):
+        from audio_capture import scale_int16_audio
+
+        pcm = np.array([-30000, -1000, 0, 1000, 30000], dtype=np.int16)
+        scaled = scale_int16_audio(pcm, 1.2)
+        np.testing.assert_array_equal(
+            scaled,
+            np.array([-32768, -1200, 0, 1200, 32767], dtype=np.int16),
+        )
+
+    def test_int16_unity_gain_preserves_samples(self):
+        from audio_capture import scale_int16_audio
+
+        pcm = np.array([-123, 0, 456], dtype=np.int16)
+        np.testing.assert_array_equal(scale_int16_audio(pcm, 1.0), pcm)
+
     def test_streaming_resampler_emits_openwakeword_sized_chunks(self):
         from wakeword_frontend import WakewordFrontend
 

@@ -157,6 +157,8 @@ AUDIO_INPUT_PROFILE = {
     "command_noise_suppression_level": 0,
     "command_auto_gain_dbfs": 0,
     "command_volume_multiplier": 1.0,
+    # PTT-only software gain applied before VAD and streaming STT.
+    "ptt_volume_multiplier": 1.0,
     "aec_mode": "none",
 }
 

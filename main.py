@@ -2576,6 +2576,7 @@ from audio_capture import (
     _rt_stream_append_frame,
     _rt_stream_finalize_to_sidecar,
     _capture_utterance_from_frame_source,
+    scale_int16_audio,
 )
 _audio_capture.set_perf_logger(_perf)
 
@@ -2621,37 +2622,52 @@ def _record_audio_with_vad_capture_core(
         logging.info('Audio capture: sd_dev=%s sr=%s frame_ms=%s frame_samples=%s', sd_dev, sr, frame_ms, frame_samples)
         _perf("VAD_STREAM_CFG", sd_dev=sd_dev, sr=sr, frame_ms=frame_ms, frame_samples=frame_samples)
 
+        _perf('REC_BEFORE_STREAM_OPEN')
+
+        # Prepare realtime STT before opening the microphone. Creating the
+        # websocket session can take hundreds of milliseconds; doing that with
+        # a low-latency input stream already open causes ALSA input overruns.
+        stt_mode = (os.getenv("PIPHONE_STT_MODE", "whisper") or "").strip().lower()
+        rt_streaming = stt_mode in ("realtime_stream", "rt_stream", "realtime_streaming")
+        logging.info(
+            "STT_PATH_DECISION mode=%s requested_streaming=%s",
+            stt_mode,
+            rt_streaming,
+        )
+        rt_stream_runtime = None
+        stt_transcript = None
+        if rt_streaming:
+            rt_stream_runtime = _rt_stream_create_runtime(
+                PRE_ROLL_FRAMES,
+                fast_48k_downsample=True,
+            )
+            logging.info(
+                "STT_RT_STREAM_PREPARED active=%s source=pre_open",
+                bool(rt_stream_runtime and rt_stream_runtime.get("rt") is not None),
+            )
+
         t_cap0 = time.monotonic()
         _perf('VAD_OPEN', sd_dev=sd_dev, sr=sr, frame_ms=frame_ms, frame_samples=frame_samples)
-        _perf('REC_BEFORE_STREAM_OPEN')
         with sd.InputStream(
             device=(sd_dev if sd_dev >= 0 else None),
             samplerate=sr,
             channels=1,
             dtype="int16",
             blocksize=frame_samples,
-            latency="low",
+            # This device's high-latency setting is still only about 35 ms and
+            # gives the Pi enough scheduling headroom to avoid dropped input.
+            latency="high",
         ) as stream:
             _perf('VAD_OPENED')
             # --- Realtime streaming STT (true streaming: feed frames during recording) ---
-            stt_mode = (os.getenv("PIPHONE_STT_MODE","whisper") or "").strip().lower()
-            rt_streaming = stt_mode in ("realtime_stream","rt_stream","realtime_streaming")
-            logging.info(
-                "STT_PATH_DECISION mode=%s requested_streaming=%s",
-                stt_mode,
-                rt_streaming,
-            )
             logging.info(
                 "STT_PATH_DECISION_POST mode=%s streaming_active=%s",
                 stt_mode,
                 rt_streaming,
             )
 
-            rt_stream_runtime = None
-            stt_transcript = None
             logging.info("STT_PATH_RECORD streaming_active=%s", int(bool(rt_streaming)))
             if rt_streaming:
-                rt_stream_runtime = _rt_stream_create_runtime(PRE_ROLL_FRAMES)
                 if rt_stream_runtime and rt_stream_runtime.get("rt") is not None:
                     logging.info(
                         "STT_RT_STREAM_INIT model=%r lang=%r",
@@ -2659,10 +2675,24 @@ def _record_audio_with_vad_capture_core(
                         rt_stream_runtime.get("lang"),
                     )
 
+            from audio_input_profile import get_audio_input_profile
+
+            input_profile = get_audio_input_profile()
+            ptt_volume_multiplier = max(
+                0.1,
+                min(4.0, float(input_profile.get("ptt_volume_multiplier") or 1.0)),
+            )
+            overflow_count = 0
+            frames_read = 0
+
             def _read_frame():
+                nonlocal overflow_count, frames_read
                 frames, overflowed = stream.read(frame_samples)
+                frames_read += 1
+                if overflowed:
+                    overflow_count += 1
                 arr = np.frombuffer(frames, dtype=np.int16)
-                return arr
+                return scale_int16_audio(arr, ptt_volume_multiplier)
 
             capture = _capture_utterance_from_frame_source(
                 frame_reader=_read_frame,
@@ -2674,8 +2704,24 @@ def _record_audio_with_vad_capture_core(
                 min_speech_frames=MIN_SPEECH_FRAMES,
                 prime_only_until_ts=0.0,
                 perf_prefix="VAD",
-                sleep_per_frame_sec=0.001,
+                # stream.read() already blocks for one hardware frame. Sleeping
+                # again only reduces the time available before ALSA overruns.
+                sleep_per_frame_sec=0.0,
                 rt_stream_runtime=rt_stream_runtime,
+            )
+
+            log_fn = logging.warning if overflow_count else logging.info
+            log_fn(
+                "PTT_AUDIO_CAPTURE overflows=%s frames_read=%s gain=%.3f",
+                overflow_count,
+                frames_read,
+                ptt_volume_multiplier,
+            )
+            _perf(
+                "PTT_AUDIO_CAPTURE",
+                overflows=overflow_count,
+                frames_read=frames_read,
+                gain=round(ptt_volume_multiplier, 3),
             )
 
         t_cap1 = time.monotonic()
