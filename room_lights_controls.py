@@ -1,8 +1,8 @@
-"""room_lights_controls.py — generic room "lights" level/color commands.
+"""Handle generic room-wide light level, color, and temperature commands.
 
-Handles commands that target a room's *real* light devices (via HA area_id),
-as opposed to the virtual brightness/color helper entities that
-`brightness_controls` / `color_controls` drive.
+Brightness levels use the room's configured brightness strategy, so phrasing
+does not decide whether Home Suite controls a proxy, HA area, or explicit light
+list. Color and temperature continue to target the room's HA area directly.
 
 Scope (claims only these):
     * "lights 50" / "lights to 50%" / "set the lights to 50 percent"   -> brightness
@@ -11,7 +11,7 @@ Scope (claims only these):
 
 Deliberately does NOT claim:
     * "lights off" / "lights on"        -> on_off_controls (area turn_on/off)
-    * "set brightness to X" / "color X" -> virtual brightness/color helpers
+    * "set brightness to X" / "color X" -> dedicated handlers
     * "stair light blue" (named light)  -> color_controls per-light handling
     * "dim the lights" / "brighter"     -> relative brightness (no explicit level)
 
@@ -22,14 +22,14 @@ room name); otherwise it returns None and lets normal handling continue.
 import re
 from typing import Optional, Tuple
 
-from request_context import get_area_id_for_current_request
 from color_resolver import is_known_css_color
+from home_registry import get_room
 from kelvin_controls import NAMED_TEMPS
 from on_off_controls import (
-    _extract_explicit_room_lights_target,
     _is_ok,
     _say_or_blank,
 )
+from room_brightness import apply_room_brightness, resolve_room_id
 
 # Single-word color names accepted for relaxed phrasing. All are valid CSS3
 # color names (HA's light.turn_on color_name accepts CSS3 names).
@@ -52,16 +52,17 @@ _LEVEL_RE = re.compile(r"^(\d{1,3})\s*(?:%|percent)?$", re.IGNORECASE)
 _KELVIN_RE = re.compile(r"^(\d{4,5})\s*k$", re.IGNORECASE)
 
 
-def _resolve_area(target: str) -> Optional[str]:
-    """Return the HA area_id for a 'lights' target.
+def _resolve_room(target: str) -> Optional[str]:
+    """Return the room id for a generic or explicit 'lights' target.
 
     Bare generic lights ("lights" / "the lights") -> the current request's
     scoped room area. "<room> lights" -> that room's area.
     """
     s = re.sub(r"^the\s+", "", (target or "").strip(), flags=re.IGNORECASE).strip()
     if s in ("light", "lights"):
-        return get_area_id_for_current_request()
-    return _extract_explicit_room_lights_target(s)
+        return resolve_room_id()
+    room_phrase = re.sub(r"\s+lights?$", "", s, flags=re.IGNORECASE).strip()
+    return resolve_room_id(room_phrase)
 
 
 def _parse_value(value: str) -> Optional[Tuple[str, object]]:
@@ -102,6 +103,7 @@ def handle_room_lights_controls(
     tl: str,
     call_ha_service,
     maybe_say,
+    remember_light=None,
 ) -> Optional[str]:
     t = (tl or "").strip().lower()
     if "light" not in t:
@@ -115,23 +117,29 @@ def handle_room_lights_controls(
     if not parsed:
         return None
 
-    area_id = _resolve_area(m.group("target"))
-    if not area_id:
+    room_id = _resolve_room(m.group("target"))
+    if not room_id:
         return None
 
     kind, val = parsed
     if kind == "level":
-        if val == 0:
-            ok = _is_ok(call_ha_service("light/turn_off", {"area_id": area_id}))
-        else:
-            ok = _is_ok(call_ha_service(
-                "light/turn_on", {"area_id": area_id, "brightness_pct": val}
-            ))
-    elif kind == "kelvin":
+        ok = apply_room_brightness(
+            room_id,
+            val,
+            call_ha_service=call_ha_service,
+            remember_light=remember_light,
+        )
+    else:
+        room = get_room(room_id) or {}
+        area_id = str(room.get("ha_area_id") or "").strip()
+        if not area_id:
+            return None
+
+    if kind == "kelvin":
         ok = _is_ok(call_ha_service(
             "light/turn_on", {"area_id": area_id, "color_temp_kelvin": val}
         ))
-    else:  # color
+    elif kind == "color":
         ok = _is_ok(call_ha_service(
             "light/turn_on", {"area_id": area_id, "color_name": val}
         ))

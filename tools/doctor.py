@@ -81,6 +81,7 @@ class Doctor:
     def run(self) -> int:
         self.check_local_files()
         self.check_core_config()
+        self.check_room_brightness()
         self.check_optional_config()
         if self.live:
             self.check_live_services()
@@ -128,6 +129,41 @@ class Doctor:
             "Home Suite HTTP API key",
             "configured" if self.has_value(api_key) else "missing; needed for HTTP/WebSocket clients",
         )
+
+    def check_room_brightness(self) -> None:
+        try:
+            from home_registry import ROOMS
+            from room_brightness import get_room_brightness_target
+        except Exception as exc:
+            self.add("Rooms", "WARN", "brightness strategies", f"could not load: {exc}")
+            return
+
+        for room_id, room in (ROOMS or {}).items():
+            defaults = (room or {}).get("defaults") or {}
+            configured = (
+                "brightness_target" in defaults
+                or bool(defaults.get("brightness_number"))
+                or bool(defaults.get("brightness_light"))
+            )
+            target = get_room_brightness_target(room_id)
+            label = f"{room_id} brightness"
+            if not target:
+                self.add(
+                    "Rooms",
+                    "WARN" if configured else "SKIP",
+                    label,
+                    "invalid configuration" if configured else "not configured",
+                )
+                continue
+
+            target_type = target["type"]
+            if target_type == "area":
+                detail = f"HA area {target['area_id']}"
+            elif target_type == "entities":
+                detail = "lights " + ", ".join(target["entity_ids"])
+            else:
+                detail = f"entity {target['entity_id']}"
+            self.add("Rooms", "OK", label, detail)
 
     def optional_group(self, label: str, names: list[str], *, warn_detail: Optional[str] = None) -> None:
         missing = self.missing(names)

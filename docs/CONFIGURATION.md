@@ -81,6 +81,50 @@ Create a long-lived access token from your Home Assistant user profile. Home Ass
 
 Home Suite depends heavily on Home Assistant for entity state, service calls, scenes, scripts, rooms, media players, and many homelab integrations. Good Home Assistant naming makes Home Suite dramatically easier to use: keep area names, entity names, scenes, and scripts human-readable.
 
+## Room Brightness Strategy
+
+Room-wide brightness commands use the room entry in `home_registry.py`.
+Phrasing such as “brightness 50,” “kitchen lights 50,” and “make the kitchen
+brighter” uses the same configured target.
+
+Use one proxy/helper entity:
+
+```python
+"brightness_target": {
+    "type": "entity",
+    "entity_id": "light.living_room_brightness",
+}
+```
+
+`number.*` and `input_number.*` entities are also supported. Home Suite
+uses their `set_value` service.
+
+Control all lights assigned to the room's `ha_area_id`:
+
+```python
+"brightness_target": {
+    "type": "area",
+}
+```
+
+Control only a selected set of room lights:
+
+```python
+"brightness_target": {
+    "type": "entities",
+    "entity_ids": [
+        "light.ceiling",
+        "light.floor_lamp",
+    ],
+}
+```
+
+The area strategy is convenient but intentionally opt-in because HA areas may
+contain decorative, grouped, or non-dimmable lights. Run `homesuite-doctor`
+to see each room's resolved target. Existing `brightness_number` and
+`brightness_light` keys remain supported for compatibility, but new
+configurations should use `brightness_target`.
+
 ## Home Suite HTTP API Key
 
 Set a local API key for clients that call Home Suite over HTTP/WebSocket:

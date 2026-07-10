@@ -7,10 +7,15 @@ resolved named lights. Service calls occur only after target resolution.
 """
 
 import re
-from typing import Optional, Tuple
+from typing import Optional
 
 from multi_target_utils import split_targets
-from request_context import get_room_default_for_request
+from room_brightness import (
+    apply_room_brightness,
+    apply_room_brightness_step,
+    get_room_brightness_target,
+    resolve_room_id,
+)
 
 
 def handle_brightness_controls(
@@ -87,6 +92,18 @@ def handle_brightness_controls(
 
         _NON_TARGETS = {"it", "the", "a", "that", "this", "light", "lights"}
         if _explicit_target and _explicit_target not in _NON_TARGETS:
+            room_id = resolve_room_id(_explicit_target)
+            if room_id and get_room_brightness_target(room_id):
+                if apply_room_brightness_step(
+                    room_id,
+                    step,
+                    call_ha_service=call_ha_service,
+                    states_snapshot=states_snapshot,
+                    remember_light=remember_light,
+                ):
+                    direction = "brighter" if step > 0 else "dimmer"
+                    return maybe_say(f"Making it {direction}.")
+                return None
             resolved_eid, used_ctx = resolve_light_target(_explicit_target)
 
         if not resolved_eid:
@@ -95,16 +112,19 @@ def handle_brightness_controls(
             if resolved_eid:
                 used_ctx = True
             else:
-                from request_context import get_active_room_for_request_defaults as _gard
-                _room = _gard()
-                if _room:
-                    _phrase_key = f"{_room.replace('_', ' ')} brightness"
-                    _rbl = light_phrase_overrides.get(_phrase_key)
-                    if _rbl:
-                        resolved_eid = _rbl
-                        used_ctx = True
-                if not resolved_eid:
-                    resolved_eid = light_phrase_overrides.get("living room brightness")
+                room_target = get_room_brightness_target()
+                if room_target:
+                    if apply_room_brightness_step(
+                        room_target["room_id"],
+                        step,
+                        call_ha_service=call_ha_service,
+                        states_snapshot=states_snapshot,
+                        remember_light=remember_light,
+                    ):
+                        direction = "brighter" if step > 0 else "dimmer"
+                        return maybe_say(f"Making it {direction}.")
+                    return None
+                resolved_eid = light_phrase_overrides.get("living room brightness")
 
         if resolved_eid:
             if call_ha_service(
@@ -146,6 +166,16 @@ def handle_brightness_controls(
         for t in targets:
             # PIPHONE_POSSESSIVE_STRIP
             t = re.sub(r"(?:'s|’s)$", "", (t or "").strip()).strip()
+            room_id = resolve_room_id(t)
+            if room_id and get_room_brightness_target(room_id):
+                if apply_room_brightness(
+                    room_id,
+                    val,
+                    call_ha_service=call_ha_service,
+                    remember_light=remember_light,
+                ):
+                    any_ok = True
+                continue
             phrase_key = f"{t} brightness".lower()
             if phrase_key in light_phrase_overrides:
                 eid = light_phrase_overrides[phrase_key]
@@ -181,17 +211,18 @@ def handle_brightness_controls(
     if m_global:
         val = max(0, min(100, int(m_global.group(1))))
 
-        # First, try request-local room defaults from the room registry.
-        request_brightness_number = get_room_default_for_request("brightness_number", fallback=None)
-        if request_brightness_number and entity_exists(request_brightness_number, states_snapshot):
-            if set_number_value(request_brightness_number, val):
+        # First, use the active room's configured strategy. The strategy may be
+        # a proxy entity, an HA area, or an explicit entity list.
+        request_target = get_room_brightness_target()
+        if request_target:
+            if apply_room_brightness(
+                request_target["room_id"],
+                val,
+                call_ha_service=call_ha_service,
+                remember_light=remember_light,
+            ):
                 return maybe_say(f"Brightness {val} percent.")
-
-        request_brightness_light = get_room_default_for_request("brightness_light", fallback=None)
-        if request_brightness_light:
-            if call_ha_service("light/turn_on", {"entity_id": request_brightness_light, "brightness_pct": val}):
-                remember_light(request_brightness_light)
-                return maybe_say(f"Brightness {val} percent.")
+            return None
 
         # Fall back to the legacy global default behavior if no request-local
         # brightness default applies.
@@ -211,25 +242,22 @@ def handle_brightness_controls(
     # 3) Room shorthand: "set kitchen to 40%"
     # --------------------------------------------------
     m_room = re.search(
-        r"\bset\s+(living room|kitchen|bedroom|office)\s+(?:brightness(?:es)?\s+)?(?:to\s+)?(\d{1,3})\s*%?\b",
+        r"\bset\s+([a-zA-Z0-9 \-']+?)\s+(?:brightness(?:es)?\s+)?(?:to\s+)?(\d{1,3})\s*%?\b",
         tl,
     )
     if m_room:
-        room = m_room.group(1)
+        room = m_room.group(1).strip()
         val = max(0, min(100, int(m_room.group(2))))
 
-        num_eid = brightness_numbers.get(room)
-        if num_eid and entity_exists(num_eid, states_snapshot):
-            if set_number_value(num_eid, val):
+        room_id = resolve_room_id(room)
+        if room_id and get_room_brightness_target(room_id):
+            if apply_room_brightness(
+                room_id,
+                val,
+                call_ha_service=call_ha_service,
+                remember_light=remember_light,
+            ):
                 return maybe_say(f"{room.title()} brightness {val} percent.")
-
-        phrase_key = f"{room} brightness"
-        if phrase_key in light_phrase_overrides:
-            eid = light_phrase_overrides[phrase_key]
-            if call_ha_service("light/turn_on", {"entity_id": eid, "brightness_pct": val}):
-                remember_light(eid)
-                return maybe_say(f"{room.title()} brightness {val} percent.")
-        return None
 
     # --------------------------------------------------
     # 4) Generic: "set <device> to 20%"  (brightness fallback)
@@ -291,22 +319,20 @@ def handle_brightness_controls(
 
                 targets = split_targets(raw)
 
-                # If this is exactly a room shorthand (living room/kitchen/bedroom/office),
-                # prefer the dedicated brightness number entity / overrides instead of resolver ambiguity.
+                # If this is exactly a configured room, prefer its brightness
+                # strategy instead of relying on light-name resolver ambiguity.
                 if len(targets) == 1:
                     room = targets[0].strip().lower()
-                    if room in ("living room", "kitchen", "bedroom", "office"):
-                        num_eid = brightness_numbers.get(room)
-                        if num_eid and entity_exists(num_eid, states_snapshot):
-                            if set_number_value(num_eid, val):
-                                return maybe_say(f"{room.title()} brightness {val} percent.")
-
-                        phrase_key = f"{room} brightness"
-                        if phrase_key in light_phrase_overrides:
-                            eid2 = light_phrase_overrides[phrase_key]
-                            if call_ha_service("light/turn_on", {"entity_id": eid2, "brightness_pct": val}):
-                                remember_light(eid2)
-                                return maybe_say(f"{room.title()} brightness {val} percent.")
+                    room_id = resolve_room_id(room)
+                    if room_id and get_room_brightness_target(room_id):
+                        if apply_room_brightness(
+                            room_id,
+                            val,
+                            call_ha_service=call_ha_service,
+                            remember_light=remember_light,
+                        ):
+                            return maybe_say(f"{room.title()} brightness {val} percent.")
+                        return None
 
                 any_ok = False
                 used_ctx_any = False
@@ -319,7 +345,7 @@ def handle_brightness_controls(
 
                     # Only attempt if target looks light-ish or is one of common rooms or is resolvable.
                     looks_lightish = bool(re.search(r"\b(light|lamp)\b", t))
-                    is_common_room = t.lower() in ("living room", "kitchen", "bedroom", "office")
+                    is_common_room = bool(resolve_room_id(t))
 
                     eid = None
                     used_ctx = False

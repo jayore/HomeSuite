@@ -3922,6 +3922,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
+            remember_light=_remember_light,
         )
         if room_lights_resp is not None:
             logging.info("CLAIM: room_lights_controls")

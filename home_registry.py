@@ -33,6 +33,10 @@ ROOMS: Dict[str, Dict[str, Any]] = {
         "defaults": {
             "lights": "light.living_room_brightness",
             "color_light": "light.living_room_color",
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.living_room_brightness",
+            },
             "brightness_number": None,
             "brightness_light": "light.living_room_brightness",
             "audio_output": "media_player.living_room",
@@ -91,6 +95,10 @@ ROOMS: Dict[str, Dict[str, Any]] = {
         "defaults": {
             "lights": None,
             "color_light": "light.bedroom_color",
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.bedroom_brightness",
+            },
             "brightness_number": None,
             "brightness_light": "light.bedroom_brightness",
             "audio_output": "media_player.bedroom",
@@ -119,6 +127,10 @@ ROOMS: Dict[str, Dict[str, Any]] = {
         "defaults": {
             "lights": None,
             "color_light": None,
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.kitchen_brightness",
+            },
             "brightness_number": None,
             "brightness_light": "light.kitchen_brightness",
             "audio_output": "media_player.kitchen",
@@ -177,6 +189,10 @@ ROOMS: Dict[str, Dict[str, Any]] = {
         "defaults": {
             "lights": None,
             "color_light": "light.office_color",
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.office_brightness",
+            },
             "brightness_number": None,
             "brightness_light": "light.office_brightness",
             "audio_output": "media_player.office",
@@ -541,7 +557,20 @@ def _validated_device_entry(entry: Any) -> Optional[Dict[str, str]]:
 
 def _room_to_manifest_entry(room_id: str, room: Dict[str, Any]) -> Dict[str, Any]:
     defaults = room.get("defaults") or {}
-    brightness = defaults.get("brightness_light")
+    brightness_target = defaults.get("brightness_target")
+    if not isinstance(brightness_target, dict):
+        legacy_brightness = defaults.get("brightness_number") or defaults.get("brightness_light")
+        brightness_target = (
+            {"type": "entity", "entity_id": legacy_brightness}
+            if isinstance(legacy_brightness, str) and legacy_brightness.strip()
+            else None
+        )
+
+    brightness = None
+    if isinstance(brightness_target, dict) and brightness_target.get("type") == "entity":
+        candidate = brightness_target.get("entity_id")
+        if isinstance(candidate, str) and candidate.strip():
+            brightness = candidate.strip()
 
     scenes_raw = room.get("scenes") or []
     devices_raw = room.get("devices") or []
@@ -553,6 +582,7 @@ def _room_to_manifest_entry(room_id: str, room: Dict[str, Any]) -> Dict[str, Any
         "ha_area_id":         room.get("ha_area_id"),
         "media_players":      _media_players_for_room(room),
         "brightness_entity":  brightness if isinstance(brightness, str) and brightness.strip() else None,
+        "brightness_target":  brightness_target,
         "scenes":             [s for s in (_validated_scene_entry(e) for e in scenes_raw) if s],
         "devices":            [d for d in (_validated_device_entry(e) for e in devices_raw) if d],
     }
