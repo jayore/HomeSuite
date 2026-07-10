@@ -23,6 +23,8 @@ Most integrations are optional. Leave service-specific values blank in `private_
 Avoid placeholder URLs for services you do not run. A blank value tells Home Suite and `homesuite-doctor` that the service is intentionally not configured.
 
 For a service-by-service setup guide, see [INTEGRATIONS.md](INTEGRATIONS.md).
+For account types, OAuth flows, key acquisition, speech-provider choices, and
+security guidance, see [CREDENTIALS.md](CREDENTIALS.md).
 
 ## Minimum Useful Setup
 

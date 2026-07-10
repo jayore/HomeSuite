@@ -1,6 +1,6 @@
 # Integrations
 
-Home Suite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `homesuite-doctor` when you want a quick read on what is ready.
+Home Suite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `homesuite-doctor` when you want a quick read on what is ready. For account requirements, OAuth flows, credential acquisition, and supported speech alternatives, see [CREDENTIALS.md](CREDENTIALS.md).
 
 As a rule, start with Home Assistant integrations when they expose enough state and control. Add direct API credentials only when Home Suite can do something meaningfully richer with them, such as qBittorrent download actions, Seerr request summaries, Plex library matching, or Spotify library operations.
 

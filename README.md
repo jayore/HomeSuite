@@ -164,7 +164,7 @@ Inside `pptest`, type a phrase such as `service status`. For a single reproducib
 
 The installer creates shortcuts in `$HOME/.local/bin`, including `homesuite-doctor`, `pptest`, `pplive`, `ppchattest`, and `ppchat`.
 
-If you are new to the project, start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), service-specific setup lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), and voice-appliance setup lives in [docs/WAKEWORD.md](docs/WAKEWORD.md).
+If you are new to the project, start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), general settings live in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), account and key setup lives in [docs/CREDENTIALS.md](docs/CREDENTIALS.md), service-specific behavior lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), and voice-appliance setup lives in [docs/WAKEWORD.md](docs/WAKEWORD.md).
 
 ## Configuration Model
 
@@ -221,6 +221,7 @@ More docs:
 * [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
 * [docs/INSTALL.md](docs/INSTALL.md)
 * [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+* [docs/CREDENTIALS.md](docs/CREDENTIALS.md)
 * [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 * [docs/FEATURES.md](docs/FEATURES.md)
 * [docs/COMMANDS.md](docs/COMMANDS.md)
