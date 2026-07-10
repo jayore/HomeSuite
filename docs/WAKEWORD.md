@@ -117,6 +117,9 @@ AUDIO_INPUT_PROFILE = {
     "device_index": None,
     "sample_rate": 48000,
     "channels": 1,
+    # PortAudio buffering policy. Keep "low" unless logs report input overflow;
+    # "high" is still only tens of milliseconds on many USB microphones.
+    "stream_latency": "low",
     "strict_device_match": True,
 
     # Optional ALSA mixer enforcement. Values and control names are
@@ -144,6 +147,14 @@ When `mixer_value` is configured, Home Suite applies it when the stream opens.
 `verify_interval_sec` enables a guardian that restores the value if another
 audio manager changes it. For a new microphone, create a new profile instead of
 changing assumptions throughout the wake-word code.
+
+`WAKEWORD_ENGINE_OPENWAKEWORD_IDLE_TICK` reports `status_count`,
+`last_status`, and `cursor_drops`. A rising `status_count` with
+`last_status='input overflow'` means PortAudio lost samples before they entered
+the ring. Try `stream_latency = "high"` for that microphone and verify the
+counter remains at zero across complete wakeword interactions. `cursor_drops`
+instead means a scoring/capture consumer fell more than the retained ring
+behind.
 
 ### Input and output sample rates are separate
 
@@ -221,6 +232,30 @@ endpointing for diagnosis.
 
 The PTT caller does not enable the rolling endpoint or cue guard. Its existing
 consecutive-silence behavior remains unchanged.
+
+## Rearm After a Command
+
+By default, Home Suite waits up to one second for a completion/error cue and
+suppresses wakeword scoring while any sound effect plays:
+
+```python
+WAKEWORD_SUPPRESS_DURING_SFX = True
+WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 1.0
+```
+
+On a device whose completion cue does not false-trigger its selected model, a
+faster policy can preserve the cue while accepting another wakeword during its
+tail:
+
+```python
+WAKEWORD_SUPPRESS_DURING_SFX = False
+WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 0.0
+```
+
+The normal rearm floor, model deactivation frames, and debounce still apply.
+Validate repeated commands and watch `WAKEWORD_REARM_READY`,
+`WAKEWORD_TRIGGER_ARMED`, false detections, and PortAudio status counters
+before keeping the faster policy.
 
 ## Realtime Transcription and Fallback
 

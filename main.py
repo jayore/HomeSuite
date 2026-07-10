@@ -262,6 +262,22 @@ def _wakeword_suppress_during_sfx() -> bool:
     return _pref_bool("WAKEWORD_SUPPRESS_DURING_SFX", True)
 
 
+def _wakeword_barge_in_enabled() -> bool:
+    """Return whether local wakeword TTS may be interrupted by a new detection."""
+    return (
+        _pref_bool("WAKEWORD_BARGE_IN_ENABLED", False)
+        and _assistant_audio_output_mode() == "local"
+    )
+
+
+def _wakeword_async_tts_enabled() -> bool:
+    """Keep wakeword response speech off the detector thread when enabled."""
+    return (
+        _pref_bool("WAKEWORD_ASYNC_TTS_ENABLED", False)
+        and _assistant_audio_output_mode() == "local"
+    )
+
+
 # =========================
 # RT_WARMUP
 # Realtime streaming STT warmup helpers
@@ -2021,7 +2037,7 @@ def _wakeword_suppress_reason() -> str:
         pass
 
     try:
-        if bool(globals().get("is_speaking")):
+        if bool(globals().get("is_speaking")) and not _wakeword_barge_in_enabled():
             return "speaking"
     except Exception:
         pass
@@ -2071,6 +2087,10 @@ def _handle_wakeword_detected(**kwargs) -> None:
     )
     global _WAKEWORD_DETECTION_IN_PROGRESS
     try:
+        if _wakeword_barge_in_enabled() and bool(globals().get("is_speaking")):
+            logging.info("WAKEWORD_BARGE_IN_STOP_TTS")
+            stop_speaking_now()
+
         _WAKEWORD_DETECTION_IN_PROGRESS = True
         logging.info(
             "WAKEWORD_DETECTED_CALLBACK phase=stream output_mode=%r output_room=%r has_frame_reader=%s",
@@ -2115,7 +2135,10 @@ def _handle_wakeword_detected(**kwargs) -> None:
         # With AGC off and a stable input chain we no longer need a long
         # settle window for reverb. The drain max protects against runaway
         # SFX (which should never happen) without dragging out idle UX.
-        sfx_drain_max_sec = 1.0
+        sfx_drain_max_sec = max(
+            0.0,
+            min(3.0, _pref_float("WAKEWORD_REARM_SFX_DRAIN_MAX_SEC", 1.0)),
+        )
         # Post-SFX settle is now zero - the rearm completes as soon as
         # SFX playback ends. Reverb is no longer retriggering wake word.
         sfx_settle_sec = 0.0
@@ -2155,10 +2178,12 @@ def _handle_wakeword_detected(**kwargs) -> None:
             pass
         _WAKEWORD_DETECTION_IN_PROGRESS = False
         logging.info(
-            "WAKEWORD_REARM_READY total_sec=%.2f sfx_seen=%s min_floor_sec=%.2f",
+            "WAKEWORD_REARM_READY total_sec=%.2f sfx_seen=%s min_floor_sec=%.2f "
+            "sfx_drain_max_sec=%.2f",
             total,
             sfx_seen,
             min_delay,
+            sfx_drain_max_sec,
         )
 
 
@@ -3491,6 +3516,29 @@ def continue_listening():
     # Deprecated: main() owns the off-hook session loop.
     return
 
+
+def _speak_text_for_trigger(text: str, trigger: str) -> bool:
+    """Speak synchronously, or launch wakeword-only local TTS in a daemon.
+
+    Returns True when speech was launched asynchronously. Callers use that to
+    avoid starting a completion tone underneath the spoken response.
+    """
+    trigger_name = str(trigger or "").strip().lower()
+    if trigger_name == "wakeword" and _wakeword_async_tts_enabled():
+        thread = threading.Thread(
+            target=speak_text,
+            args=(text,),
+            daemon=True,
+            name="wakeword_tts",
+        )
+        thread.start()
+        logging.info("WAKEWORD_TTS_ASYNC_START chars=%s", len(text or ""))
+        return True
+
+    speak_text(text)
+    return False
+
+
 def process_audio(audio_file: str, *, trigger: str = "ptt"):
     global is_processing
 
@@ -3550,9 +3598,11 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         device_response = process_device_commands(text)
 
         logging.info(f"DEVICE_RESPONSE: {device_response!r} ACTION_OCCURRED={command_dispatch._ACTION_OCCURRED}")
+        async_response_started = False
+
         # Speak only if we actually have words to say (time/weather or confirmations enabled)
         if handset_up and device_response:
-            speak_text(device_response)
+            async_response_started = _speak_text_for_trigger(device_response, trigger)
             # Bridge the deterministic/AI seam: inject informational responses into
             # conversation_history so follow-up AI queries have context
             # ("what time is it there?" after a deterministic weather response).
@@ -3590,7 +3640,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
                     last_chatgpt_ts = now_ts
                     action_result = ActionResult.CHATGPT
                     if handset_up:
-                        speak_text(response)
+                        async_response_started = _speak_text_for_trigger(response, trigger)
 
         # Event log: record every voiced command with outcome
         try:
@@ -3647,7 +3697,11 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
 
             # Success/handled tone (formerly the 'finish' tone).
             # We only play this when something was actually handled (DEVICE or CHATGPT).
-            if action_result in (ActionResult.DEVICE, ActionResult.CHATGPT) and not _looks_like_failure_response(device_response):
+            if (
+                action_result in (ActionResult.DEVICE, ActionResult.CHATGPT)
+                and not _looks_like_failure_response(device_response)
+                and not async_response_started
+            ):
                 try:
                     logging.info("SUCCESS_TONE_PLAY")
                 except Exception:

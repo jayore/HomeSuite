@@ -200,6 +200,7 @@ def run_openwakeword(listener) -> None:
             channels=channels,
             frame_ms=frame_ms,
             ring_ms=max(4000, listener._get_pretrigger_buffer_ms() + 1000),
+            stream_latency=profile.get("stream_latency", "low"),
             logger=listener.log,
         )
         listener._owned_source = source
@@ -214,10 +215,11 @@ def run_openwakeword(listener) -> None:
 
         listener.log.info(
             "WAKEWORD_ENGINE_OPENWAKEWORD_READY model=%r threshold=%.3f vad_threshold=%.3f "
-            "debounce_floor_sec=%.2f sd_dev=%s input_sr=%s target_sr=%s frame_ms=%s "
+            "debounce_floor_sec=%.2f sd_dev=%s input_sr=%s target_sr=%s frame_ms=%s latency=%r "
             "activation_window=%s deactivation_threshold=%.3f deactivation_frames=%s",
             selected_label, threshold, vad_threshold, debounce_sec, device_index,
-            sample_rate, target_sample_rate, frame_ms, activation_window,
+            sample_rate, target_sample_rate, frame_ms,
+            profile.get("stream_latency", "low"), activation_window,
             deactivation_threshold, deactivation_frames,
         )
         listener.log.info(

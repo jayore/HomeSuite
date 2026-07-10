@@ -34,6 +34,7 @@ _DEFAULT_PROFILE: Dict[str, Any] = {
     "device_index": None,
     "sample_rate": 48000,
     "channels": 1,
+    "stream_latency": "low",
     "strict_device_match": False,
     "alsa_card": None,
     "mixer_control": None,
@@ -101,6 +102,7 @@ def get_audio_input_profile() -> Dict[str, Any]:
         "device_index": "PIPHONE_MIC_DEVICE_INDEX",
         "sample_rate": "PIPHONE_MIC_SAMPLE_RATE",
         "channels": "PIPHONE_MIC_CHANNELS",
+        "stream_latency": "PIPHONE_MIC_STREAM_LATENCY",
         "alsa_card": "PIPHONE_MIC_ALSA_CARD",
         "mixer_control": "PIPHONE_MIC_MIXER_CONTROL",
         "mixer_value": "PIPHONE_MIC_MIXER_VALUE",
@@ -149,6 +151,14 @@ def get_audio_input_profile() -> Dict[str, Any]:
 
     profile["strict_device_match"] = _as_bool(profile.get("strict_device_match"))
     profile["device_match"] = str(profile.get("device_match") or "").strip()
+    latency = profile.get("stream_latency", "low")
+    if isinstance(latency, str) and latency.strip().lower() in ("low", "high"):
+        profile["stream_latency"] = latency.strip().lower()
+    else:
+        try:
+            profile["stream_latency"] = max(0.0, float(latency))
+        except (TypeError, ValueError):
+            profile["stream_latency"] = "low"
     profile["aec_mode"] = str(profile.get("aec_mode") or "none").strip().lower()
     return profile
 
@@ -160,6 +170,7 @@ def profile_for_log(profile: Dict[str, Any]) -> Dict[str, Any]:
         "device_index",
         "sample_rate",
         "channels",
+        "stream_latency",
         "strict_device_match",
         "alsa_card",
         "mixer_control",

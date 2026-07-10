@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 class _FakeStream:
     def __init__(self, **kwargs):
+        self.kwargs = kwargs
         self.callback = kwargs["callback"]
         self.started = False
         self.closed = False
@@ -76,6 +77,20 @@ class ContinuousAudioSourceTests(unittest.TestCase):
         )
         source.stop()
         self.assertTrue(sounddevice.stream.closed)
+
+    def test_stream_uses_profile_latency(self):
+        from wakeword_audio_source import ContinuousAudioSource
+
+        sounddevice = _FakeSoundDevice()
+        source = ContinuousAudioSource(
+            sounddevice,
+            device=3,
+            sample_rate=48000,
+            stream_latency="high",
+        )
+        source.start()
+        self.assertEqual(sounddevice.stream.kwargs["latency"], "high")
+        source.stop()
 
 
 class VadEndpointTests(unittest.TestCase):

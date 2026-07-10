@@ -146,6 +146,7 @@ AUDIO_INPUT_PROFILE = {
     "device_index": None,
     "sample_rate": 48000,
     "channels": 1,
+    "stream_latency": "low",
     "strict_device_match": False,
     "alsa_card": None,
     "mixer_control": None,
@@ -287,6 +288,13 @@ WAKEWORD_NEAR_MISS_MIN_SCORE = 0.25
 # captures. Successful commands still get the normal success behavior.
 WAKEWORD_ERROR_TONE_ENABLED = True
 
+# Wakeword-only response behavior. Async local TTS lets the detector resume
+# while a spoken answer plays; a new wakeword detection can then terminate the
+# local player before capturing the replacement command. Defaults stay off so
+# PTT and existing wakeword installations retain synchronous speech.
+WAKEWORD_ASYNC_TTS_ENABLED = False
+WAKEWORD_BARGE_IN_ENABLED = False
+
 # Whether the wakeword listener should be suppressed while any UI sound
 # (start chime, finish chime, error tone) is playing.
 # Default True is the conservative behavior: prevents OWW from scoring on
@@ -296,6 +304,10 @@ WAKEWORD_ERROR_TONE_ENABLED = True
 # but allows phantom triggers IF a chime/tone happens to score above the
 # wake-word threshold (unlikely with custom phrase models, but possible).
 WAKEWORD_SUPPRESS_DURING_SFX = True
+# Maximum time the interaction callback waits for a completion/error cue before
+# releasing the detector. Devices that tolerate scoring during the cue tail can
+# set this to zero alongside WAKEWORD_SUPPRESS_DURING_SFX=False.
+WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 1.0
 
 # Hardware: whether this device has a physical handset wired to GPIO.
 # Set False on devices that have no handset (e.g. the wakeword-only Pi 4 rig,

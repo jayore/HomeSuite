@@ -48,6 +48,7 @@ class ContinuousAudioSource:
         channels: int = 1,
         frame_ms: int = 10,
         ring_ms: int = 4000,
+        stream_latency="low",
         logger=None,
     ):
         self.sd = sd_module
@@ -57,6 +58,7 @@ class ContinuousAudioSource:
         self.frame_ms = int(frame_ms)
         self.frame_samples = max(1, int(round(self.sample_rate * self.frame_ms / 1000.0)))
         self.ring_frames = max(20, int(round(ring_ms / float(self.frame_ms))))
+        self.stream_latency = stream_latency
         self.log = logger
 
         self._ring = deque(maxlen=self.ring_frames)
@@ -82,7 +84,7 @@ class ContinuousAudioSource:
             channels=self.channels,
             dtype="int16",
             blocksize=self.frame_samples,
-            latency="low",
+            latency=self.stream_latency,
             callback=self._callback,
         )
         self._stream.start()

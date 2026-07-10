@@ -35,6 +35,11 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # WAKEWORD_STREAM_ENDPOINT_MIN_SILENCE_RATIO = 0.70
 # WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS = 80
 
+# Fast rearm for devices whose completion cue does not trigger their model.
+# This keeps the cue unchanged but permits a new wakeword during its tail.
+# WAKEWORD_SUPPRESS_DURING_SFX = False
+# WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 0.0
+
 # If a handset needs a slight delay before the chime so it reaches your ear.
 # START_CHIME_DELAY_SECONDS = 0.0
 
@@ -74,6 +79,7 @@ usually describes one specific Pi, room, audio device, or speaker target.
 #     "device_index": None,
 #     "sample_rate": 48000,
 #     "channels": 1,
+#     "stream_latency": "low",  # try "high" if source status reports overflow
 #     "strict_device_match": True,
 #     "alsa_card": None,
 #     "mixer_control": None,
@@ -85,6 +91,7 @@ usually describes one specific Pi, room, audio device, or speaker target.
 #     "command_noise_suppression_level": 0,
 #     "command_auto_gain_dbfs": 0,
 #     "command_volume_multiplier": 1.0,
+#     "ptt_volume_multiplier": 1.0,
 #     "aec_mode": "hardware",  # use "none" unless the mic provides AEC
 # }
 
