@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""Send a command from a satellite device to the HomeSuite brain HTTP API.
+
+The CLI builds source, origin, and room metadata compatible with
+``RequestContext`` and posts one JSON command to ``unified_server``. An optional
+API key can come from an argument, environment alias, or local key file. This
+tool is a transport client and performs no local intent routing or device action.
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,14 @@
+"""Build and expose per-request source and room context.
+
+Every command can carry an origin (voice, HTTP, Telegram, or another client),
+a concrete source device, and an effective target room. The runtime sets one
+``RequestContext`` while dispatching a command so lower-level handlers can
+choose room defaults without receiving source metadata in every function call.
+
+The module-level current context is process-local and short-lived. Callers must
+clear it after dispatch; it is not persistent conversation state.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -16,6 +27,7 @@ from source_room_state import get_current_room as _get_remembered_room
 
 @dataclass(frozen=True)
 class RequestContext:
+    """Resolved source identity and room policy for one command."""
     source_id: Optional[str] = None
     source_type: Optional[str] = None
     origin: Optional[str] = None

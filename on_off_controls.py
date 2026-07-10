@@ -1,3 +1,14 @@
+"""Handle deterministic on, off, toggle, and runnable-entity commands.
+
+Targets may be explicit entities, configured aliases, or a room's verified
+Home Assistant area. Generic room lights are resolved through request context;
+named devices must resolve through the injected entity resolver. An unresolved
+phrase returns ``None`` and never becomes a fabricated entity ID.
+
+The handler is intentionally limited to binary actions. Brightness, color, and
+media transport are claimed by their more specific modules.
+"""
+
 import re
 import os
 
@@ -99,6 +110,7 @@ def handle_on_off_controls(
     maybe_say,
     resolve_device_entity,
 ) -> Optional[str]:
+    """Claim and execute explicit binary device or room-area commands."""
     """
     Handles:
         - "turn on <thing>"
@@ -265,6 +277,7 @@ def handle_toggle_controls(
     maybe_say,
     resolve_device_entity,
 ) -> Optional[str]:
+    """Toggle one verified target when Home Assistant exposes toggle semantics."""
     """
     Handles "toggle <thing>" — flips the entity to the opposite state via
     HA's native `<domain>/toggle` service. Atomic; no state read needed.

@@ -1,3 +1,12 @@
+"""Resolve a transcript into device action, conversation, or fallback output.
+
+This module is the policy layer after transcription. It gives deterministic
+device handlers the first appropriate opportunity, delegates conversational
+requests to ChatGPT, and returns a normalized ``InteractionResult`` describing
+both user-facing text and whether a real action occurred. Trigger mechanics
+such as PTT and wakeword capture deliberately stay outside this module.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -7,6 +16,7 @@ from dataclasses import dataclass
 
 @dataclass
 class InteractionResult:
+    """Outcome consumed by the runtime's tone, speech, and logging decisions."""
     handled: bool
     action_occurred: bool
     response_text: str
@@ -216,6 +226,7 @@ def _make_text_confirmation(text: str) -> str:
 
 
 def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
+    """Route one normalized transcript and report text plus action semantics."""
     text = _clean_text(text)
     if not text:
         return InteractionResult(

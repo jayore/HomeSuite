@@ -1,3 +1,12 @@
+"""Bounded HTTP clients for homelab services not represented fully in HA.
+
+Each client reads credentials from private configuration, uses short request
+timeouts, and converts transport/API failures into ``DirectResult`` rather than
+raising through command dispatch. Convenience functions create short-lived
+clients for qBittorrent, Seerr, and Uptime Kuma and return normalized snapshots
+to :mod:`homelab_controls`.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,12 +40,14 @@ def _json_get(url: str, path: str, *, headers: Optional[dict] = None) -> Any:
 
 @dataclass
 class DirectResult:
+    """Value-or-error envelope returned across direct service boundaries."""
     ok: bool
     value: Any = None
     error: Optional[str] = None
 
 
 class QBittorrentClient:
+    """Authenticate to qBittorrent and expose the limited supported operations."""
     def __init__(self) -> None:
         self.url = _secret("QBITTORRENT_URL")
         self.username = _secret("QBITTORRENT_USERNAME")
@@ -160,6 +171,7 @@ def summarize_torrents(torrents: List[Dict[str, Any]], *, limit: int = 5) -> Dic
 
 
 class SeerrClient:
+    """Read request status from a configured Seerr-compatible server."""
     def __init__(self) -> None:
         self.url = _secret("SEERR_URL")
         self.api_key = _secret("SEERR_API_KEY")
@@ -219,6 +231,7 @@ def seerr_request_title(request: Dict[str, Any]) -> str:
 
 
 class UptimeKumaClient:
+    """Read monitor and heartbeat data from the configured Uptime Kuma API."""
     def __init__(self) -> None:
         self.url = _secret("UPTIME_KUMA_URL")
         self.status_page_slug = _secret("UPTIME_KUMA_STATUS_PAGE_SLUG", "home")

@@ -1,3 +1,14 @@
+"""Resolve fuzzy movie/show descriptions before Plex library matching.
+
+When Plex candidates are supplied, the model may select only from that library
+result set and the caller validates the returned candidate. A pure-description
+fallback can propose a title only when it reports high confidence; the Plex
+control layer must still search the configured server before playback.
+
+Positive and negative in-process caches avoid repeated model calls for the same
+normalized description.
+"""
+
 from __future__ import annotations
 
 import json
@@ -99,6 +110,7 @@ def resolve_plex_description(
     openai_client,
     candidates: Optional[List[dict]] = None,
 ) -> Optional[dict]:
+    """Resolve a fuzzy description, preferring grounded Plex candidates."""
     """
     Resolve a fuzzy movie/show description to {"title", "kind"}.
 

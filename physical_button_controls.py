@@ -1,3 +1,11 @@
+"""Translate configured GPIO button gestures into serialized HomeSuite commands.
+
+The pigpio callbacks enqueue edge events and return quickly. A worker thread
+handles debounce, press/hold/repeat state, handset policy, and command execution
+outside pigpio's callback thread. Configuration comes from ``app_config`` and
+the subsystem remains inert unless physical buttons are enabled.
+"""
+
 from __future__ import annotations
 
 import logging

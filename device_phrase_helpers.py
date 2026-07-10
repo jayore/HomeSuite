@@ -1,8 +1,17 @@
+"""Sanitize spoken device phrases and resolve only verified Home Assistant IDs.
+
+The helpers remove filler/punctuation, apply device-scoped phonetic repairs,
+and compare normalized phrases against configured aliases or real Home
+Assistant state. Resolution returns ``None`` when evidence is insufficient;
+callers must not invent an entity ID from an unresolved phrase.
+"""
+
 from typing import Callable, Dict, Optional, Tuple
 import re
 
 
 def sanitize_device_phrase(device: str, *, logger=None) -> str:
+    """Normalize a device phrase and apply configured device-only repairs."""
     d = (device or "").strip().lower()
 
     # Remove filler words

@@ -1,3 +1,14 @@
+"""Small Home Assistant REST and WebSocket client boundary.
+
+The runtime configures this module once with its Home Assistant URL and token.
+Command modules use the service and state helpers instead of constructing HTTP
+requests themselves. Registry lookups are cached briefly because area, device,
+and entity metadata changes far less often than entity state.
+
+Functions return explicit failure values and log transport errors; callers are
+responsible for deciding whether a failed action should be spoken to the user.
+"""
+
 import json
 import logging
 import time

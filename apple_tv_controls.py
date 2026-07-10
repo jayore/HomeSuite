@@ -1,3 +1,11 @@
+"""Handle Apple TV navigation, transport, and seek commands.
+
+Commands are sent through Home Assistant to the configured Apple TV remote or
+media-player entity. Seek requests derive their target from the latest state
+attributes, while navigation repeats are debounced to avoid accidental command
+bursts. Content discovery and Plex session startup live in other modules.
+"""
+
 import re
 import time
 from typing import Optional
@@ -43,6 +51,7 @@ def handle_apple_tv_controls(
     default_skip_seconds: int,
     get_fresh_state=None,
 ) -> Optional[str]:
+    """Execute a recognized Apple TV remote, transport, or seek operation."""
     """
     Handles Apple TV seek / transport commands.
 

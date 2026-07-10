@@ -1,4 +1,15 @@
-"""Device-specific microphone selection and capture-level enforcement."""
+"""Resolve microphone profiles and keep hardware capture settings stable.
+
+Profiles allow each HomeSuite device to select a microphone by index or name,
+declare its native sample rate/channel count, and optionally enforce an ALSA
+capture control. Values come from device-local preferences with environment
+overrides, then fall back to conservative defaults. Secrets do not belong here.
+
+``CaptureSettingsGuardian`` periodically rechecks mutable mixer state so a
+reboot, USB reconnect, or external mixer change does not silently undo a
+calibrated level. Both wakeword and PTT callers may use profile selection, but
+each capture path decides independently which preprocessing options to enable.
+"""
 
 from __future__ import annotations
 
@@ -58,6 +69,7 @@ def _env_value(name: str) -> Optional[str]:
 
 
 def get_audio_input_profile() -> Dict[str, Any]:
+    """Return the effective profile after local preference and env overrides."""
     """Return the active profile with environment overrides applied."""
     profile = dict(_DEFAULT_PROFILE)
     try:
@@ -159,6 +171,7 @@ def profile_for_log(profile: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def pick_sounddevice_input_index(sd_module, profile: Optional[Dict[str, Any]] = None) -> int:
+    """Resolve a stable PortAudio input index from an explicit index or name."""
     profile = profile or get_audio_input_profile()
     explicit = profile.get("device_index")
     if explicit is not None and str(explicit).strip() != "":
@@ -222,6 +235,7 @@ def enforce_capture_settings(
     reason: str = "runtime",
     force: bool = False,
 ) -> bool:
+    """Apply and verify the profile's ALSA mixer value when one is configured."""
     """Apply and verify the configured hardware capture level when present."""
     profile = profile or get_audio_input_profile()
     log = logger or logging.getLogger(__name__)
@@ -262,6 +276,7 @@ def enforce_capture_settings(
 
 
 class CaptureSettingsGuardian:
+    """Periodically restore a configured mixer value in a daemon thread."""
     """Reassert a hardware capture level if another audio manager changes it."""
 
     def __init__(self, profile: Optional[Dict[str, Any]] = None, *, logger=None):

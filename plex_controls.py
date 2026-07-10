@@ -1,3 +1,15 @@
+"""Resolve spoken video requests against Plex and start a real client session.
+
+The module searches the configured Plex server, expands title/ordinal variants,
+selects an existing movie or episode, creates a play queue, and asks a
+discoverable Plex client to play it. Fuzzy description assistance may choose
+only from candidates returned by Plex, preventing invented library titles.
+
+``handle_plex_controls`` claims watch-style requests only after extracting a
+title. Transport controls for an already-playing Apple TV session live in
+``apple_tv_controls``.
+"""
+
 import re
 import logging
 from typing import Optional, Dict, Any, List, Tuple
@@ -115,6 +127,8 @@ def _extract_plex_search_keywords(query: str) -> str:
     meaningful = [w for w in words if w not in _PLEX_SEARCH_NOISE and len(w) > 1]
     return " ".join(meaningful[:6])
 
+
+# Library search and candidate ranking
 
 def _plex_hub_search_candidates(
     *,
@@ -1013,6 +1027,8 @@ def _plex_search_best_title(
 
 
 
+# Play-queue construction and client delivery
+
 def _plex_create_playqueue(
     *,
     plex_url: str,
@@ -1210,6 +1226,8 @@ def _plex_play_on_client(
         logging.error(f"Plex playMedia(client) failed {r.status_code}: {r.text[:500]}")
         return False
     return True
+
+# Public dispatch entry point
 
 def handle_plex_controls(
     *,

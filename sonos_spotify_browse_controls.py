@@ -1,3 +1,11 @@
+"""Resolve Spotify play requests through Spotify search and Sonos browse data.
+
+Typed play language is parsed into playlist, artist, album, or track intent.
+Configured pinned playlists are tried first, followed by Spotify Web API search
+and Home Assistant Sonos ``browse_media`` matching. Playback uses only returned
+or configured media identifiers and the caller's already-resolved Sonos entity.
+"""
+
 import re
 import logging
 from typing import Optional, Dict, Any, List

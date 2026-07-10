@@ -1,3 +1,16 @@
+"""Answer and execute supported homelab operations from spoken commands.
+
+Most status answers are assembled from the supplied Home Assistant state
+snapshot and ``HOMELAB_SERVICES`` entity mappings. Operations that require data
+or mutations unavailable through Home Assistant delegate to the narrow clients
+in :mod:`homelab_clients`, such as pausing completed torrents or reading Uptime
+Kuma monitors.
+
+The public handler claims only explicit homelab, storage, download, service,
+network, request, or camera language. Missing integrations produce bounded
+status text rather than guessed values.
+"""
+
 from __future__ import annotations
 
 import re
@@ -147,6 +160,8 @@ def _join(parts: Iterable[Optional[str]]) -> str:
         return vals[0]
     return ", ".join(vals[:-1]) + ", and " + vals[-1]
 
+
+# Download and qBittorrent status/actions
 
 def _qb_counts(states: Dict[str, dict], cfg: Optional[dict]) -> Dict[str, Optional[str]]:
     ents = _entities(cfg, "qbittorrent")
@@ -302,6 +317,8 @@ def _pause_completed_response(t: str) -> Optional[str]:
         return "qBittorrent has no completed downloads to pause."
     return "I cannot reach qBittorrent directly right now, so I did not pause anything."
 
+
+# Network and Uptime Kuma health
 
 def _internet_response(t: str, states: Dict[str, dict], cfg: Optional[dict]) -> Optional[str]:
     if not re.search(r"\b(internet|speedtest|network speed|connection speed)\b", t):
@@ -461,6 +478,8 @@ def _sentence_join(parts: Iterable[Optional[str]]) -> str:
         return ""
     return ". ".join(vals) + "."
 
+
+# Storage, media requests, and camera state
 
 def _synology_volume_notes(states: Dict[str, dict], ents: Dict[str, str], *, include_temp: bool = False) -> list[str]:
     notes = []
@@ -750,6 +769,8 @@ def _camera_response(t: str, states: Dict[str, dict], cfg: Optional[dict]) -> Op
     return "No camera alerts are active."
 
 
+# Aggregate summary and public dispatch entry point
+
 def _homelab_summary(states: Dict[str, dict], cfg: Optional[dict]) -> str:
     q = _qb_counts(states, cfg)
     ov = _entities(cfg, "overseerr")
@@ -844,6 +865,7 @@ def handle_homelab_controls(
     maybe_say: Optional[MaybeSay] = None,
     service_config: Optional[dict] = None,
 ) -> Optional[str]:
+    """Route one homelab query/action and return spoken text when claimed."""
     t = _norm(tl)
     if not t:
         return None

@@ -1,4 +1,14 @@
-"""Continuously drained microphone source with independent frame cursors."""
+"""Continuously drain one microphone stream into a bounded frame ring.
+
+Wakeword scoring and post-detection command capture need to observe the same
+physical stream at different positions. ``ContinuousAudioSource`` therefore
+assigns every fixed-duration frame a sequence number and lets each consumer use
+an independent ``AudioFrameCursor``. A slow cursor advances to the oldest
+retained frame and records the number it missed instead of blocking PortAudio.
+
+The callback performs only framing and ring insertion; model inference and
+command processing stay off the real-time audio thread.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +21,7 @@ import numpy as np
 
 
 class AudioFrameCursor:
+    """Track one consumer's next sequence within a ``ContinuousAudioSource``."""
     def __init__(self, source: "ContinuousAudioSource", next_sequence: int):
         self._source = source
         self.next_sequence = int(next_sequence)
@@ -20,6 +31,7 @@ class AudioFrameCursor:
         return self._source._read_for_cursor(self, timeout=timeout)
 
     def seek_live(self) -> int:
+        """Discard buffered history and resume at the next frame produced."""
         self.next_sequence = self._source.next_live_sequence()
         return self.next_sequence
 
@@ -123,6 +135,7 @@ class ContinuousAudioSource:
             return int(self._sequence)
 
     def create_cursor(self, *, next_sequence: Optional[int] = None, live: bool = True) -> AudioFrameCursor:
+        """Create a cursor at an explicit sequence, the live edge, or ring start."""
         with self._condition:
             if next_sequence is None:
                 if live or not self._ring:
@@ -154,6 +167,7 @@ class ContinuousAudioSource:
         return None
 
     def snapshot(self, *, end_sequence: Optional[int] = None, frame_count: Optional[int] = None):
+        """Copy retained frames for pre-trigger handoff or diagnostics."""
         with self._condition:
             items = list(self._ring)
         if end_sequence is not None:

@@ -1,11 +1,16 @@
-import re
+"""Repository-wide, non-secret HomeSuite defaults and spoken-name mappings.
 
-# app_config.py
-# Non-secret user preferences for PiPhone
-#
-# Conventions:
-# - Any dict keyed by spoken phrases should use _norm_key("...") for robustness.
-# - Plex titles in PLEX_TITLE_ALIASES MUST match Plex library titles exactly.
+This file defines portable behavior shared by installations. Machine-specific
+audio, wakeword, and hardware choices belong in ``local_prefs.py``; credentials
+belong in ``private_config.py``. Environment variables may override selected
+runtime values where the consuming module documents that behavior.
+
+Dictionary keys representing spoken phrases should use ``_norm_key``. Values
+that name external library objects, such as Plex titles, must preserve the
+exact spelling expected by that service.
+"""
+
+import re
 
 # =============================
 # Normalizers / helpers

@@ -1,3 +1,11 @@
+"""Route spoken play-by-name requests to a configured Sonos/Spotify target.
+
+The handler extracts an optional room and typed media intent, checks pinned
+playlists first where appropriate, then delegates catalog resolution to the
+injected Spotify resolvers. It starts only returned/configured URIs and leaves
+generic transport or volume language to their dedicated handlers.
+"""
+
 import re
 import logging
 from typing import Optional, Dict, Tuple, Callable

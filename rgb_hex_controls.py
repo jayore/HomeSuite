@@ -1,3 +1,10 @@
+"""Handle explicit RGB tuples and hexadecimal light-color commands.
+
+This narrow parser converts unambiguous numeric color notation and applies it
+only after resolving a real light entity. Named colors and white temperature
+phrases intentionally fall through to their dedicated handlers.
+"""
+
 import re
 from typing import Optional
 
@@ -11,6 +18,7 @@ def handle_rgb_hex_controls(
     remember_light,
     try_light_turn_on,
 ) -> Optional[str]:
+    """Parse RGB/hex notation and update a resolved light entity."""
     """
     Handles explicit RGB and HEX color commands.
 

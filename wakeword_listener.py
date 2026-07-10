@@ -1,3 +1,15 @@
+"""Wakeword engine lifecycle and detection callback adapter.
+
+``WakewordListener`` selects an engine, owns its background thread, applies
+shared suppression and rearm policy, and translates a detection into the
+callback contract consumed by ``main.py``. Engine-specific OpenWakeWord audio
+capture lives in :mod:`wakeword_openwakeword`; Porcupine remains here as the
+legacy alternative.
+
+The listener detects only. Command recording and processing are delegated to
+the callback so wakeword-specific capture cannot silently replace the PTT path.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -34,9 +46,12 @@ def _get_porcupine_access_key() -> str:
 
 
 class WakewordListener:
-    """
-    Reference-style wakeword listener using OpenWakeWord with built-in
-    Silero VAD gating and debounce.
+    """Run one configured wakeword engine and emit debounced detections.
+
+    ``should_listen_fn`` and ``suppress_reason_fn`` are evaluated by the engine
+    loop so the application remains the source of truth for busy, off-hook,
+    playback, and processing state. ``on_detected_fn`` may receive a live frame
+    reader plus pre-trigger audio when the engine supports same-stream handoff.
     """
 
     def __init__(
@@ -115,6 +130,7 @@ class WakewordListener:
         return False
 
     def _emit_detected(self, **kwargs) -> bool:
+        """Apply the engine-independent rearm guard and invoke the callback."""
         now = time.monotonic()
         if (now - self._last_detect_ts) < self.rearm_sec:
             self.log.info(
@@ -140,6 +156,7 @@ class WakewordListener:
         return True
 
     def _run(self) -> None:
+        """Select and run the configured engine inside the listener thread."""
         try:
             if self.engine in ("", "disabled", "none"):
                 self.log.info("WAKEWORD_LISTENER_DISABLED engine=%r", self.engine)
@@ -223,453 +240,6 @@ class WakewordListener:
     def _get_pretrigger_buffer_ms(self) -> int:
         ms = int(self._pref("WAKEWORD_STREAM_PRE_ROLL_MS", 900))
         return max(200, min(2000, ms + 100))
-
-    # ------------------------------------------------------------------ #
-    #  OpenWakeWord engine                                                #
-    # ------------------------------------------------------------------ #
-
-    def _run_openwakeword(self) -> None:
-        try:
-            import sounddevice as sd
-            import numpy as np
-            from openwakeword.model import Model
-        except Exception:
-            self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_IMPORT_FAIL")
-            return
-
-        # Watchdog: the listener loop can hang silently if PortAudio's
-        # stream.read() blocks forever (e.g. ALSA XRUN with no recovery,
-        # USB audio device hiccup). The existing try/except around read()
-        # only catches thrown exceptions, not indefinite blocks. We track
-        # the timestamp of every loop iteration and a daemon thread
-        # force-exits the process if it goes stale; systemd's
-        # Restart=always then brings it back up in ~2s.
-        import os as _os
-        watchdog_stale_sec = 30.0
-        self._last_loop_ts = time.time()
-
-        def _watchdog():
-            while not self._stop_event.is_set():
-                time.sleep(5.0)
-                try:
-                    age = time.time() - self._last_loop_ts
-                except Exception:
-                    continue
-                if age > watchdog_stale_sec:
-                    try:
-                        self.log.error(
-                            "WAKEWORD_ENGINE_OPENWAKEWORD_WATCHDOG_KILL "
-                            "loop_age_sec=%.1f stale_threshold_sec=%.1f — exiting for systemd restart",
-                            age, watchdog_stale_sec,
-                        )
-                    except Exception:
-                        pass
-                    _os._exit(1)
-                    return
-
-        threading.Thread(target=_watchdog, name="wakeword_watchdog", daemon=True).start()
-
-        model = None
-        stream = None
-        last_active_log_ts = 0.0
-        active_logged = False
-
-        try:
-            threshold = self._get_openwakeword_threshold()
-            vad_threshold = self._get_openwakeword_vad_threshold()
-            debounce_sec = self._get_openwakeword_debounce_sec()
-            near_miss_min = self._get_openwakeword_near_miss_min()
-            last_near_miss_log_ts = 0.0
-            model_paths = self._get_openwakeword_model_paths()
-            selected_label = (self.model or "").strip()
-
-            # ---- Audio rates ----
-            # OWW operates at 16 kHz internally. Many USB audio dongles only
-            # support 44100/48000, so we open at the device's preferred rate
-            # and resample each chunk to 16 kHz before feeding OWW.
-            target_sr = 16000
-            oww_chunk = 1280  # 80 ms at 16 kHz
-
-            sd_dev = self._pick_sd_input_device_index()
-
-            input_sr = None
-            try:
-                env_sr = (os.environ.get("PIPHONE_SD_SAMPLERATE", "") or "").strip()
-                if env_sr:
-                    input_sr = int(env_sr)
-            except Exception:
-                input_sr = None
-            if not input_sr:
-                try:
-                    dev_info = sd.query_devices(sd_dev if sd_dev >= 0 else None)
-                    input_sr = int(float(dev_info.get("default_samplerate", 48000)))
-                except Exception:
-                    input_sr = 48000
-
-            # Scale chunk so each read produces ~80 ms of audio.
-            frame_duration_sec = float(oww_chunk) / float(target_sr)
-            input_blocksize = max(1, int(round(input_sr * frame_duration_sec)))
-
-            # Precompute resample factors.
-            need_resample = (input_sr != target_sr)
-            if need_resample:
-                _g = math.gcd(int(input_sr), int(target_sr))
-                resample_up = int(target_sr // _g)
-                resample_down = int(input_sr // _g)
-
-            # ---- OWW Model ----
-            speex_available = False
-            try:
-                import speexdsp_ns  # noqa: F401
-                speex_available = True
-            except Exception:
-                pass
-
-            model_kwargs = {
-                "vad_threshold": vad_threshold,
-                "enable_speex_noise_suppression": speex_available,
-            }
-            if model_paths:
-                # OpenWakeWord's Model() takes `wakeword_model_paths` (the older
-                # `wakeword_models` name was an incorrect guess that silently
-                # tripped the TypeError fallback and loaded default built-ins).
-                model_kwargs["wakeword_model_paths"] = model_paths
-            try:
-                model = Model(**model_kwargs)
-            except TypeError:
-                self.log.warning("WAKEWORD_ENGINE_OPENWAKEWORD_KWARGS_FALLBACK")
-                model = Model()
-
-            self.log.info(
-                "WAKEWORD_ENGINE_OPENWAKEWORD_READY model=%r threshold=%.3f "
-                "vad_threshold=%.3f debounce_sec=%.2f speex=%s sd_dev=%s "
-                "input_sr=%s target_sr=%s input_blocksize=%s",
-                selected_label, threshold, vad_threshold, debounce_sec,
-                speex_available, sd_dev, input_sr, target_sr, input_blocksize,
-            )
-            try:
-                available = sorted(list(getattr(model, "models", {}).keys()))
-                self.log.info(
-                    "WAKEWORD_ENGINE_OPENWAKEWORD_MODELS available=%r selected=%r",
-                    available, selected_label,
-                )
-            except Exception:
-                pass
-
-            # ---- Input stream ----
-            stream = sd.InputStream(
-                device=(sd_dev if sd_dev >= 0 else None),
-                samplerate=input_sr,
-                channels=1,
-                dtype="int16",
-                blocksize=input_blocksize,
-                latency="low",
-            )
-            stream.start()
-
-            # ---- Pre-trigger ring buffer (10 ms frames at input_sr) ----
-            pretrigger_ms = self._get_pretrigger_buffer_ms()
-            pretrigger_frame_ms = 10
-            pretrigger_frame_samples = max(1, int(round(input_sr * pretrigger_frame_ms / 1000.0)))
-            pretrigger_max_frames = max(1, int(round(pretrigger_ms / float(pretrigger_frame_ms))))
-            pretrigger_buffer = deque(maxlen=pretrigger_max_frames)
-            self.log.info(
-                "WAKEWORD_ENGINE_OPENWAKEWORD_PRETRIGGER ms=%s frame_ms=%s "
-                "frame_samples=%s max_frames=%s",
-                pretrigger_ms, pretrigger_frame_ms,
-                pretrigger_frame_samples, pretrigger_max_frames,
-            )
-
-            # ---- HIT audio dump ring buffer (1.5s of raw chunks) ----
-            hit_dump_max = max(2, int(round(1.5 / frame_duration_sec)))
-            hit_audio_chunks = deque(maxlen=hit_dump_max)
-
-            # Publish key state to the instance so request_flush() (called
-            # from another thread) can be honored at the top of the loop.
-            self._owned_model = model
-            self._owned_pretrigger_buffer = pretrigger_buffer
-            self._owned_hit_audio_chunks = hit_audio_chunks
-
-            # ================================================================
-            #  Main listener loop
-            # ================================================================
-            while not self._stop_event.is_set():
-                # Watchdog heartbeat: every iteration of this loop is a sign
-                # of life — both during active listening (we read frames) and
-                # during suppression (we sleep 100ms and continue). If this
-                # stops updating, _watchdog() will kill the process.
-                self._last_loop_ts = time.time()
-
-                # External flush request (e.g. from gpio_ptt's
-                # _handle_wakeword_detected finally block). Runs before the
-                # suppression check so an interaction-end flush happens even
-                # when no SFX-driven suppress->listen transition occurs.
-                if self._pending_flush:
-                    self._pending_flush = False
-                    try:
-                        model.reset()
-                        pp = getattr(model, "preprocessor", None)
-                        if pp is not None:
-                            try:
-                                pp.raw_data_buffer.clear()
-                            except Exception:
-                                pass
-                            try:
-                                if hasattr(pp, "feature_buffer") and pp.feature_buffer is not None:
-                                    pp.feature_buffer = np.zeros_like(pp.feature_buffer)
-                            except Exception:
-                                pass
-                            try:
-                                if hasattr(pp, "melspectrogram_buffer") and pp.melspectrogram_buffer is not None:
-                                    pp.melspectrogram_buffer = np.zeros_like(pp.melspectrogram_buffer)
-                            except Exception:
-                                pass
-                        try:
-                            pretrigger_buffer.clear()
-                        except Exception:
-                            pass
-                        try:
-                            hit_audio_chunks.clear()
-                        except Exception:
-                            pass
-                        self.log.info("WAKEWORD_ENGINE_OPENWAKEWORD_EXTERNAL_FLUSH done=True")
-                    except Exception:
-                        self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_EXTERNAL_FLUSH_FAIL")
-
-                if not self.should_listen_fn():
-                    active_logged = False
-                    reason = self.suppress_reason_fn() or "suppressed"
-                    if self._should_log_suppression(reason):
-                        self.log.info("WAKEWORD_SUPPRESS reason=%s", reason)
-                    time.sleep(0.10)
-                    continue
-
-                now = time.time()
-                if not active_logged:
-                    # Drain the ENTIRE input buffer that accumulated during
-                    # suppression. While suppressed (TTS playing, success/error
-                    # chime, etc.) the InputStream keeps buffering audio. If we
-                    # don't drain it all, OWW will process seconds of TTS/chime
-                    # bleed and self-trigger a phantom wake-word HIT.
-                    drained_frames = 0
-                    try:
-                        while True:
-                            avail = int(getattr(stream, "read_available", 0) or 0)
-                            if avail <= 0:
-                                break
-                            chunk = min(avail, input_blocksize * 4)
-                            stream.read(chunk)
-                            drained_frames += chunk
-                    except Exception:
-                        self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_DRAIN_FAIL")
-                    try:
-                        drained_ms = int(drained_frames * 1000 / max(1, input_sr))
-                    except Exception:
-                        drained_ms = 0
-                    self.log.info(
-                        "WAKEWORD_ENGINE_OPENWAKEWORD_POST_SUPPRESS_DRAIN frames=%d approx_ms=%d",
-                        drained_frames, drained_ms,
-                    )
-                    # Reset OWW state. NOTE: upstream Model.reset() only
-                    # clears the prediction-history dict — it does NOT clear
-                    # the preprocessor's raw_data_buffer, feature_buffer, or
-                    # melspectrogram_buffer. Those retain ~1+ second of audio
-                    # / features from before suppression. Without explicitly
-                    # clearing them, OWW will re-score the previous wake-word
-                    # features the moment the listener resumes, producing a
-                    # phantom 0.999 HIT (the actual root cause of the
-                    # post-interaction "follow-on chime" bug). Verified via
-                    # direct inspection of the openwakeword.model source.
-                    buffers_cleared = False
-                    try:
-                        model.reset()
-                        pp = getattr(model, "preprocessor", None)
-                        if pp is not None:
-                            try:
-                                pp.raw_data_buffer.clear()
-                            except Exception:
-                                pass
-                            try:
-                                if hasattr(pp, "feature_buffer") and pp.feature_buffer is not None:
-                                    pp.feature_buffer = np.zeros_like(pp.feature_buffer)
-                            except Exception:
-                                pass
-                            try:
-                                if hasattr(pp, "melspectrogram_buffer") and pp.melspectrogram_buffer is not None:
-                                    pp.melspectrogram_buffer = np.zeros_like(pp.melspectrogram_buffer)
-                            except Exception:
-                                pass
-                            buffers_cleared = True
-                        self.log.info(
-                            "WAKEWORD_ENGINE_OPENWAKEWORD_POST_SUPPRESS_RESET buffers_cleared=%s",
-                            buffers_cleared,
-                        )
-                    except Exception:
-                        self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_RESET_FAIL")
-                    self.log.info("WAKEWORD_ENGINE_OPENWAKEWORD_LISTENING")
-                    active_logged = True
-                    last_active_log_ts = now
-                elif (now - last_active_log_ts) >= 10.0:
-                    self.log.info("WAKEWORD_ENGINE_OPENWAKEWORD_IDLE_TICK")
-                    last_active_log_ts = now
-
-                # ---- Read chunk from device ----
-                try:
-                    data, overflowed = stream.read(input_blocksize)
-                except Exception:
-                    self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_READ_FAIL")
-                    time.sleep(0.10)
-                    continue
-
-                pcm = data[:, 0] if getattr(data, "ndim", 1) > 1 else data
-                if pcm.dtype != np.int16:
-                    pcm = pcm.astype(np.int16, copy=False)
-
-                # Diagnostic ring buffer (raw input_sr chunks).
-                try:
-                    hit_audio_chunks.append(pcm)
-                except Exception:
-                    pass
-
-                # Pre-trigger ring (10 ms frames at input_sr).
-                try:
-                    n_full = len(pcm) // pretrigger_frame_samples
-                    for _i in range(n_full):
-                        seg = pcm[_i * pretrigger_frame_samples : (_i + 1) * pretrigger_frame_samples]
-                        if seg.size == pretrigger_frame_samples:
-                            pretrigger_buffer.append(seg.copy())
-                except Exception:
-                    pass
-
-                # ---- Resample to 16 kHz for OWW ----
-                pcm_for_oww = pcm
-                if need_resample:
-                    try:
-                        from scipy.signal import resample_poly
-                        pcm_f = pcm.astype(np.float32, copy=False)
-                        pcm_16k = resample_poly(pcm_f, up=resample_up, down=resample_down)
-                        pcm_for_oww = np.clip(np.rint(pcm_16k), -32768, 32767).astype(np.int16)
-                    except Exception:
-                        ratio = float(target_sr) / float(input_sr)
-                        out_len = max(1, int(round(len(pcm) * ratio)))
-                        x_old = np.linspace(0, 1, num=len(pcm), endpoint=False)
-                        x_new = np.linspace(0, 1, num=out_len, endpoint=False)
-                        pcm_for_oww = np.interp(x_new, x_old, pcm.astype(np.float32)).astype(np.int16)
-
-                # ---- OWW predict ----
-                try:
-                    scores = model.predict(pcm_for_oww)
-                except Exception:
-                    self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_PROCESS_FAIL")
-                    time.sleep(0.10)
-                    continue
-
-                if not isinstance(scores, dict):
-                    continue
-
-                best_label = None
-                best_score = 0.0
-                for label, score in scores.items():
-                    try:
-                        score_f = float(score)
-                    except Exception:
-                        continue
-                    if score_f > best_score:
-                        best_score = score_f
-                        best_label = str(label)
-
-                # Near-miss: OWW scored something meaningfully above silence
-                # but below threshold. Throttle to once per 500 ms to avoid
-                # spam. Useful for diagnosing "I said the wake word and
-                # nothing happened" cases — tells us whether OWW heard
-                # almost-but-not-quite vs. nothing at all.
-                if (
-                    best_label
-                    and best_score >= near_miss_min
-                    and best_score < threshold
-                ):
-                    _now_nm = time.time()
-                    if (_now_nm - last_near_miss_log_ts) >= 0.5:
-                        last_near_miss_log_ts = _now_nm
-                        if not selected_label or best_label == selected_label:
-                            self.log.info(
-                                "WAKEWORD_NEAR_MISS label=%r score=%.3f threshold=%.3f",
-                                best_label, best_score, threshold,
-                            )
-
-                if best_label and best_score >= threshold:
-                    if selected_label and best_label != selected_label:
-                        continue
-
-                    self.log.info(
-                        "WAKEWORD_ENGINE_OPENWAKEWORD_HIT label=%r score=%.3f threshold=%.3f",
-                        best_label, best_score, threshold,
-                    )
-
-                    # Diagnostic: dump audio in background thread.
-                    try:
-                        _snap = list(hit_audio_chunks)
-                        _sr = int(input_sr)
-                        _lbl = str(best_label)
-                        _sc = float(best_score)
-                        _pid = os.getpid()
-
-                        def _dump(_snap, _sr, _lbl, _sc, _pid):
-                            try:
-                                import numpy as _dnp
-                                import wave as _dw
-                                if not _snap:
-                                    return
-                                _pcm = _dnp.concatenate(_snap).astype(_dnp.int16, copy=False)
-                                _ts = time.strftime("%Y%m%d_%H%M%S")
-                                _p = "/tmp/piphone_wake_hit_{}_score{:.3f}_pid{}.wav".format(_ts, _sc, _pid)
-                                with _dw.open(_p, "wb") as w:
-                                    w.setnchannels(1)
-                                    w.setsampwidth(2)
-                                    w.setframerate(_sr)
-                                    w.writeframes(_pcm.tobytes())
-                                logging.info("WAKEWORD_HIT_DUMP_WROTE path=%r sr=%s score=%.3f", _p, _sr, _sc)
-                            except Exception:
-                                pass
-
-                        threading.Thread(target=_dump, args=(_snap, _sr, _lbl, _sc, _pid), daemon=True).start()
-                    except Exception:
-                        pass
-
-                    try:
-                        model.reset()
-                    except Exception:
-                        pass
-
-                    # Build frame reader + pre-trigger snapshot for gpio_ptt capture.
-                    vad_frame_samples = max(1, int(round(input_sr * 10 / 1000.0)))
-
-                    def _read_vad_frame():
-                        fd, _ = stream.read(vad_frame_samples)
-                        return fd[:, 0] if getattr(fd, "ndim", 1) > 1 else fd
-
-                    pretrigger_snapshot = list(pretrigger_buffer)
-                    self._emit_detected(
-                        frame_reader=_read_vad_frame,
-                        sample_rate=input_sr,
-                        frame_samples=vad_frame_samples,
-                        wakeword_label=best_label,
-                        wakeword_score=best_score,
-                        pre_trigger_frames=pretrigger_snapshot,
-                        pre_trigger_sample_rate=input_sr,
-                        pre_trigger_frame_samples=pretrigger_frame_samples,
-                    )
-                    time.sleep(0.05)
-
-        except Exception:
-            self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_RUNTIME_FAIL")
-        finally:
-            try:
-                if stream is not None:
-                    stream.stop()
-                    stream.close()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------ #
     #  Porcupine engine (unchanged from original)                        #

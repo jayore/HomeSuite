@@ -1,3 +1,12 @@
+"""Remember media references and resolve follow-up commands such as 'play it'.
+
+The module stores bounded, process-local music and video referents extracted
+from earlier interactions. Follow-up text is rewritten only when its media
+domain and confidence agree with a recent referent; otherwise the original text
+is returned for normal routing. This state supplements request context but does
+not perform media playback itself.
+"""
+
 from __future__ import annotations
 
 import json

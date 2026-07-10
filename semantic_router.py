@@ -1,3 +1,12 @@
+"""Classify text as deterministic device work or general conversation.
+
+The router is intentionally conservative: recognizable local-control language
+goes to the device pipeline, clearly conversational language goes to ChatGPT,
+and ambiguous cases retain enough context for the caller to choose a fallback.
+It does not resolve entities or execute actions; those guarantees belong to
+``command_dispatch``.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -150,6 +159,7 @@ def route_utterance(
     now_ts: Optional[float] = None,
     last_chatgpt_ts: Optional[float] = None,
 ) -> RouteResult:
+    """Classify one utterance using lexical intent and recent conversation."""
     if now_ts is None:
         now_ts = time.time()
 

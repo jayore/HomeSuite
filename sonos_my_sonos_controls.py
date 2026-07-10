@@ -1,3 +1,11 @@
+"""Play explicitly requested Sonos Favorites exposed by HA ``browse_media``.
+
+This handler is opt-in by phrase (for example, "play favorite KCLU") so it does
+not steal generic music requests from Spotify resolution. Browse results are
+flattened and cached briefly, then fuzzy-matched only among real playable items
+returned for the resolved Sonos entity.
+"""
+
 import re
 import time
 import logging

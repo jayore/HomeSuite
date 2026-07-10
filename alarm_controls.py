@@ -1,3 +1,17 @@
+"""Create, persist, list, cancel, and fire spoken alarms and timers.
+
+Alarm rows retain their parsed due time, output target, optional spoken label,
+and optional attached HomeSuite command. The shared scheduler invokes
+``_fire_alarm`` by ID; firing then chooses local audio or the resolved Sonos
+room and executes an attached command only through the command executor
+installed by the main runtime.
+
+``handle_alarm_controls`` owns alarm/timer language only. It returns ``None``
+when text is not an alarm intent so general scheduled-command handling can try
+next. Persistent state is protected by this module's load/update helpers rather
+than edited by callers.
+"""
+
 from __future__ import annotations
 
 import json
@@ -35,6 +49,8 @@ def set_command_executor(fn):
     """
     global _COMMAND_EXECUTOR
     _COMMAND_EXECUTOR = fn
+
+# Persistent alarm state and output-target resolution
 
 def _norm(s: str) -> str:
     s = (s or "").strip().lower()
@@ -177,6 +193,8 @@ def _extract_output_target(
 
     return t, target
 
+
+# Creation parsing: time, label, room, and optional attached action
 
 def _parse_when_to_schedule(when_text: str) -> Optional[Tuple[float, str, Optional[float]]]:
     """
@@ -446,6 +464,8 @@ def _parse_create_alarm(
         "music_command": music_command,
     }
 
+
+# Alarm playback and speech delivery
 
 def _format_due_phrase(run_at: float) -> str:
     try:
@@ -761,6 +781,8 @@ def _fire_alarm(alarm_id: str) -> str:
         return ""
 
 
+# Scheduler integration and serialized alarm metadata
+
 def _save_new_alarm(alarm: Dict[str, Any]) -> Dict[str, Any]:
     rows = _load_alarms()
     rows.append(alarm)
@@ -783,6 +805,8 @@ def _alarm_output_dict(alarm: dict) -> Dict[str, Any]:
     out = alarm.get("output")
     return out if isinstance(out, dict) else {}
 
+
+# Listing, scoping, matching, and cancellation
 
 def _alarm_associated_room(alarm: dict) -> Optional[str]:
     """
@@ -1539,6 +1563,8 @@ def _looks_like_alarm_cancel_request(t: str) -> Tuple[bool, Optional[str], bool]
 
     return True, kind_hint, cancel_all
 
+# Public dispatch entry point
+
 def handle_alarm_controls(
     *,
     tl: str,
@@ -1546,6 +1572,7 @@ def handle_alarm_controls(
     sonos_players: Optional[dict] = None,
     default_sonos_room: Optional[str] = None,
 ) -> Optional[str]:
+    """Handle create, query, and cancellation language for alarms and timers."""
     """
     Alarm/timer controls.
 

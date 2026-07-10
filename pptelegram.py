@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""Telegram long-polling adapter for the shared HomeSuite command runtime.
+
+The adapter accepts text only from configured user/chat allowlists, constructs
+a Telegram request context, and runs the same interaction and device-routing
+pipeline used by local voice requests. Replies remain readable text and do not
+pass through the local TTS normalization boundary.
+
+This process performs transport only; it does not maintain a second command
+implementation or bypass normal action policy.
+"""
+
 import json
 import logging
 import sys
@@ -93,6 +104,7 @@ def _extract_text(message: dict) -> str:
 
 
 def _handle_message(gpio_ptt, message: dict) -> Optional[str]:
+    """Authorize and dispatch one Telegram message through shared interaction flow."""
     if not _is_allowed(message):
         return None
 

@@ -1,7 +1,15 @@
-"""
-command_dispatch.py — process_device_commands and all direct helpers.
-Extracted from main.py. main.py sets the call_ha_service and
-ha_get_states callbacks at startup before the first command is processed.
+"""Deterministic device-command routing and shared dispatch state.
+
+``process_device_commands`` applies normalization and bounded repair before
+walking the direct handlers for lights, media, rooms, schedules, applets, and
+other local integrations. Handlers return response text when they claimed the
+request and ``None`` when the next handler may try. A claimed command must
+resolve a real configured/Home Assistant entity before performing an action;
+the dispatcher must not fabricate a plausible device from uncertain speech.
+
+The module also owns short-lived referent and confirmation state used across
+commands. ``main.py`` injects the live Home Assistant service/state callbacks
+during startup, while test and REPL runtimes can install safe substitutes.
 """
 
 import os
@@ -4057,6 +4065,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
 
 
 def process_device_commands(text: str, *, _repair_pass: int = 1) -> Optional[str]:
+    """Run the ordered device pipeline, including at most one repair retry."""
     _dispatch_timing_begin(text, _repair_pass)
     result = None
     error = None

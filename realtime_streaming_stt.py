@@ -1,3 +1,16 @@
+"""OpenAI Realtime streaming transcription client for live utterance capture.
+
+``StreamingTranscriber`` owns a WebSocket connection and bridges synchronous
+audio producers to the asynchronous Realtime API. Callers append PCM while VAD
+capture is active, then finalize or cancel the session. The class collects
+incremental transcript events and exposes one completed transcript to the
+shared audio-processing pipeline.
+
+This module does not choose when an utterance starts or ends. PTT and wakeword
+capture retain separate endpointing behavior and use this client only as an STT
+transport. ``transcribe_wav_file`` is the bounded file-based compatibility path.
+"""
+
 import asyncio
 import base64
 import json
@@ -145,6 +158,7 @@ def _ws_connect(url: str, headers: dict):
     return websockets.connect(url, headers=headers)
 
 class StreamingTranscriber:
+    """Manage one background Realtime transcription session."""
     """
     Background-thread async websocket client.
     Main thread feeds raw int16 PCM frames (bytes) at sr_in (typically 48000).
@@ -437,6 +451,7 @@ class StreamingTranscriber:
 # realtime_transcribe.py compatibility paths.
 # --------------------------------------------------------------------
 def transcribe_wav_file(wav_path: str) -> str:
+    """Transcribe an existing WAV through a short-lived streaming session."""
     """
     Transcribe a WAV file via StreamingTranscriber in this module.
     Returns transcript text (may be empty string).

@@ -1,4 +1,16 @@
-"""OpenWakeWord runtime built on the continuously drained microphone source."""
+"""OpenWakeWord scoring loop and same-stream command handoff.
+
+This engine owns a continuously drained PortAudio source. Device-rate frames
+are retained in a short ring for pre-trigger audio and separately resampled for
+OpenWakeWord scoring. After a confirmed detection, scoring pauses while the
+application callback consumes command audio through an independent cursor on
+that same source. This avoids reopening the microphone or losing speech spoken
+immediately after the wakeword.
+
+Suppression, debounce, and application busy state are supplied by
+``WakewordListener``. Microphone selection and persistent mixer enforcement are
+supplied by :mod:`audio_input_profile`.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +22,7 @@ from collections import defaultdict, deque
 
 
 def _reset_openwakeword_state(model, frontend, np_module) -> None:
+    """Clear temporal model/frontend state before scoring fresh room audio."""
     try:
         model.reset()
     except Exception:
@@ -83,6 +96,7 @@ def _dump_hit_audio(frames, sample_rate: int, score: float, label: str) -> None:
 
 
 def run_openwakeword(listener) -> None:
+    """Run OpenWakeWord until the listener stop event is set or capture fails."""
     try:
         import numpy as np
         import sounddevice as sd

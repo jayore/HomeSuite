@@ -1,4 +1,13 @@
-"""Wakeword-only resampling and WebRTC noise processing helpers."""
+"""Prepare microphone PCM for wakeword inference and optional STT cleanup.
+
+``WakewordFrontend`` converts device-rate mono PCM into the fixed 16 kHz chunks
+expected by OpenWakeWord. Optional WebRTC noise suppression, gain control, and
+volume scaling are driven by the selected microphone profile.
+
+Detection preprocessing is wakeword-local. ``clean_command_audio_16k`` is a
+separate opt-in operation used only when the caller explicitly requests the
+same processing for captured command audio; PTT audio is otherwise unchanged.
+"""
 
 from __future__ import annotations
 
@@ -123,6 +132,7 @@ class WakewordFrontend:
         return np.concatenate(cleaned) if cleaned else np.empty(0, dtype=np.int16)
 
     def push(self, pcm: np.ndarray) -> List[np.ndarray]:
+        """Accept device-rate PCM and return complete inference-sized chunks."""
         resampled = self._clean_10ms(self._resample(pcm))
         if resampled.size:
             self._pending = np.concatenate((self._pending, resampled))

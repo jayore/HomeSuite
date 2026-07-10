@@ -1,3 +1,16 @@
+"""Spotify Web API resolution and Home Assistant/Sonos playback helpers.
+
+Spotify Web API functions manage tokens, playlist metadata, search, likes, and
+library mutations. Playback handlers then use configured Home Assistant or
+Sonos integrations to start the resolved URI in a real room. Typed searches
+prefer their requested media kind; fuzzy assistance is constrained to returned
+Spotify candidates.
+
+The module contains several dispatch entry points because account operations,
+Spotcast, and Sonos media browsing have different configuration requirements
+and failure behavior.
+"""
+
 from __future__ import annotations
 
 import time

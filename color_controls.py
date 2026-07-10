@@ -1,3 +1,11 @@
+"""Resolve named colors and apply them to one or more verified lights.
+
+This handler owns named-light color phrases and configured color helper
+entities. Room-area color phrases are handled by ``room_lights_controls``;
+Kelvin and RGB/hex formats have dedicated handlers. Unknown color words or
+unresolved devices fall through without issuing a Home Assistant call.
+"""
+
 import re
 from typing import Callable, Optional
 
@@ -29,6 +37,7 @@ def handle_color_controls(
     default_color_room: str,
     resolve_color: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Optional[str]:
+    """Apply a recognized named color to resolved light targets."""
     """
     Handles all color-related commands.
     Returns:

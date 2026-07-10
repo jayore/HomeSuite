@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 
+"""Persist and execute scheduled commands in a single background poller.
+
+Jobs are stored in ``scheduled_jobs.json`` and executed through a callback
+installed by the main runtime. A cross-process file lock prevents two HomeSuite
+services from running the same due job. Registered periodic tasks share the
+poller but must enforce their own cadence because they are invoked every tick.
+"""
+
 import os
 import json
 import time

@@ -1,3 +1,11 @@
+"""Normalize readable responses at the final text-to-speech boundary.
+
+Command handlers should return ordinary human-readable text. Immediately before
+speech, this module expands known pronunciations and units, removes unsupported
+markup, regularizes pauses, and splits text into gTTS-sized chunks. Text sent to
+Telegram, HTTP clients, logs, or other displays should bypass these transforms.
+"""
+
 from __future__ import annotations
 
 import re
@@ -153,6 +161,7 @@ def _split_long_gtts_chunk(text: str, *, max_len: int = 95) -> List[str]:
 
 
 def tokenize_for_gtts(text: str, *, max_len: int = 95) -> List[str]:
+    """Split normalized speech into bounded chunks without losing sentences."""
     """
     Split normalized speech text for gTTS without adding punctuation to the text.
 

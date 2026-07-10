@@ -1,3 +1,11 @@
+"""Handle absolute and relative brightness for verified light targets.
+
+The parser supports percentages, spoken numbers, dim/brighten adjustments, and
+multiple targets. Generic room-wide "lights 50" forms are intentionally left to
+``room_lights_controls``; this module handles configured helper entities and
+resolved named lights. Service calls occur only after target resolution.
+"""
+
 import re
 from typing import Optional, Tuple
 
@@ -20,6 +28,7 @@ def handle_brightness_controls(
     brightness_numbers: dict,
     light_phrase_overrides: dict,
 ) -> Optional[str]:
+    """Parse brightness language and update one or more resolved targets."""
     """
     Handles all brightness-related commands.
     Returns:

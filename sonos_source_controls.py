@@ -1,3 +1,11 @@
+"""Switch a resolved Sonos room between supported physical/media sources.
+
+The handler recognizes explicit TV-audio/source language, resolves an optional
+room against the configured player map, and updates transport focus after a
+successful Home Assistant source selection. Generic playback and grouping are
+left to their dedicated Sonos handlers.
+"""
+
 import re
 import logging
 from typing import Optional, Dict, Callable, Any

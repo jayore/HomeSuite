@@ -1,3 +1,11 @@
+"""Apply configured STT mishearing repairs at explicit routing boundaries.
+
+Repair maps are compiled longest phrase first and matched on token boundaries.
+Separate routing, device, and room maps prevent a useful device-name rewrite
+from altering ordinary conversational text. Cached patterns are derived from
+``app_config`` and the configured Sonos room names.
+"""
+
 from typing import Dict, Tuple
 import re
 
@@ -16,6 +24,7 @@ def basic_norm_for_repairs(s: str) -> str:
 
 
 def compile_phonetic_pairs(pairs: dict) -> list:
+    """Compile ``intended -> mishearings`` mappings into ordered replacements."""
     compiled = []
     if not isinstance(pairs, dict):
         return compiled

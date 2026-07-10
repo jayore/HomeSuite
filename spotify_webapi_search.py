@@ -1,3 +1,11 @@
+"""Minimal Spotify Web API search client and grounded result ranking.
+
+``SpotifyClient`` exchanges a configured refresh token for cached access tokens
+and exposes only the search and playlist-page operations needed by HomeSuite.
+Ranking helpers normalize returned Spotify items and choose among those real
+candidates; they do not synthesize URIs or catalog entries.
+"""
+
 import base64
 import time
 import re
@@ -145,6 +153,7 @@ def pick_best_spotify_item(
     prefer_types: List[str],
     artist: Optional[str] = None,
 ) -> Optional[Tuple[str, str, str]]:
+    """Choose the closest typed item from Spotify search results."""
     """
     Returns (kind, uri, title) where kind in {playlist, artist, album, track}.
     Deterministic selection with simple confidence rules.

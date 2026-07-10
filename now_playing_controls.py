@@ -1,3 +1,11 @@
+"""Format now-playing answers from Home Assistant media-player state.
+
+The handler identifies the relevant Sonos or Apple TV entity from request/room
+context, distinguishes TV passthrough from ordinary Sonos playback, and turns
+available state attributes into concise spoken text. It is read-only and never
+changes playback.
+"""
+
 import re
 from typing import Optional, Dict, Any, List, Tuple
 
@@ -257,6 +265,7 @@ def handle_now_playing_controls(
     apple_tv_entity: str,
     get_transport_focus=None,
 ) -> Optional[str]:
+    """Answer a recognized now-playing query from a state snapshot."""
     """
     Now-playing with sane arbitration when Sonos is a TV soundbar.
 

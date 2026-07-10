@@ -1,3 +1,11 @@
+"""Handle numeric and named white-temperature commands for lights.
+
+Named temperatures map to explicit Kelvin values and numeric requests are
+clamped to the supported HomeSuite range. The handler resolves the target
+before calling Home Assistant and leaves ordinary named colors to
+``color_controls``.
+"""
+
 import re
 from typing import Optional
 
@@ -36,6 +44,7 @@ def handle_kelvin_controls(
     remember_light,
     try_light_turn_on,
 ) -> Optional[str]:
+    """Apply a parsed Kelvin temperature to one verified light target."""
     """
     Handles Kelvin / color temperature commands.
 

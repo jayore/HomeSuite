@@ -1,3 +1,15 @@
+"""Parse and safely persist commands requested for future execution.
+
+Schedule handling has three stages: parse relative or clock/calendar language,
+validate the nested HomeSuite command in a constrained subprocess, then persist
+an approved job through :mod:`scheduler`. Policy validation rejects recursive
+schedules and dangerous or unresolvable writes before anything is stored.
+
+Alarm/timer phrases belong to :mod:`alarm_controls`; this module handles general
+forms such as "turn off the lights in ten minutes". Query and cancellation
+operations act only on jobs created through this path.
+"""
+
 from __future__ import annotations
 
 import ast
@@ -24,6 +36,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 @dataclass(frozen=True)
 class ParsedSchedule:
+    """Normalized command and execution time produced by schedule parsing."""
     command: str
     run_at: float
     phrase: str
@@ -84,6 +97,8 @@ _TIME_TOKEN_RE = (
     r"eighteen|nineteen|twenty|thirty|forty|fifty|\d{1,2})"
 )
 
+
+# Side-effect-free schedule language parsing
 
 def _norm(s: str) -> str:
     s = (s or "").strip().lower()
@@ -533,6 +548,7 @@ def _parse_absolute(t: str, now: datetime) -> Optional[ParsedSchedule]:
 
 
 def parse_schedule_request(text: str, *, now: Optional[datetime] = None) -> Optional[ParsedSchedule]:
+    """Parse one relative or absolute schedule request without side effects."""
     t = _norm(text)
     if not t:
         return None
@@ -585,6 +601,8 @@ def looks_like_schedule_attempt(text: str) -> bool:
 
     return False
 
+
+# Nested-command dry run and persistence policy
 
 def _should_persist_schedule() -> bool:
     """
@@ -748,6 +766,7 @@ def _parse_blocked_writes_from_output(out: str) -> List[Dict[str, Any]]:
 
 
 def validate_scheduled_command(command: str, *, timeout_s: float = 20.0) -> Tuple[bool, str, Dict[str, Any]]:
+    """Dry-run a nested command and enforce configured scheduling policy."""
     """
     Validate by running the existing command brain in capture mode.
 
@@ -806,6 +825,8 @@ def validate_scheduled_command(command: str, *, timeout_s: float = 20.0) -> Tupl
 
     return False, "command was not claimed by the command runtime", metadata
 
+
+# Pending-job presentation and cancellation
 
 def _pending_jobs() -> List[Dict[str, Any]]:
     try:
@@ -965,12 +986,15 @@ def _handle_cancel_latest() -> str:
     return f"Canceled the scheduled action: {str(job.get('command') or 'that').strip()}."
 
 
+# Public dispatch entry point
+
 def handle_schedule_controls(
     *,
     tl: str,
     maybe_say=None,
     validate_command=None,
 ) -> Optional[str]:
+    """Handle general scheduled-command create, list, and cancellation intents."""
     """
     Handle natural-language scheduled command requests.
 

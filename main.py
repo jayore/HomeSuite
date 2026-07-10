@@ -1,4 +1,18 @@
+"""HomeSuite device runtime and voice-interaction orchestrator.
 
+This process owns the Raspberry Pi hardware lifecycle and composes the shared
+audio, transcription, routing, Home Assistant, applet, and response modules.
+There are two intentionally distinct capture paths:
+
+* PTT opens an utterance when the handset/button state requests it.
+* Wakeword mode continuously scores one microphone stream and hands that same
+  stream to command capture after detection, preserving one-breath commands.
+
+Both paths converge at :func:`process_audio`, after which command routing and
+response behavior are shared. Keep trigger-specific timing and audio changes
+inside their respective capture paths so a wakeword experiment cannot regress
+PTT-only devices.
+"""
 
 # --- Streaming resampler: pre-import once at boot (avoid first-utterance stall) ---
 try:
@@ -35,6 +49,7 @@ def _rt_warmup_cancel(rt):
         pass
 
 def _rt_warmup_start_on_offhook():
+    """Start and prime a streaming transcriber when the PTT handset goes off-hook."""
     try:
         from app_config import RT_OFFHOOK_WARMUP_ENABLED
         if not bool(RT_OFFHOOK_WARMUP_ENABLED):
@@ -42,7 +57,6 @@ def _rt_warmup_start_on_offhook():
             return False
     except Exception:
         pass
-    """Start a StreamingTranscriber immediately on OFFHOOK and feed it silence to force-connect."""
     if not _rt_warmup_enabled():
         return
     # Only warm once per offhook session (or until taken).
@@ -1379,13 +1393,13 @@ def _pause_wakeword_capture_media_if_needed() -> list:
     return paused
 
 def _record_audio_with_vad_wakeword() -> Optional[str]:
-    _trace_audio_event("wakeword_record_legacy_enter")
     """
     Wakeword-triggered utterance capture wrapper.
 
     Uses the shared VAD capture core but does NOT rely on handset off-hook state.
     This keeps endpointing behavior aligned with the existing PTT capture path.
     """
+    _trace_audio_event("wakeword_record_legacy_enter")
     global is_processing, is_speaking
 
     if is_speaking or is_processing:
@@ -1450,15 +1464,6 @@ def _record_audio_with_vad_wakeword_stream(
     pre_trigger_sample_rate: Optional[int] = None,
     pre_trigger_frame_samples: Optional[int] = None,
 ) -> Optional[str]:
-    _trace_audio_event(
-        "wakeword_record_stream_enter",
-        sample_rate=sample_rate,
-        frame_samples=frame_samples,
-        has_frame_reader=bool(callable(frame_reader)),
-        pre_trigger_frame_count=(len(pre_trigger_frames) if pre_trigger_frames else 0),
-        pre_trigger_sample_rate=pre_trigger_sample_rate,
-        pre_trigger_frame_samples=pre_trigger_frame_samples,
-    )
     """
     Wakeword-triggered utterance capture from an already-open input stream.
 
@@ -1468,6 +1473,15 @@ def _record_audio_with_vad_wakeword_stream(
     * This helper consumes subsequent frames from that same stream.
     * No second sounddevice.InputStream is opened.
     """
+    _trace_audio_event(
+        "wakeword_record_stream_enter",
+        sample_rate=sample_rate,
+        frame_samples=frame_samples,
+        has_frame_reader=bool(callable(frame_reader)),
+        pre_trigger_frame_count=(len(pre_trigger_frames) if pre_trigger_frames else 0),
+        pre_trigger_sample_rate=pre_trigger_sample_rate,
+        pre_trigger_frame_samples=pre_trigger_frame_samples,
+    )
     global is_processing, is_speaking
 
     if is_speaking or is_processing:
@@ -1896,15 +1910,13 @@ def _process_wakeword_stream_interaction(
     pre_trigger_sample_rate: Optional[int] = None,
     pre_trigger_frame_samples: Optional[int] = None,
 ) -> bool:
+    """Run one wakeword interaction using the listener's open audio stream."""
     _trace_audio_event(
         "wakeword_process_stream_enter",
         sample_rate=sample_rate,
         frame_samples=frame_samples,
         has_frame_reader=bool(callable(frame_reader)),
     )
-    """
-    End-to-end wakeword interaction path using the already-open wakeword stream.
-    """
     global is_processing
 
     try:
@@ -1946,7 +1958,6 @@ def _process_wakeword_stream_interaction(
 
 
 def _process_wakeword_interaction() -> bool:
-    _trace_audio_event("wakeword_process_legacy_enter")
     """
     End-to-end wakeword interaction path:
     * capture one utterance using shared VAD core
@@ -1956,6 +1967,7 @@ def _process_wakeword_interaction() -> bool:
     * spoken on-hook responses still depend on existing speak_text() behavior
     * this phase is focused on trigger + capture + processing correctness
     """
+    _trace_audio_event("wakeword_process_legacy_enter")
     global is_processing
 
     try:
@@ -2040,14 +2052,6 @@ def _wakeword_should_listen() -> bool:
 
 
 def _handle_wakeword_detected(**kwargs) -> None:
-    _trace_audio_event(
-        "wakeword_detected_callback_enter",
-        has_frame_reader=bool(callable((kwargs or {}).get("frame_reader"))),
-        sample_rate=(kwargs or {}).get("sample_rate"),
-        frame_samples=(kwargs or {}).get("frame_samples"),
-        wakeword_label=(kwargs or {}).get("wakeword_label"),
-        wakeword_score=(kwargs or {}).get("wakeword_score"),
-    )
     """
     Wakeword detection callback.
 
@@ -2057,6 +2061,14 @@ def _handle_wakeword_detected(**kwargs) -> None:
 
     The same-stream path avoids opening the input device a second time.
     """
+    _trace_audio_event(
+        "wakeword_detected_callback_enter",
+        has_frame_reader=bool(callable((kwargs or {}).get("frame_reader"))),
+        sample_rate=(kwargs or {}).get("sample_rate"),
+        frame_samples=(kwargs or {}).get("frame_samples"),
+        wakeword_label=(kwargs or {}).get("wakeword_label"),
+        wakeword_score=(kwargs or {}).get("wakeword_score"),
+    )
     global _WAKEWORD_DETECTION_IN_PROGRESS
     try:
         _WAKEWORD_DETECTION_IN_PROGRESS = True

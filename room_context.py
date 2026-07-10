@@ -1,3 +1,14 @@
+"""Translate request rooms and spoken aliases into media target defaults.
+
+The registry uses stable room IDs while Sonos maps, Apple TV configuration, and
+spoken commands may use different aliases. These helpers bridge those forms and
+derive the default Sonos or TV target for the active request. Explicit room
+language wins over request context, which wins over global defaults.
+
+The remembered Sonos coordinator is short-lived routing state, not a substitute
+for current Home Assistant group state.
+"""
+
 import re
 from typing import Optional
 
@@ -46,6 +57,7 @@ def _request_room_to_sonos_room(room_id: Optional[str]) -> Optional[str]:
 
 
 def _request_default_sonos_room(room_override: Optional[str] = None) -> str:
+    """Resolve the effective Sonos room using override, request, then default."""
     """
     Resolve the default Sonos/audio room for this request.
 
@@ -228,6 +240,7 @@ def _extract_explicit_room_id_from_text(text: str) -> Optional[str]:
 
 
 def _request_default_tv_context(room_override: Optional[str] = None) -> dict:
+    """Return effective room plus configured Apple TV player/remote entities."""
     """
     Resolve request-aware TV / Apple TV / Plex defaults.
 

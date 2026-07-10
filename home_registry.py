@@ -1,25 +1,19 @@
+"""Describe rooms, source instances, and client-visible HomeSuite capabilities.
+
+``ROOMS`` contains deployment-oriented defaults such as preferred lights and
+media outputs. ``SOURCES`` describes concrete clients/endpoints and associates
+them with room policy; entries are instances, not abstract source types. Lookup
+helpers use this data to build request context and the manifest served to UI
+clients.
+
+Keep optional values explicit with ``None``. Increment
+``MANIFEST_SCHEMA_VERSION`` only when a non-additive shape change requires
+clients to adapt.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-
-
-# ============================================================================
-# Home registry
-#
-# Purpose:
-# * define room-level defaults/capabilities in one place
-# * define known source instances and their room/policy association
-# * provide light lookup helpers for future source-aware request handling
-# * define per-room scene/device lists for client manifests (menubar app,
-#   Raycast extension, future dashboards — all consume build_manifest() via
-#   GET /manifest on piphone_http)
-#
-# Notes:
-# * This is intentionally a first-pass foundation file.
-# * Keep data concrete and deployment-oriented.
-# * SOURCES here are source instances/endpoints, not abstract source classes.
-# * Optional/default-missing values should be represented as None where helpful.
-# ============================================================================
 
 
 # Which room a client (menubar, raycast, etc.) defaults to when the user

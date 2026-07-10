@@ -1,3 +1,10 @@
+"""Low-level text and spoken-number normalization for device commands.
+
+These helpers perform deterministic, context-free cleanup before dispatch.
+They deliberately avoid entity lookup, phonetic preference maps, and intent
+execution so callers can reuse them without mutating conversational text.
+"""
+
 import re
 
 _NUM_WORDS_0_19 = {
@@ -13,6 +20,7 @@ _TENS = {
 
 
 def _looks_like_device_command(t: str) -> bool:
+    """Return whether text has enough control language to justify normalization."""
     if not t:
         return False
     tl = t.strip().lower()

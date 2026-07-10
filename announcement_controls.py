@@ -1,3 +1,11 @@
+"""Generate and deliver spoken announcements to a resolved Sonos room.
+
+The handler extracts announcement text and an optional room, generates a local
+TTS asset, exposes it through HomeSuite's media URL, then asks Sonos to play it
+with the configured volume floor. Request room context supplies the destination
+when speech does not name one. Dry-run runtimes suppress real media effects.
+"""
+
 from sonos_utils import homesuite_media_url_for_path, sonos_play_media
 import re
 import logging
@@ -75,6 +83,7 @@ def handle_announcement_controls(
     sonos_play_media,       # injected from gpio_ptt
     mark_action_occurred=None,
 ) -> Optional[str]:
+    """Claim an announcement phrase and deliver its text to one Sonos player."""
 
     t = (tl or "").strip().lower()
     if not t.startswith("announce"):

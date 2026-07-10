@@ -1,3 +1,15 @@
+"""Execute Sonos grouping and transport operations through Home Assistant.
+
+The handler resolves spoken rooms against the configured player map, uses the
+current Home Assistant group state to select coordinators, and supports group,
+ungroup, transport, and now-playing operations. Short-lived local state exists
+only to restore volume/mute settings during the TV-passthrough pseudo-swap.
+
+Playback search, Spotify browsing, sources, favorites, and volume have separate
+handlers. This module returns ``None`` for those intents so dispatch ordering
+remains predictable.
+"""
+
 from __future__ import annotations
 
 import logging

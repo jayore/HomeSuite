@@ -1,3 +1,11 @@
+"""Handle absolute, relative, mute, and unmute media volume commands.
+
+Spoken rooms resolve through the configured player map, with request context
+providing the default room. Relative changes read the supplied Home Assistant
+state snapshot before issuing a clamped service call. Light brightness and
+other numeric controls are intentionally outside this module.
+"""
+
 import re
 from typing import Optional, Dict, Any
 
@@ -148,6 +156,7 @@ def handle_volume_controls(
     default_sonos_room: Optional[str] = None,
     step_percent: int = 5,
 ) -> Optional[str]:
+    """Parse media-volume language and update one resolved player."""
     """
     Volume controls.
 
