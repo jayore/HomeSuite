@@ -68,7 +68,10 @@ Home Suite is built around a shared natural-language processing and command runt
 * AI conversation with continuity into deterministic follow-up actions
 * HTTP and WebSocket APIs for external clients
 
-See [docs/COMMANDS.md](docs/COMMANDS.md) for example phrases and [docs/FEATURES.md](docs/FEATURES.md) for a capability overview.
+See [docs/COMMANDS.md](docs/COMMANDS.md) for example phrases,
+[docs/FEATURES.md](docs/FEATURES.md) for a capability overview, and
+[docs/WAKEWORD.md](docs/WAKEWORD.md) for the complete wake-word audio pipeline
+and setup guide.
 
 ## How It Works
 
@@ -161,7 +164,7 @@ Inside `pptest`, type a phrase such as `service status`. For a single reproducib
 
 The installer creates shortcuts in `$HOME/.local/bin`, including `homesuite-doctor`, `pptest`, `pplive`, `ppchattest`, and `ppchat`.
 
-If you are new to the project, start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and service-specific setup lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+If you are new to the project, start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), credential setup lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), service-specific setup lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), and voice-appliance setup lives in [docs/WAKEWORD.md](docs/WAKEWORD.md).
 
 ## Configuration Model
 

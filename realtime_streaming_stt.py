@@ -159,13 +159,15 @@ class StreamingTranscriber:
         language: str = "en",
         sr_out: int = 24000,
         turn_detection: dict = None,
+        manual_commit: bool = False,
         debug: bool = False,
         timeout_s: float = 4.0,
     ):
         self.model = model
         self.language = language
         self.sr_out = int(sr_out)
-        self.turn_detection = turn_detection  # can be None to disable server VAD
+        self.turn_detection = turn_detection
+        self.manual_commit = bool(manual_commit)
         self.debug = bool(debug)
         self.timeout_s = float(timeout_s)
 
@@ -263,25 +265,28 @@ class StreamingTranscriber:
             # Wait for session.created
             await self._recv_until(ws, want_types={"session.created"})
 
-            # GA session.update: nested audio.input.{format,transcription}
+            # GA session.update: nested audio.input.{format,transcription}.
+            input_config = {
+                "format": {"type": "audio/pcm", "rate": int(self.sr_out)},
+                "transcription": {
+                    "model": self.model,
+                    "language": self.language,
+                },
+            }
+            if self.manual_commit:
+                input_config["turn_detection"] = None
+            elif self.turn_detection is not None:
+                input_config["turn_detection"] = self.turn_detection
+
             upd = {
                 "type": "session.update",
                 "session": {
                     "type": "transcription",
                     "audio": {
-                        "input": {
-                            "format": {"type": "audio/pcm", "rate": int(self.sr_out)},
-                            "transcription": {
-                                "model": self.model,
-                                "language": self.language,
-                            },
-                        },
+                        "input": input_config,
                     },
                 },
             }
-            # NOTE: turn_detection field location/shape changed in GA and we
-            # rely on server-VAD defaults. Add audio.input.turn_detection here
-            # if explicit control is needed later.
 
             await ws.send(json.dumps(upd))
 
@@ -461,23 +466,31 @@ def transcribe_wav_file(wav_path: str) -> str:
     elif nch != 1:
         raise RuntimeError(f"Expected mono/stereo WAV. Got channels={nch} for {wav_path}")
 
-    # Resample to 16k (keeps things consistent)
-    target_sr = 16000
+    # GA Realtime PCM input is 24 kHz. Keep the completed WAV in one manually
+    # committed turn so a wakeword prefix cannot auto-commit ahead of the
+    # actual command.
+    target_sr = 24000
     if sr != target_sr:
         raw = _pcm16_resample_bytes(raw, sr_in=sr, sr_out=target_sr)
         sr = target_sr
 
-    # 20ms chunks @ 16kHz => 320 samples => 640 bytes
-    chunk_bytes = 640
+    # 20ms chunks @ 24kHz => 480 samples => 960 bytes
+    chunk_bytes = 960
 
     st = None
     try:
         # Construct transcriber (be tolerant to differing __init__ signatures)
         try:
-            st = StreamingTranscriber(model=model, language=language, sample_rate=sr)
+            st = StreamingTranscriber(
+                model=model,
+                language=language,
+                sr_out=target_sr,
+                manual_commit=True,
+                timeout_s=8.0,
+            )
         except TypeError:
             try:
-                st = StreamingTranscriber(model, language=language)
+                st = StreamingTranscriber(model, language=language, sr_out=target_sr)
             except TypeError:
                 st = StreamingTranscriber(model)
 

@@ -326,14 +326,14 @@ def warmup_audio_on_boot():
         # If env parsing fails for any reason, don't block startup.
         return
 
-    t0 = time.time()
+    t0 = time.monotonic()
     logging.info("WARMUP_AUDIO_BOOT_BEGIN")
 
     # 1) Run the same ensure/cleanup path you normally do right before recording (if available)
     try:
         if "ensure_audio_device_available" in globals() and callable(globals()["ensure_audio_device_available"]):
             ensure_audio_device_available()
-            logging.info("WARMUP_AUDIO_BOOT_ENSURE_OK dt=%.3f", time.time() - t0)
+            logging.info("WARMUP_AUDIO_BOOT_ENSURE_OK dt=%.3f", time.monotonic() - t0)
         else:
             logging.info("WARMUP_AUDIO_BOOT_ENSURE_SKIP missing=ensure_audio_device_available")
     except Exception:
@@ -342,55 +342,51 @@ def warmup_audio_on_boot():
     # 2) Open the mic stream once and let it run briefly (forces driver/device warmup)
     try:
         import sounddevice as sd  # local import so failure can't break module import
+        from audio_input_profile import (
+            enforce_capture_settings,
+            get_audio_input_profile,
+            pick_sounddevice_input_index,
+        )
 
-        sr = int((os.environ.get("PIPHONE_SD_SAMPLERATE") or "48000").strip() or "48000")
-
-        # Prefer explicit index, else match by name (same spirit as recorder selection)
-        device = None
-        dev_env = (os.environ.get("PIPHONE_SD_INPUT_INDEX") or "").strip()
-        if dev_env:
-            try:
-                device = int(dev_env)
-            except Exception:
-                device = None
-
-        match = (os.environ.get("PIPHONE_SD_INPUT_MATCH") or "").strip()
+        profile = get_audio_input_profile()
+        enforce_capture_settings(profile, logger=logging, reason="boot_warmup")
+        sr = int(profile.get("sample_rate") or 48000)
+        channels = int(profile.get("channels") or 1)
+        device = pick_sounddevice_input_index(sd, profile)
         dev_name = None
-        if device is None and match:
-            try:
-                mlow = match.lower()
-                best = None
-                for i, d in enumerate(sd.query_devices()):
-                    try:
-                        if int(d.get("max_input_channels") or 0) <= 0:
-                            continue
-                        name = str(d.get("name") or "")
-                        if mlow in name.lower():
-                            best = (i, name)
-                            break
-                    except Exception:
-                        continue
-                if best:
-                    device, dev_name = best[0], best[1]
-            except Exception:
-                device = None
-                dev_name = None
-
-        if device is not None and dev_name is None:
-            try:
-                d = sd.query_devices(device)
-                dev_name = str(d.get("name") or "")
-            except Exception:
-                dev_name = None
+        try:
+            d = sd.query_devices(device if device >= 0 else None)
+            dev_name = str(d.get("name") or "")
+        except Exception:
+            pass
 
         warm_ms = int((os.environ.get("PIPHONE_WARMUP_AUDIO_MS") or "250").strip() or "250")
-        with sd.InputStream(device=device, channels=1, samplerate=sr, dtype="int16"):
+        with sd.InputStream(
+            device=(device if device >= 0 else None),
+            channels=channels,
+            samplerate=sr,
+            dtype="int16",
+        ):
             sd.sleep(warm_ms)
-        logging.info("WARMUP_AUDIO_BOOT_STREAM_OK ms=%d sr=%d dev=%s name=%r match=%r dt=%.3f", warm_ms, sr, device, dev_name, match, time.time() - t0)
+        enforce_capture_settings(
+            profile,
+            logger=logging,
+            reason="boot_warmup_post_stream",
+            force=True,
+        )
+        logging.info(
+            "WARMUP_AUDIO_BOOT_STREAM_OK ms=%d sr=%d dev=%s name=%r profile=%r dt=%.3f",
+            warm_ms,
+            sr,
+            device,
+            dev_name,
+            profile.get("name"),
+            time.monotonic() - t0,
+        )
     except Exception:
         logging.exception("WARMUP_AUDIO_BOOT_STREAM_FAIL")
 
-    logging.info("WARMUP_AUDIO_BOOT_DONE dt=%.3f", time.time() - t0)
+    logging.info("WARMUP_AUDIO_BOOT_DONE dt=%.3f", time.monotonic() - t0)
 
 
 PIPHONE_NO_RUNTIME_INIT = (os.environ.get("PIPHONE_NO_RUNTIME_INIT") == "1")
@@ -676,7 +672,7 @@ from schedule_controls import handle_schedule_controls
 from now_playing_controls import handle_now_playing_controls
 from kelvin_controls import handle_kelvin_controls
 from rgb_hex_controls import handle_rgb_hex_controls
-from applet_controls import handle_applet_controls
+from applet_controls import handle_applet_controls, register_exclusive_audio_hooks
 from datetime import datetime
 from collections import deque
 from typing import Optional, Tuple, Dict, Any
@@ -1282,11 +1278,11 @@ from command_dispatch import (
 # The listener pre-trigger captures the wake word so the user can speak the
 # command continuously without pausing for the chime; the wake word ends up
 # at the front of the STT transcript and must be removed before the router
-# sees it. Handles common STT mis-recognitions of "Hey Mycroft" / "Hey Jarvis".
+# sees it. Handles common STT mis-recognitions of configured wake words.
 _WAKEWORD_PREFIX_RE = re.compile(
     r"^\s*"
     r"(?:hey|hi|hello|ok|okay|yo)?\s*[,]?\s*"
-    r"(?:mycroft|my\s*croft|mike(?:roft)?|jarvis|jaris|jervis|jarvi)"
+    r"(?:mycroft|my\s*croft|mike(?:roft)?|jarvis|jaris|jervis|jarvi|hal|hall|hell|yo\s*(?:bitch|bish|beach|bit))"
     r"[\s,.;:!?-]*",
     re.IGNORECASE,
 )
@@ -1328,6 +1324,60 @@ def touch_session():
 
 
 
+
+def _pause_wakeword_capture_media_if_needed() -> list:
+    """Pause active room media before far-field wake-word command capture."""
+    try:
+        if not _pref_bool("WAKEWORD_PAUSE_MEDIA_DURING_CAPTURE", False):
+            return []
+    except Exception:
+        return []
+
+    targets = []
+    seen = set()
+
+    def _add(label, entity_id):
+        eid = (entity_id or "").strip()
+        if not eid or eid in seen:
+            return
+        seen.add(eid)
+        targets.append((label, eid))
+
+    room_id = None
+    try:
+        tv_ctx = _request_default_tv_context() or {}
+        room_id = tv_ctx.get("room_id")
+        _add("tv", tv_ctx.get("tv_entity"))
+    except Exception:
+        logging.exception("WAKEWORD_MEDIA_PAUSE_TV_CONTEXT_FAIL")
+
+    try:
+        sonos_room = _request_default_sonos_room(room_id)
+        _add("sonos", (SONOS_PLAYERS or {}).get(sonos_room))
+    except Exception:
+        logging.exception("WAKEWORD_MEDIA_PAUSE_SONOS_CONTEXT_FAIL")
+
+    paused = []
+    raw_call = globals().get("_piphone_real_call_ha_service")
+    if not callable(raw_call):
+        raw_call = call_ha_service
+
+    for label, eid in targets:
+        try:
+            st_obj = ha_get_state(eid) or {}
+            st = str(st_obj.get("state") or "").strip().lower()
+            if st != "playing":
+                logging.info("WAKEWORD_MEDIA_PAUSE_SKIP label=%r entity=%r state=%r", label, eid, st)
+                continue
+            ok = bool(raw_call("media_player/media_pause", {"entity_id": eid}))
+            logging.info("WAKEWORD_MEDIA_PAUSE label=%r entity=%r ok=%r", label, eid, ok)
+            if ok:
+                paused.append(eid)
+        except Exception:
+            logging.exception("WAKEWORD_MEDIA_PAUSE_FAIL label=%r entity=%r", label, eid)
+
+    return paused
+
 def _record_audio_with_vad_wakeword() -> Optional[str]:
     _trace_audio_event("wakeword_record_legacy_enter")
     """
@@ -1358,8 +1408,9 @@ def _record_audio_with_vad_wakeword() -> Optional[str]:
 
         if _wakeword_chime_enabled():
             try:
-                logging.info("WAKEWORD_CHIME_PLAY")
-                play_sound("start", 1.0, blocking=False)
+                chime_volume = max(0.0, min(1.0, _pref_float("WAKEWORD_CHIME_VOLUME", 0.35)))
+                logging.info("WAKEWORD_CHIME_PLAY volume=%.2f", chime_volume)
+                play_sound("wakeword_start", chime_volume, blocking=False)
             except Exception:
                 logging.exception("WAKEWORD_CHIME_FAIL")
 
@@ -1472,10 +1523,46 @@ def _record_audio_with_vad_wakeword_stream(
     wake_vad_arm_delay_ms = max(0.0, min(1500.0, wake_vad_arm_delay_ms))
 
     try:
+        wake_cue_guard_ms = float(_pref_float("WAKEWORD_STREAM_CUE_GUARD_MS", 1000.0))
+    except Exception:
+        wake_cue_guard_ms = 1000.0
+    wake_cue_guard_ms = max(0.0, min(3000.0, wake_cue_guard_ms))
+
+    try:
         wake_silence_end_ms = float(_pref_float("WAKEWORD_STREAM_SILENCE_END_MS", 1200.0))
     except Exception:
         wake_silence_end_ms = 1200.0
     wake_silence_end_ms = max(500.0, min(3000.0, wake_silence_end_ms))
+
+    try:
+        wake_endpoint_window_ms = float(
+            _pref_float("WAKEWORD_STREAM_ENDPOINT_WINDOW_MS", 700.0)
+        )
+    except Exception:
+        wake_endpoint_window_ms = 700.0
+    wake_endpoint_window_ms = max(0.0, min(3000.0, wake_endpoint_window_ms))
+
+    try:
+        wake_endpoint_silence_ratio = float(
+            _pref_float("WAKEWORD_STREAM_ENDPOINT_MIN_SILENCE_RATIO", 0.70)
+        )
+    except Exception:
+        wake_endpoint_silence_ratio = 0.70
+    wake_endpoint_silence_ratio = max(
+        0.0,
+        min(1.0, wake_endpoint_silence_ratio),
+    )
+
+    try:
+        wake_endpoint_trailing_silence_ms = float(
+            _pref_float("WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS", 80.0)
+        )
+    except Exception:
+        wake_endpoint_trailing_silence_ms = 80.0
+    wake_endpoint_trailing_silence_ms = max(
+        0.0,
+        min(1000.0, wake_endpoint_trailing_silence_ms),
+    )
 
     try:
         wake_min_speech_ms = float(_pref_float("WAKEWORD_STREAM_MIN_SPEECH_MS", 300.0))
@@ -1489,45 +1576,110 @@ def _record_audio_with_vad_wakeword_stream(
         wake_first_speech_timeout_ms = 4000.0
     wake_first_speech_timeout_ms = max(1000.0, min(20000.0, wake_first_speech_timeout_ms))
 
+    try:
+        wake_max_seconds = float(_pref_float("WAKEWORD_STREAM_MAX_SECONDS", 8.0))
+    except Exception:
+        wake_max_seconds = 8.0
+    wake_max_seconds = max(2.0, min(20.0, wake_max_seconds))
+
+    try:
+        post_media_pause_drain_ms = float(_pref_float("WAKEWORD_STREAM_POST_MEDIA_PAUSE_DRAIN_MS", 150.0))
+    except Exception:
+        post_media_pause_drain_ms = 150.0
+    post_media_pause_drain_ms = max(0.0, min(1000.0, post_media_pause_drain_ms))
+
+    try:
+        pretrigger_include_ms = float(_pref_float("WAKEWORD_STREAM_PRETRIGGER_INCLUDE_MS", 0.0))
+    except Exception:
+        pretrigger_include_ms = 0.0
+    pretrigger_include_ms = max(0.0, min(900.0, pretrigger_include_ms))
+
     wake_pre_roll_frames = max(
         int(PRE_ROLL_FRAMES),
         int(round(wake_preroll_ms / float(FRAME_MS))),
     )
+    wake_chime_enabled = _wakeword_chime_enabled()
+    wake_vad_prime_ms = max(
+        wake_vad_arm_delay_ms,
+        wake_cue_guard_ms if wake_chime_enabled else 0.0,
+    )
+    wake_vad_prime_frames = max(0, int(round(wake_vad_prime_ms / float(FRAME_MS))))
+    wake_pre_roll_frames = max(wake_pre_roll_frames, wake_vad_prime_frames)
     wake_silence_end_frames = max(1, int(round(wake_silence_end_ms / float(FRAME_MS))))
+    wake_endpoint_window_frames = max(
+        0,
+        int(round(wake_endpoint_window_ms / float(FRAME_MS))),
+    )
+    wake_endpoint_trailing_silence_frames = max(
+        0,
+        int(round(wake_endpoint_trailing_silence_ms / float(FRAME_MS))),
+    )
     wake_min_speech_frames = max(1, int(round(wake_min_speech_ms / float(FRAME_MS))))
 
     logging.info(
-        "WAKEWORD_STREAM_CAPTURE_CFG pre_roll_ms=%.1f pre_roll_frames=%s vad_arm_delay_ms=%.1f silence_end_ms=%.1f silence_end_frames=%s min_speech_ms=%.1f min_speech_frames=%s",
+        "WAKEWORD_STREAM_CAPTURE_CFG pre_roll_ms=%.1f pre_roll_frames=%s "
+        "vad_arm_delay_ms=%.1f cue_guard_ms=%.1f vad_prime_frames=%s "
+        "silence_end_ms=%.1f silence_end_frames=%s endpoint_window_ms=%.1f "
+        "endpoint_window_frames=%s endpoint_silence_ratio=%.2f "
+        "endpoint_trailing_silence_ms=%.1f endpoint_trailing_silence_frames=%s "
+        "min_speech_ms=%.1f min_speech_frames=%s max_seconds=%.1f "
+        "post_media_pause_drain_ms=%.1f pretrigger_include_ms=%.1f",
         wake_preroll_ms,
         wake_pre_roll_frames,
         wake_vad_arm_delay_ms,
+        wake_cue_guard_ms if wake_chime_enabled else 0.0,
+        wake_vad_prime_frames,
         wake_silence_end_ms,
         wake_silence_end_frames,
+        wake_endpoint_window_ms,
+        wake_endpoint_window_frames,
+        wake_endpoint_silence_ratio,
+        wake_endpoint_trailing_silence_ms,
+        wake_endpoint_trailing_silence_frames,
         wake_min_speech_ms,
         wake_min_speech_frames,
+        wake_max_seconds,
+        post_media_pause_drain_ms,
+        pretrigger_include_ms,
     )
 
     try:
-        # Step 7: chime fires FIRST so the user hears acknowledgement of
-        # the wake word within ~10 ms of the HIT, before any STT setup.
-        # Previously rt_stream websocket init blocked the chime for up to
-        # 2.5 seconds.
-        if _wakeword_chime_enabled():
+        paused_media = _pause_wakeword_capture_media_if_needed()
+        if paused_media and post_media_pause_drain_ms > 0:
             try:
-                logging.info("WAKEWORD_CHIME_PLAY")
-                play_sound("start", 1.0, blocking=False)
+                drain_frames = int(round(post_media_pause_drain_ms / float(FRAME_MS)))
+                for _ in range(max(0, drain_frames)):
+                    frame_reader()
+                logging.info(
+                    "WAKEWORD_MEDIA_PAUSE_DRAIN frames=%s approx_ms=%.1f",
+                    max(0, drain_frames),
+                    post_media_pause_drain_ms,
+                )
+            except Exception:
+                logging.exception("WAKEWORD_MEDIA_PAUSE_DRAIN_FAIL")
+
+        # A short wakeword-only cue fires before STT setup. Capture audio keeps
+        # accumulating in the continuous source while the websocket connects.
+        if wake_chime_enabled:
+            try:
+                chime_volume = max(
+                    0.0,
+                    min(1.0, _pref_float("WAKEWORD_CHIME_VOLUME", 0.35)),
+                )
+                logging.info("WAKEWORD_CHIME_PLAY volume=%.2f", chime_volume)
+                play_sound("wakeword_start", chime_volume, blocking=False)
             except Exception:
                 logging.exception("WAKEWORD_CHIME_FAIL")
 
-        # By default the wakeword path skips streaming STT during capture
-        # and post-transcribes the WAV after VAD endpoints. Net latency is
-        # similar or better than streaming once the websocket-setup cost
-        # is removed, with predictable timing. Gate via pref so this is
-        # easy to flip back if needed.
+        # Wakeword streaming is independently gated from PTT. Its session uses
+        # manual commit so local VAD, not server VAD, owns the utterance boundary.
         use_streaming = bool(_pref_bool("WAKEWORD_USE_STREAMING_STT", False))
         rt_stream_runtime = None
         if use_streaming and _rt_stream_mode_enabled():
-            rt_stream_runtime = _rt_stream_create_runtime(wake_pre_roll_frames)
+            rt_stream_runtime = _rt_stream_create_runtime(
+                wake_pre_roll_frames,
+                manual_commit=True,
+            )
             if rt_stream_runtime and rt_stream_runtime.get("rt") is not None:
                 logging.info(
                     "STT_RT_STREAM_INIT model=%r lang=%r source='wakeword'",
@@ -1535,46 +1687,75 @@ def _record_audio_with_vad_wakeword_stream(
                     rt_stream_runtime.get("lang"),
                 )
 
-        start_ts = time.time()
-        prime_only_until_ts = start_ts + (wake_vad_arm_delay_ms / 1000.0)
-
+        start_ts = time.monotonic()
         def _continue_recording():
             return (
-                not bool(globals().get("is_speaking"))
+                (time.monotonic() - start_ts) < wake_max_seconds
+                and not bool(globals().get("is_speaking"))
                 and not bool(globals().get("button_pressed"))
             )
 
-        # Step 9: do NOT consume the listener's pre-trigger frames into the
-        # capture. They contain the wake-word audio, and feeding them
-        # through VAD caused premature endpoints (VAD speech_start fires
-        # on the wake word, then 800 ms of user-pause endpoints before the
-        # command is spoken). We let frame_reader read directly from the
-        # live stream; capture begins at ~the HIT moment plus whatever's
-        # in PortAudio's input buffer (~80-100 ms). The strip regex
-        # downstream handles any residual wake-word syllables.
-        if pre_trigger_frames:
+        # Keep a capped pre-trigger tail available for one-breath recovery, but
+        # never feed it into command VAD. Feeding the wake word itself through
+        # VAD makes capture start at t=0 and can endpoint before the command.
+        pretrigger_prefix = []
+        pretrigger_frame_ms = float(FRAME_MS)
+        if pre_trigger_frames and pretrigger_include_ms > 0:
+            try:
+                if pre_trigger_sample_rate and pre_trigger_frame_samples:
+                    pretrigger_frame_ms = (
+                        float(pre_trigger_frame_samples)
+                        * 1000.0
+                        / max(1.0, float(pre_trigger_sample_rate))
+                    )
+                keep_frames = int(round(pretrigger_include_ms / max(1.0, pretrigger_frame_ms)))
+                if keep_frames > 0:
+                    pretrigger_prefix = list(pre_trigger_frames)[-keep_frames:]
+                logging.info(
+                    "WAKEWORD_STREAM_PRETRIGGER_STAGED frames=%s requested_ms=%.1f approx_ms=%.1f total_frames=%s",
+                    len(pretrigger_prefix),
+                    pretrigger_include_ms,
+                    len(pretrigger_prefix) * pretrigger_frame_ms,
+                    len(pre_trigger_frames),
+                )
+            except Exception:
+                pretrigger_prefix = []
+                logging.exception("WAKEWORD_STREAM_PRETRIGGER_STAGE_FAIL")
+        elif pre_trigger_frames:
             try:
                 logging.info(
-                    "WAKEWORD_STREAM_PRETRIGGER_SKIP frames=%s reason=pre_roll_zero",
+                    "WAKEWORD_STREAM_PRETRIGGER_SKIP frames=%s reason=pretrigger_include_disabled",
                     len(pre_trigger_frames),
                 )
             except Exception:
                 pass
 
-        def _primed_frame_reader():
-            return frame_reader()
+        if rt_stream_runtime is not None and pretrigger_prefix:
+            try:
+                for pretrigger_frame in pretrigger_prefix:
+                    _rt_stream_append_frame(rt_stream_runtime, pretrigger_frame, sr)
+                logging.info(
+                    "WAKEWORD_STREAM_RT_PRETRIGGER_APPENDED frames=%s approx_ms=%.1f",
+                    len(pretrigger_prefix),
+                    len(pretrigger_prefix) * pretrigger_frame_ms,
+                )
+            except Exception:
+                logging.exception("WAKEWORD_STREAM_RT_PRETRIGGER_APPEND_FAIL")
 
         first_speech_deadline_ts = start_ts + (wake_first_speech_timeout_ms / 1000.0)
 
         capture = _capture_utterance_from_frame_source(
-            frame_reader=_primed_frame_reader,
+            frame_reader=frame_reader,
             sample_rate=sr,
             continue_recording_fn=_continue_recording,
             cancelled_fn=lambda: bool(globals().get("button_pressed")),
             pre_roll_frames=wake_pre_roll_frames,
             silence_end_frames=wake_silence_end_frames,
             min_speech_frames=wake_min_speech_frames,
-            prime_only_until_ts=prime_only_until_ts,
+            prime_only_frames=wake_vad_prime_frames,
+            endpoint_window_frames=wake_endpoint_window_frames,
+            endpoint_min_silence_ratio=wake_endpoint_silence_ratio,
+            endpoint_trailing_silence_frames=wake_endpoint_trailing_silence_frames,
             perf_prefix="WAKEWORD_STREAM_VAD",
             sleep_per_frame_sec=0.001,
             rt_stream_runtime=rt_stream_runtime,
@@ -1587,6 +1768,33 @@ def _record_audio_with_vad_wakeword_stream(
             return None
 
         audio_data = capture["audio_data"]
+        speech_start_ms = capture.get("speech_start_elapsed_ms")
+        one_breath_limit_ms = max(
+            0.0,
+            min(1500.0, _pref_float("WAKEWORD_ONE_BREATH_MAX_SPEECH_START_MS", 450.0)),
+        )
+        if (
+            pretrigger_prefix
+            and speech_start_ms is not None
+            and float(speech_start_ms) <= one_breath_limit_ms
+        ):
+            audio_data = np.concatenate(
+                [np.asarray(frame, dtype=np.int16).reshape(-1) for frame in pretrigger_prefix]
+                + [audio_data]
+            )
+            logging.info(
+                "WAKEWORD_STREAM_PRETRIGGER_APPLIED frames=%s approx_ms=%.1f speech_start_ms=%.1f limit_ms=%.1f",
+                len(pretrigger_prefix),
+                len(pretrigger_prefix) * pretrigger_frame_ms,
+                float(speech_start_ms),
+                one_breath_limit_ms,
+            )
+        elif pretrigger_prefix:
+            logging.info(
+                "WAKEWORD_STREAM_PRETRIGGER_SKIPPED reason=separate_command speech_start_ms=%r limit_ms=%.1f",
+                speech_start_ms,
+                one_breath_limit_ms,
+            )
 
         out_sr = 16000
         out_audio = audio_data.astype(np.int16, copy=False)
@@ -1615,6 +1823,38 @@ def _record_audio_with_vad_wakeword_stream(
                 logging.warning("WAKEWORD_STREAM_RESAMPLE_FAIL keeping sr=%s err=%r", sr, e)
                 out_sr = sr
                 out_audio = audio_data.astype(np.int16, copy=False)
+
+        if out_sr == 16000:
+            try:
+                from audio_input_profile import get_audio_input_profile
+                from wakeword_frontend import clean_command_audio_16k
+
+                input_profile = get_audio_input_profile()
+                command_ns_level = int(
+                    input_profile.get("command_noise_suppression_level") or 0
+                )
+                command_auto_gain_dbfs = int(
+                    input_profile.get("command_auto_gain_dbfs") or 0
+                )
+                command_volume_multiplier = float(
+                    input_profile.get("command_volume_multiplier") or 1.0
+                )
+                out_audio = clean_command_audio_16k(
+                    out_audio,
+                    noise_suppression_level=command_ns_level,
+                    auto_gain_dbfs=command_auto_gain_dbfs,
+                    volume_multiplier=command_volume_multiplier,
+                    logger=logging,
+                )
+                logging.info(
+                    "WAKEWORD_STREAM_COMMAND_FRONTEND_APPLIED profile=%r ns_level=%s auto_gain_dbfs=%s volume_multiplier=%.3f",
+                    input_profile.get("name"),
+                    command_ns_level,
+                    command_auto_gain_dbfs,
+                    command_volume_multiplier,
+                )
+            except Exception:
+                logging.exception("WAKEWORD_STREAM_FRONTEND_FAIL using_unprocessed_audio=True")
 
         wav_write(absolute_filename, out_sr, out_audio)
 
@@ -1853,7 +2093,7 @@ def _handle_wakeword_detected(**kwargs) -> None:
         #   2) Add a small acoustic settle window for room reverb.
         #   3) Honor the configured WAKEWORD_REARM_SEC as a floor in case the
         #      whole interaction was completely silent.
-        t_finally_start = time.time()
+        t_finally_start = time.monotonic()
         try:
             min_delay = max(0.0, float(_wakeword_rearm_sec()))
         except Exception:
@@ -1869,12 +2109,12 @@ def _handle_wakeword_detected(**kwargs) -> None:
         sfx_settle_sec = 0.0
 
         sfx_seen = False
-        sfx_drain_start = time.time()
+        sfx_drain_start = time.monotonic()
         while True:
             try:
                 if _is_sfx_playing():
                     sfx_seen = True
-                    if (time.time() - sfx_drain_start) >= sfx_drain_max_sec:
+                    if (time.monotonic() - sfx_drain_start) >= sfx_drain_max_sec:
                         break
                     time.sleep(0.02)
                     continue
@@ -1885,11 +2125,11 @@ def _handle_wakeword_detected(**kwargs) -> None:
         if sfx_seen:
             time.sleep(sfx_settle_sec)
 
-        elapsed = time.time() - t_finally_start
+        elapsed = time.monotonic() - t_finally_start
         if elapsed < min_delay:
             time.sleep(min_delay - elapsed)
 
-        total = time.time() - t_finally_start
+        total = time.monotonic() - t_finally_start
         # Ask the listener to flush its OWW preprocessor buffers + diagnostic
         # deques BEFORE clearing the in-progress flag. This closes the gap
         # where the listener's own suppress->listen flush is skipped on
@@ -1941,6 +2181,41 @@ def _start_wakeword_listener_if_enabled() -> bool:
         logging.exception("WAKEWORD_LISTENER_START_FAIL")
         _WAKEWORD_LISTENER = None
         return False
+
+def _stop_wakeword_listener_for_exclusive_audio_applet(name: str) -> None:
+    global _WAKEWORD_LISTENER
+    try:
+        listener = globals().get("_WAKEWORD_LISTENER")
+        if listener is None:
+            logging.info("APPLET_AUDIO_HANDOFF_WAKEWORD_ALREADY_STOPPED applet=%s", name)
+            return
+        logging.info("APPLET_AUDIO_HANDOFF_WAKEWORD_STOP applet=%s", name)
+        try:
+            listener.stop()
+        except Exception:
+            logging.exception("APPLET_AUDIO_HANDOFF_WAKEWORD_STOP_FAIL applet=%s", name)
+        _WAKEWORD_LISTENER = None
+        time.sleep(0.6)
+    except Exception:
+        logging.exception("APPLET_AUDIO_HANDOFF_BEFORE_START_FAIL applet=%s", name)
+
+
+def _restart_wakeword_listener_after_exclusive_audio_applet(name: str) -> None:
+    try:
+        logging.info("APPLET_AUDIO_HANDOFF_WAKEWORD_RESTART applet=%s", name)
+        _start_wakeword_listener_if_enabled()
+    except Exception:
+        logging.exception("APPLET_AUDIO_HANDOFF_AFTER_STOP_FAIL applet=%s", name)
+
+
+try:
+    register_exclusive_audio_hooks(
+        before_start=_stop_wakeword_listener_for_exclusive_audio_applet,
+        after_stop=_restart_wakeword_listener_after_exclusive_audio_applet,
+    )
+    logging.info("APPLET_EXCLUSIVE_AUDIO_HOOKS_REGISTERED")
+except Exception:
+    logging.exception("APPLET_EXCLUSIVE_AUDIO_HOOKS_REGISTER_FAIL")
 
 
 
@@ -2072,10 +2347,15 @@ if not PIPHONE_NO_RUNTIME_INIT:
 # AUDIO PLAYBACK HELPERS
 # =========================
 
-def play_mp3_blocking(path: str):
+def play_mp3_blocking(path: str, volume: float = 1.0):
     try:
+        scale = max(1, min(32768, int(round(32768 * float(volume)))))
+        cmd = list(MPG123_CMD)
+        if scale != 32768:
+            cmd.extend(["-f", str(scale)])
+        cmd.append(path)
         subprocess.run(
-            MPG123_CMD + [path],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -2180,9 +2460,12 @@ def play_sound(sound_type: str, volume: float = 1.0, blocking: bool = False):
     If blocking=False, we play in a daemon thread. We still serialize playback
     via audio_device_lock inside the worker to reduce ALSA contention.
     """
-    # volume kept for API compatibility; mpg123 doesn’t apply per-play volume here.
     if sound_type == "start":
         sound_file = START_SOUND
+    elif sound_type == "wakeword_start":
+        configured = _pref_str("WAKEWORD_CHIME_SOUND_FILE", "assets/play.mp3").strip()
+        candidate = Path(configured or "assets/play.mp3")
+        sound_file = str(candidate if candidate.is_absolute() else BASE_DIR / candidate)
     elif sound_type == "finish":
         sound_file = FINISH_SOUND
     elif sound_type == "error":
@@ -2194,7 +2477,7 @@ def play_sound(sound_type: str, volume: float = 1.0, blocking: bool = False):
         t0 = time.monotonic()
         try:
             with audio_device_lock:
-                play_mp3_blocking(sound_file)
+                play_mp3_blocking(sound_file, volume=volume)
         except Exception as e:
             logging.error(f"Sound playback error: {e}")
         finally:
@@ -2645,12 +2928,21 @@ def get_chatgpt_joke_response(text: str) -> str:
             model=os.getenv('PIPHONE_REALTIME_TRANSCRIBE_MODEL','gpt-4o-transcribe'),
             language=os.getenv('PIPHONE_REALTIME_TRANSCRIBE_LANG','en'),
         ))
-def transcribe_audio(audio_file: Optional[str]) -> str:
+def transcribe_audio(
+    audio_file: Optional[str],
+    *,
+    mode_override: Optional[str] = None,
+) -> str:
     if audio_file is None or not os.path.exists(audio_file):
         return ""
 
     try:
-        _mode = (os.environ.get("PIPHONE_STT_MODE", "") or "").strip().lower()
+        _mode = (
+            mode_override
+            if mode_override is not None
+            else os.environ.get("PIPHONE_STT_MODE", "")
+        )
+        _mode = (_mode or "").strip().lower()
     except Exception:
         _mode = "?"
     try:
@@ -2670,13 +2962,11 @@ def transcribe_audio(audio_file: Optional[str]) -> str:
     #     write <wav>.transcript and return it.
     #  3) Else fall back to Whisper-file path below.
     #
-    # The streaming-mode aliases are included so the wakeword path
-    # (WAKEWORD_USE_STREAMING_STT=False -> no sidecar written during capture)
-    # still reaches gpt-4o-transcribe via file upload instead of silently
-    # falling through to whisper-1.
+    # Streaming-mode aliases also provide a corrected completed-WAV Realtime
+    # fallback when live capture did not produce a sidecar.
     # ============================================================
     try:
-        stt_mode = (os.environ.get("PIPHONE_STT_MODE", "") or "").strip().lower()
+        stt_mode = _mode
     except Exception:
         stt_mode = ""
     if stt_mode in ("realtime", "rt", "realtime_file",
@@ -3159,7 +3449,19 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
 
         _perf('PIPE_BEFORE_STT')
 
-        text = transcribe_audio(audio_file)
+        trigger_name = str(trigger or "").strip().lower()
+        stt_mode_override = None
+        if trigger_name == "wakeword":
+            stt_mode_override = (
+                _pref_str("WAKEWORD_STT_MODE", "realtime_stream")
+                or "realtime_stream"
+            ).strip().lower()
+            logging.info(
+                "WAKEWORD_STT_MODE_SELECTED mode=%r service_mode=%r",
+                stt_mode_override,
+                (os.environ.get("PIPHONE_STT_MODE", "") or "").strip().lower(),
+            )
+        text = transcribe_audio(audio_file, mode_override=stt_mode_override)
 
         # Option A (Step 6): wakeword captures intentionally include the wake
         # word at the front of the transcript (via the listener pre-trigger
@@ -3428,10 +3730,21 @@ def main():
         _start_wakeword_listener_if_enabled()
     except Exception:
         logging.exception("WAKEWORD_LISTENER_BOOT_CALL_FAIL")
+    def _rt_boot_warmup_worker():
+        try:
+            warmup_rt_streaming_on_boot()
+        except Exception:
+            logging.exception("RT_WARMUP_BOOT_CALL_FAIL")
+
     try:
-        warmup_rt_streaming_on_boot()
+        threading.Thread(
+            target=_rt_boot_warmup_worker,
+            name="rt_boot_warmup",
+            daemon=True,
+        ).start()
+        logging.info("RT_WARMUP_BOOT_THREAD_STARTED")
     except Exception:
-        logging.exception("RT_WARMUP_BOOT_CALL_FAIL")
+        logging.exception("RT_WARMUP_BOOT_THREAD_START_FAIL")
 
     # -----------------------------------------------------------------
     # Unified runtime: in-process HTTP/WS server (opt-in via pref).

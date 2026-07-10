@@ -71,6 +71,7 @@ class WakewordListener:
         # on error-path interactions that played no SFX.
         self._pending_flush = False
         self._owned_model = None
+        self._owned_source = None
         self._owned_pretrigger_buffer = None
         self._owned_hit_audio_chunks = None
 
@@ -90,6 +91,10 @@ class WakewordListener:
     def stop(self) -> None:
         self._stop_event.set()
         self._started = False
+        thread = self._thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=3.0)
+        self._thread = None
         self.log.info("WAKEWORD_LISTENER_STOP")
 
     def request_flush(self) -> None:
@@ -99,7 +104,7 @@ class WakewordListener:
         self._pending_flush = True
 
     def _should_log_suppression(self, reason: str) -> bool:
-        now = time.time()
+        now = time.monotonic()
         if reason != self._last_suppress_reason:
             self._last_suppress_reason = reason
             self._last_suppress_log_ts = now
@@ -110,7 +115,7 @@ class WakewordListener:
         return False
 
     def _emit_detected(self, **kwargs) -> bool:
-        now = time.time()
+        now = time.monotonic()
         if (now - self._last_detect_ts) < self.rearm_sec:
             self.log.info(
                 "WAKEWORD_DETECTED_IGNORED reason=rearm dt=%.2f rearm_sec=%.2f",
@@ -146,7 +151,9 @@ class WakewordListener:
                 self._run_porcupine()
                 return
             if self.engine == "openwakeword":
-                self._run_openwakeword()
+                from wakeword_openwakeword import run_openwakeword
+
+                run_openwakeword(self)
                 return
             self.log.warning("WAKEWORD_ENGINE_UNSUPPORTED engine=%r", self.engine)
         except Exception:
@@ -551,18 +558,7 @@ class WakewordListener:
 
                 # ---- OWW predict ----
                 try:
-                    scores = model.predict(
-                        pcm_for_oww,
-                        threshold={selected_label: threshold} if selected_label else None,
-                        debounce_time=debounce_sec,
-                    )
-                except TypeError:
-                    try:
-                        scores = model.predict(pcm_for_oww)
-                    except Exception:
-                        self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_PROCESS_FAIL")
-                        time.sleep(0.10)
-                        continue
+                    scores = model.predict(pcm_for_oww)
                 except Exception:
                     self.log.exception("WAKEWORD_ENGINE_OPENWAKEWORD_PROCESS_FAIL")
                     time.sleep(0.10)

@@ -24,6 +24,7 @@ FUTURE INTEGRATION:
 """
 
 import sys
+import os
 import time
 from pathlib import Path
 import signal
@@ -55,8 +56,8 @@ log = logging.getLogger("note_lights")
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── Audio ──────────────────────────────────────────────────────────────────
-SAMPLE_RATE   = 44100   # Hz — should match your device's native rate
-CHUNK_SAMPLES = 4096    # ~93 ms per detection window; increase if too jumpy
+SAMPLE_RATE   = int(os.environ.get("PIPHONE_SD_SAMPLERATE", "48000") or "48000")
+CHUNK_SAMPLES = 4096    # ~85 ms at 48 kHz; increase if too jumpy
 AUDIO_DEVICE  = None    # None = system default; set to device index or name
                         # to target a specific mic (use --list-devices to find)
 
@@ -460,6 +461,7 @@ class NoteLightsApp:
         ha.configure_ha(ha_url=HA_URL, ha_token=HA_TOKEN)
         log.info("HA configured  url=%s", HA_URL)
         log.info("Device: %s", AUDIO_DEVICE or "default")
+        log.info("Sample rate: %s Hz", SAMPLE_RATE)
 
         # Warm up librosa — numba JIT-compiles on first call (~1–2 s on Pi).
         # Without this, the first real note after launch is missed.
@@ -553,6 +555,7 @@ class NoteLightsApp:
         except KeyboardInterrupt:
             log.info("Stopped by user")
         except Exception:
+            self._exit_code = 1
             log.exception("Fatal error in audio loop")
         finally:
             log.info("note_lights exiting")
@@ -607,6 +610,24 @@ def _parse_device_arg(argv):
         return val  # sounddevice accepts a name substring
 
 
+def _parse_sample_rate_arg(argv):
+    if "--samplerate" not in argv:
+        return None
+    i = argv.index("--samplerate")
+    if i + 1 >= len(argv):
+        print("error: --samplerate requires a value, e.g. 48000")
+        sys.exit(2)
+    try:
+        sr = int(argv[i + 1])
+    except ValueError:
+        print("error: --samplerate must be an integer, e.g. 48000")
+        sys.exit(2)
+    if sr <= 0:
+        print("error: --samplerate must be positive")
+        sys.exit(2)
+    return sr
+
+
 if __name__ == "__main__":
     if "--list-devices" in sys.argv:
         _list_devices()
@@ -615,6 +636,11 @@ if __name__ == "__main__":
     if "-v" in sys.argv or "--verbose" in sys.argv:
         logging.getLogger().setLevel(logging.DEBUG)
         log.debug("verbose logging enabled")
+
+    sample_rate_arg = _parse_sample_rate_arg(sys.argv)
+    if sample_rate_arg is not None:
+        SAMPLE_RATE = sample_rate_arg
+        log.info("Sample-rate override from CLI: %r", SAMPLE_RATE)
 
     device_arg = _parse_device_arg(sys.argv)
     if device_arg is not None:
@@ -628,3 +654,4 @@ if __name__ == "__main__":
     app = NoteLightsApp()
     signal.signal(signal.SIGTERM, lambda *_: setattr(app, "_running", False))
     app.run()
+    raise SystemExit(int(getattr(app, "_exit_code", 0) or 0))

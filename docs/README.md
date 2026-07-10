@@ -6,6 +6,7 @@ Start here if you are installing or evaluating Home Suite:
 * [Install guide](INSTALL.md)
 * [Configuration guide](CONFIGURATION.md)
 * [Integrations](INTEGRATIONS.md)
+* [Wake-word audio guide](WAKEWORD.md)
 * [Features](FEATURES.md)
 * [Commands to try](COMMANDS.md)
 * [FAQ](FAQ.md)

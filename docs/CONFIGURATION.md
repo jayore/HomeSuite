@@ -217,20 +217,36 @@ The URL should be the base Kuma URL; the slug is the part after `/status/`.
 
 ## Wake Word Engines
 
-For Porcupine:
+Wake-word settings belong in `local_prefs.py` because microphone hardware,
+models, gain, and interaction timing differ by device. The current recommended
+engine is OpenWakeWord:
+
+```python
+WAKEWORD_ENABLED = True
+WAKEWORD_ENGINE = "openwakeword"
+WAKEWORD_MODEL = "your_model_label"
+WAKEWORD_MODEL_PATHS = [
+    "/home/your-user/wake_models/your_model.onnx",
+]
+WAKEWORD_USE_STREAMING_STT = True
+WAKEWORD_STT_MODE = "realtime_stream"
+```
+
+Define `AUDIO_INPUT_PROFILE` in the same file using a stable microphone name,
+the hardware-supported sample rate, and optional ALSA mixer enforcement. Do not
+assume a PortAudio device index will remain stable after reboots or USB changes.
+
+Porcupine remains supported as a compatibility engine. Its access key is a
+secret and belongs in `private_config.py`:
 
 ```python
 PVPORCUPINE_ACCESS_KEY = "..."
 ```
 
-Set wake-word behavior per device in `local_prefs.py`:
-
-```python
-WAKEWORD_ENABLED = True
-WAKEWORD_ENGINE = "porcupine"  # or "openwakeword" when installed/configured
-```
-
-Wake-word setup depends heavily on hardware, microphone, and runtime mode. Treat it as an advanced setup path for now.
+Wake-word setup is an advanced hardware path. Follow
+[WAKEWORD.md](WAKEWORD.md) for the architecture, microphone profile schema,
+gain calibration, OpenWakeWord model validation, endpoint settings, Realtime
+fallback behavior, and log-based troubleshooting.
 
 ## Companion Clients
 

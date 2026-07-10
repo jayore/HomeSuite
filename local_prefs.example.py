@@ -24,6 +24,17 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # Wake-word engine. Common values are "openwakeword" or "porcupine".
 # WAKEWORD_ENGINE = "openwakeword"
 
+# Completed wakeword commands can use file STT independently of PTT streaming.
+# WAKEWORD_USE_STREAMING_STT = True
+# WAKEWORD_STT_MODE = "realtime_stream"
+
+# Wakeword-only endpoint tuning. Audio is still buffered and streamed during
+# the cue guard. The rolling window tolerates isolated VAD false positives.
+# WAKEWORD_STREAM_CUE_GUARD_MS = 1000
+# WAKEWORD_STREAM_ENDPOINT_WINDOW_MS = 700
+# WAKEWORD_STREAM_ENDPOINT_MIN_SILENCE_RATIO = 0.70
+# WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS = 80
+
 # If a handset needs a slight delay before the chime so it reaches your ear.
 # START_CHIME_DELAY_SECONDS = 0.0
 
@@ -55,11 +66,27 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # HOMESUITE_ALSA_DEVICE = "default"
 # HOMESUITE_ALSA_DEVICE = "dmix:CARD=Device,DEV=0"
 
-# Sounddevice input matching/index are usually set as systemd environment vars,
-# but can also be captured here for documentation of the device role.
-# HOMESUITE_SD_INPUT_MATCH = "USB PnP Sound Device"
-# HOMESUITE_SD_INPUT_INDEX = 1
-# HOMESUITE_SD_SAMPLERATE = 48000
+# A profile keeps microphone selection, fixed hardware gain, and frontend
+# processing together. Mixer fields may be None for a mic with onboard gain.
+# AUDIO_INPUT_PROFILE = {
+#     "name": "room_mic",
+#     "device_match": "USB PnP Sound Device",
+#     "device_index": None,
+#     "sample_rate": 48000,
+#     "channels": 1,
+#     "strict_device_match": True,
+#     "alsa_card": None,
+#     "mixer_control": None,
+#     "mixer_value": None,
+#     "verify_interval_sec": 0,
+#     "noise_suppression_level": 2,
+#     "auto_gain_dbfs": 0,
+#     "volume_multiplier": 1.0,
+#     "command_noise_suppression_level": 0,
+#     "command_auto_gain_dbfs": 0,
+#     "command_volume_multiplier": 1.0,
+#     "aec_mode": "hardware",  # use "none" unless the mic provides AEC
+# }
 
 
 # ---------------------------------------------------------------------------

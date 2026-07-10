@@ -23,9 +23,10 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
 
@@ -64,9 +65,20 @@ APPLETS = {
     "note_lights": {
         "type":           "subprocess",
         "path":           str(Path(__file__).resolve().parent / "applets" / "note_lights.py"),
+        "args":           [
+            "--device",
+            (
+                os.environ.get("PIPHONE_NOTE_LIGHTS_DEVICE")
+                or os.environ.get("PIPHONE_SD_INPUT_INDEX")
+                or "1"
+            ),
+        ],
+        "exclusive_audio": True,
+        "startup_wait_sec": 8.0,
+        "deferred_start_sec": 1.5,
         "description":    "Map instrument notes to Home Assistant light colors",
         "display_name":   "note lights",
-        "spoken_aliases": ["note light", "notes lights"],
+        "spoken_aliases": ["note light", "notes lights", "notelites", "node lights"],
     },
 
     "apple_tv_remote": {
@@ -115,8 +127,11 @@ PIDFILE_DIR      = Path("/tmp")
 PIDFILE_PREFIX   = "piphone_applet_"
 LOGFILE_PREFIX   = "piphone_applet_"
 
-LIVENESS_WAIT_SEC = 0.3   # how long to wait after launch to verify it stayed alive
+LIVENESS_WAIT_SEC = 0.3   # default launch check; applets may override
 STOP_TIMEOUT_SEC  = 3.0   # how long to wait for SIGTERM before SIGKILL
+
+_EXCLUSIVE_AUDIO_BEFORE_START: Optional[Callable[[str], None]] = None
+_EXCLUSIVE_AUDIO_AFTER_STOP: Optional[Callable[[str], None]] = None
 
 # Sentinel written into the pidfile of a button_mode applet (since there's
 # no real PID — the mode is in-memory state, but we use the same file
@@ -204,6 +219,64 @@ def list_applets() -> list:
         (name, meta.get("description", ""), is_running(name))
         for name, meta in APPLETS.items()
     ]
+
+
+def register_exclusive_audio_hooks(
+    *,
+    before_start: Optional[Callable[[str], None]] = None,
+    after_stop: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Register runtime hooks for applets that need exclusive microphone access."""
+    global _EXCLUSIVE_AUDIO_BEFORE_START, _EXCLUSIVE_AUDIO_AFTER_STOP
+    _EXCLUSIVE_AUDIO_BEFORE_START = before_start
+    _EXCLUSIVE_AUDIO_AFTER_STOP = after_stop
+
+
+def _applet_args(name: str) -> list:
+    args = (APPLETS.get(name) or {}).get("args") or []
+    if not isinstance(args, (list, tuple)):
+        return []
+    return [str(x) for x in args if x is not None and str(x) != ""]
+
+
+def _needs_exclusive_audio(name: str) -> bool:
+    return bool((APPLETS.get(name) or {}).get("exclusive_audio"))
+
+
+def _call_exclusive_audio_before_start(name: str) -> None:
+    if not _needs_exclusive_audio(name):
+        return
+    if callable(_EXCLUSIVE_AUDIO_BEFORE_START):
+        _EXCLUSIVE_AUDIO_BEFORE_START(name)
+
+
+def _call_exclusive_audio_after_stop(name: str) -> None:
+    if not _needs_exclusive_audio(name):
+        return
+    if callable(_EXCLUSIVE_AUDIO_AFTER_STOP):
+        _EXCLUSIVE_AUDIO_AFTER_STOP(name)
+
+
+def _is_wakeword_thread() -> bool:
+    return threading.current_thread().name == "wakeword_listener"
+
+
+def _monitor_subprocess_applet(name: str, proc: subprocess.Popen, log_path: Path) -> None:
+    try:
+        rc = proc.wait()
+        log.info("APPLET_EXIT name=%s pid=%s rc=%s", name, proc.pid, rc)
+    except Exception:
+        log.exception("APPLET_MONITOR_FAIL name=%s pid=%s", name, getattr(proc, "pid", None))
+    finally:
+        try:
+            if _read_pid(name) == proc.pid:
+                _clear_stale_pidfile(name)
+        except Exception:
+            pass
+        try:
+            _call_exclusive_audio_after_stop(name)
+        except Exception:
+            log.exception("APPLET_EXCLUSIVE_AUDIO_AFTER_STOP_FAIL name=%s", name)
 
 
 def list_running() -> list:
@@ -308,9 +381,32 @@ def _start_button_mode_applet(name: str) -> str:
     return f"Started {name}"
 
 
-def _start_subprocess_applet(name: str) -> str:
+def _deferred_start_subprocess_applet(name: str, delay_sec: float) -> None:
+    try:
+        time.sleep(max(0.0, delay_sec))
+        result = _start_subprocess_applet(name, _allow_defer=False)
+        log.info("APPLET_DEFERRED_START_DONE name=%s result=%r", name, result)
+    except Exception:
+        log.exception("APPLET_DEFERRED_START_FAIL name=%s", name)
+
+
+def _start_subprocess_applet(name: str, *, _allow_defer: bool = True) -> str:
     if is_running(name):
         return f"{name} is already running (pid {_read_pid(name)})"
+
+    if _allow_defer and _needs_exclusive_audio(name) and _is_wakeword_thread():
+        try:
+            delay_sec = float((APPLETS.get(name) or {}).get("deferred_start_sec", 1.5))
+        except Exception:
+            delay_sec = 1.5
+        threading.Thread(
+            target=_deferred_start_subprocess_applet,
+            args=(name, delay_sec),
+            daemon=True,
+            name=f"applet_deferred_start_{name}",
+        ).start()
+        log.info("APPLET_DEFERRED_START_SCHEDULED name=%s delay_sec=%.2f", name, delay_sec)
+        return f"Scheduled {name}"
 
     path = APPLETS[name].get("path")
     if not path or not Path(path).exists():
@@ -330,20 +426,33 @@ def _start_subprocess_applet(name: str) -> str:
         # start_new_session=True puts the child in its own process group so
         # it doesn't inherit signal propagation from the parent service.
         # Means: homesuite.service restarting won't kill the applet.
+        _call_exclusive_audio_before_start(name)
+        cmd = [PYTHON_BIN, path] + _applet_args(name)
+        log.info("APPLET_POPEN name=%s cmd=%r", name, cmd)
         proc = subprocess.Popen(
-            [PYTHON_BIN, path],
+            cmd,
             stdout=log_fh,
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
     except Exception as e:
         log_fh.close()
+        try:
+            _call_exclusive_audio_after_stop(name)
+        except Exception:
+            log.exception("APPLET_EXCLUSIVE_AUDIO_AFTER_STOP_FAIL name=%s", name)
         log.exception("APPLET_POPEN_FAIL name=%s", name)
         return f"Failed to start {name}: {e}"
 
     # Brief liveness check — catches "script crashes at import" so we
     # report failure with the log tail instead of fake-reporting success.
-    time.sleep(LIVENESS_WAIT_SEC)
+    # Audio applets may need a longer wait because they warm up before opening
+    # their InputStream; otherwise we say "starting" before the real failure.
+    try:
+        wait_sec = float((APPLETS.get(name) or {}).get("startup_wait_sec", LIVENESS_WAIT_SEC))
+    except Exception:
+        wait_sec = LIVENESS_WAIT_SEC
+    time.sleep(max(0.0, wait_sec))
     if proc.poll() is not None:
         rc = proc.returncode
         log_fh.close()
@@ -351,11 +460,21 @@ def _start_subprocess_applet(name: str) -> str:
             tail = log_path.read_text()[-400:]
         except Exception:
             tail = "(could not read log)"
-        log.warning("APPLET_DIED_AT_START name=%s rc=%s", name, rc)
-        return f"{name} failed to start (exit {rc}). Tail of log:\n{tail}"
+        try:
+            _call_exclusive_audio_after_stop(name)
+        except Exception:
+            log.exception("APPLET_EXCLUSIVE_AUDIO_AFTER_STOP_FAIL name=%s", name)
+        log.warning("APPLET_DIED_AT_START name=%s rc=%s log=%s tail=%r", name, rc, log_path, tail)
+        return f"{name} failed to start (exit {rc}); see {log_path}"
 
     log_fh.close()  # the child has its own dup'd fd
     _pidfile(name).write_text(str(proc.pid))
+    threading.Thread(
+        target=_monitor_subprocess_applet,
+        args=(name, proc, log_path),
+        daemon=True,
+        name=f"applet_monitor_{name}",
+    ).start()
     log.info("APPLET_START name=%s pid=%d log=%s", name, proc.pid, log_path)
     return f"Started {name} (pid {proc.pid})"
 
@@ -391,6 +510,10 @@ def _stop_subprocess_applet(name: str) -> str:
     pid = _read_pid(name)
     if pid is None or not _pid_alive(pid):
         _clear_stale_pidfile(name)
+        try:
+            _call_exclusive_audio_after_stop(name)
+        except Exception:
+            log.exception("APPLET_EXCLUSIVE_AUDIO_AFTER_STOP_FAIL name=%s", name)
         return f"{name} is not running"
 
     log.info("APPLET_STOP name=%s pid=%d (SIGTERM)", name, pid)
@@ -407,6 +530,10 @@ def _stop_subprocess_applet(name: str) -> str:
     while time.monotonic() < deadline:
         if not _pid_alive(pid):
             _clear_stale_pidfile(name)
+            try:
+                _call_exclusive_audio_after_stop(name)
+            except Exception:
+                log.exception("APPLET_EXCLUSIVE_AUDIO_AFTER_STOP_FAIL name=%s", name)
             log.info("APPLET_STOP_DONE name=%s pid=%d", name, pid)
             return f"Stopped {name}"
         time.sleep(0.1)
@@ -418,6 +545,10 @@ def _stop_subprocess_applet(name: str) -> str:
     except ProcessLookupError:
         pass
     _clear_stale_pidfile(name)
+    try:
+        _call_exclusive_audio_after_stop(name)
+    except Exception:
+        log.exception("APPLET_EXCLUSIVE_AUDIO_AFTER_STOP_FAIL name=%s", name)
     return f"Force-stopped {name}"
 
 
@@ -554,6 +685,8 @@ def _drive_lifecycle(action: str, name: str) -> str:
             if was_running:
                 return f"{cap} is already running"
             result = start_applet(name)
+            if isinstance(result, str) and result.startswith("Scheduled "):
+                return f"Starting {display}"
             return f"Starting {display}" if is_running(name) else f"Couldn't start {display}: {result}"
 
         if action == "stop":
@@ -570,6 +703,8 @@ def _drive_lifecycle(action: str, name: str) -> str:
                 stop_applet(name)
                 return f"Stopping {display}"
             result = start_applet(name)
+            if isinstance(result, str) and result.startswith("Scheduled "):
+                return f"Starting {display}"
             return f"Starting {display}" if is_running(name) else f"Couldn't start {display}: {result}"
 
     except Exception as e:

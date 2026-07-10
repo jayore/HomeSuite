@@ -132,6 +132,30 @@ MIN_SPEECH_FRAMES = int(MIN_SPEECH_MS / FRAME_MS)
 VAD_MODE = 3
 
 
+# Optional per-device microphone profile. A device may override this dictionary
+# in local_prefs.py without changing the wakeword implementation. Leave mixer
+# fields unset for microphones that expose no ALSA hardware gain control.
+AUDIO_INPUT_PROFILE = {
+    "name": "default",
+    "device_match": "USB",
+    "device_index": None,
+    "sample_rate": 48000,
+    "channels": 1,
+    "strict_device_match": False,
+    "alsa_card": None,
+    "mixer_control": None,
+    "mixer_value": None,
+    "verify_interval_sec": 0,
+    "noise_suppression_level": 0,
+    "auto_gain_dbfs": 0,
+    "volume_multiplier": 1.0,
+    "command_noise_suppression_level": 0,
+    "command_auto_gain_dbfs": 0,
+    "command_volume_multiplier": 1.0,
+    "aec_mode": "none",
+}
+
+
 # =============================
 # Wake-word / far-field runtime config
 # =============================
@@ -164,11 +188,15 @@ WAKEWORD_THRESHOLD = 0.45
 # Range 0.0 - 1.0. 0.5 is a sensible default.
 WAKEWORD_VAD_THRESHOLD = 0.5
 
-# OpenWakeWord debounce window. After a positive detection, the model will
-# suppress further positives for this many seconds. This prevents the
-# library's natural sliding-window behavior from emitting multiple hits
-# for one spoken wake word.
-WAKEWORD_DEBOUNCE_SEC = 1.5
+# Minimum time between accepted positives. Hysteresis below is the primary
+# duplicate-hit protection; this is only a short timing floor.
+WAKEWORD_DEBOUNCE_SEC = 0.30
+
+# Trigger smoothing and hysteresis. After a hit, scoring does not re-arm until
+# every model falls below the deactivation threshold for several frames.
+WAKEWORD_ACTIVATION_WINDOW_FRAMES = 3
+WAKEWORD_DEACTIVATION_THRESHOLD = 0.20
+WAKEWORD_DEACTIVATION_FRAMES = 3
 
 # Conservative default: only listen for wake word while handset is on-hook.
 WAKEWORD_ONLY_ONHOOK = True
@@ -179,55 +207,46 @@ WAKEWORD_CHIME = True
 # Cooldown after a wake-word-triggered interaction before re-arming listener.
 WAKEWORD_REARM_SEC = 0.35
 
-# Wakeword same-stream capture UX tuning.
-# Step 9 (2026-05-14): pre-roll back to 0 — capture starts at the moment of
-# the OWW HIT, not 800 ms before it. The previous Option A behavior fed the
-# wake-word audio into STT (and into VAD), causing VAD to fire speech_start
-# on the wake-word echo within ms of capture begin; if the user paused
-# before issuing the command, VAD then accumulated 800 ms of silence and
-# endpointed before the command was spoken. With pre-roll = 0, VAD only
-# sees audio from ~HIT onward — i.e., the actual command. STT also sees
-# only the command (modulo a tiny PortAudio buffer residue, which the
-# _strip_wakeword_prefix() regex defensively cleans up if it bleeds through).
-#
-# 2026-05-15: revisited. Two distinct mechanisms were being conflated:
-#   1) pre-trigger frames (audio from BEFORE the HIT held in the OWW
-#      listener's pretrigger_buffer) — these contain the wake-word audio
-#      and are STILL discarded (WAKEWORD_STREAM_PRETRIGGER_SKIP).
-#   2) the pre-roll DEQUE inside _VadUtteranceAccumulator — a bounded FIFO
-#      that fills only with frames captured AFTER the HIT, before VAD
-#      fires speech_start. This deque cannot contain wake-word audio;
-#      it provides leading-context recovery when webrtcvad lags in
-#      locking onto the first frames of the command (unvoiced consonants
-#      like "T" in "turn" are routinely missed).
-# With the deque sized at the PRE_ROLL_MS floor of 300 ms, command-start
-# audio was being lost when VAD locked on >300 ms after the user began
-# speaking — producing transcripts like "John Holladay" out of
-# "Turn on holiday" (leading "Turn on" evicted from the deque before
-# speech_start; STT then hallucinated a leading word). Bumping to 800 ms
-# gives the deque enough lookback to survive realistic VAD lag without
-# requiring the user to pause before speaking.
+# Wakeword same-stream capture UX tuning. Command VAD consumes only audio after
+# the detector hit and retains this much leading context while it locks on.
 WAKEWORD_STREAM_PRE_ROLL_MS = 800
-# Step 7b (2026-05-14): drop VAD arm delay to 0 to test the hypothesis that
-# the start chime does NOT fool Silero VAD into firing speech_start. With
-# arm_delay=0, VAD evaluates frames immediately on capture begin, so the
-# system endpoints as soon as the user stops talking instead of waiting
-# 300 ms after capture start before VAD becomes active. Revert to 300 if
-# we see premature endpoints or short captures.
-#
-# 2026-05-15: reverted to 250 ms. Step 7b assumption did not hold once the
-# pre-trigger frames were discarded (Step 9): with no pre-trigger and
-# arm_delay=0, VAD evaluated frames the moment after the OWW HIT, and the
-# wake-word echo still resident in PortAudio's input buffer triggered
-# speech_start ~4 ms into capture. That caused short captures (~300 ms),
-# STT timeouts at 12.5 s, and ~20 s post-failure lockouts. 250 ms gives
-# the echo time to drain into the pre-roll deque before VAD evaluates.
+# A short pre-hit tail is appended after endpointing only when speech starts
+# quickly enough to indicate one-breath "wakeword + command" speech. It never
+# drives VAD, so a pause after the wake word still works normally.
+WAKEWORD_STREAM_PRETRIGGER_INCLUDE_MS = 300
+WAKEWORD_ONE_BREATH_MAX_SPEECH_START_MS = 450
+# Frames are buffered immediately while VAD ignores the detector handoff tail.
+# This does not delay recording or Realtime streaming.
 WAKEWORD_STREAM_VAD_ARM_DELAY_MS = 250
+# The acknowledgement cue can look like speech to WebRTC VAD. Keep its strong
+# leading edge in pre-roll without allowing it to start command endpointing.
+WAKEWORD_STREAM_CUE_GUARD_MS = 1000
+
+# Wakeword-only acknowledgement cue. PTT keeps its existing start sound.
+WAKEWORD_CHIME_SOUND_FILE = "assets/Blow.mp3"
+WAKEWORD_CHIME_VOLUME = 1.0
+
 # Wakeword capture should be more forgiving than handset PTT.
 # In wakeword mode the user may naturally pause after the chime or between words,
 # and there is no lifted-handset state to indicate "still in session".
 WAKEWORD_STREAM_SILENCE_END_MS = 550   # matches PTT's SILENCE_END_MS (main.py:931)
 WAKEWORD_STREAM_MIN_SPEECH_MS = 250   # matches PTT's MIN_SPEECH_MS (main.py:933)
+# Wakeword-only endpointing tolerates occasional false-positive speech frames
+# from room noise and speaker bleed. Set WINDOW_MS to 0 to restore the strict
+# consecutive-silence rule. PTT never enables this rolling policy.
+WAKEWORD_STREAM_ENDPOINT_WINDOW_MS = 700
+WAKEWORD_STREAM_ENDPOINT_MIN_SILENCE_RATIO = 0.70
+WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS = 80
+
+# Hard cap for wake-word command capture. This prevents continuous room audio
+# (TV, music, podcasts, guests) from holding the wake path for a long time.
+WAKEWORD_STREAM_MAX_SECONDS = 8.0
+
+# Optional room-media mitigation for far-field wake-word setups. When enabled,
+# Home Suite pauses currently-playing TV/Sonos media in the active/default room
+# before capturing the command so STT hears the user instead of the room audio.
+WAKEWORD_PAUSE_MEDIA_DURING_CAPTURE = False
+WAKEWORD_STREAM_POST_MEDIA_PAUSE_DRAIN_MS = 150
 
 # After the wakeword chime, if VAD has not detected speech_start within this
 # many ms, abort the capture cleanly (no error tone, no transcript). This
@@ -244,7 +263,12 @@ WAKEWORD_STREAM_FIRST_SPEECH_TIMEOUT_MS = 4000
 # transcribe_audio() post-transcribes via realtime_streaming_stt's file
 # upload path (same gpt-4o-transcribe model, no websocket setup).
 # True restores the previous streaming-during-capture behavior.
-WAKEWORD_USE_STREAMING_STT = False
+WAKEWORD_USE_STREAMING_STT = True
+
+# Wakeword capture is post-transcribed from a completed WAV. Keep this separate
+# from PTT's realtime-streaming mode; the realtime websocket file feeder can
+# collapse otherwise valid far-field recordings to a single syllable.
+WAKEWORD_STT_MODE = "realtime_stream"
 
 # Below this score, OWW didn't think the audio sounded like the wake word
 # at all (well-known silence / non-speech). Between this and

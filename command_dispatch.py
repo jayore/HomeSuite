@@ -3878,6 +3878,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
                 phrase,
                 light_phrase_overrides=LIGHT_PHRASE_OVERRIDES,
                 get_recent_light=_get_recent_light,
+                entity_exists=lambda eid: _entity_exists(eid, _states_snapshot),
                 logger=logging,
             )
 

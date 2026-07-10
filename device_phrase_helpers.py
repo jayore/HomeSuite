@@ -98,6 +98,8 @@ def resolve_light_target(
     *,
     light_phrase_overrides: Dict[str, str],
     get_recent_light: Callable[[], Optional[str]],
+    entity_exists: Optional[Callable[[str], bool]] = None,
+    allow_generated_light_ids: bool = False,
     logger=None,
 ) -> Tuple[Optional[str], bool]:
     pronouns = {"it", "that", "this", "them", "those", "these"}
@@ -113,7 +115,45 @@ def resolve_light_target(
             return recent, True
         return None, True
 
-    return light_entity_id(raw_target, logger=logger), False
+    candidate = light_entity_id(raw_target, logger=logger)
+    if allow_generated_light_ids:
+        return candidate, False
+
+    if callable(entity_exists):
+        try:
+            if entity_exists(candidate):
+                return candidate, False
+        except Exception:
+            try:
+                if logger is not None:
+                    logger.exception("LIGHT_TARGET_VALIDATE_FAIL raw=%r candidate=%r", raw_target, candidate)
+            except Exception:
+                pass
+            return None, False
+
+        try:
+            if logger is not None:
+                logger.info(
+                    "LIGHT_TARGET_REJECT_UNRESOLVED raw=%r cleaned=%r candidate=%r",
+                    raw_target,
+                    cleaned,
+                    candidate,
+                )
+        except Exception:
+            pass
+        return None, False
+
+    try:
+        if logger is not None:
+            logger.info(
+                "LIGHT_TARGET_REJECT_UNVALIDATED raw=%r cleaned=%r candidate=%r",
+                raw_target,
+                cleaned,
+                candidate,
+            )
+    except Exception:
+        pass
+    return None, False
 
 
 def try_light_turn_on(entity_id: str, payloads: list, *, call_ha_service) -> bool:

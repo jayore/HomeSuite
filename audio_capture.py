@@ -16,6 +16,7 @@ time. Until then, _perf is a no-op so this module remains importable in
 isolation (tests, REPL).
 """
 
+import math
 import os
 
 try:
@@ -126,11 +127,33 @@ class _VadUtteranceAccumulator:
         pre_roll_frames: int,
         silence_end_frames: int,
         min_speech_frames: int,
+        endpoint_window_frames: int = 0,
+        endpoint_min_silence_ratio: float = 1.0,
+        endpoint_trailing_silence_frames: int = 0,
     ):
         self.vad_obj = vad_obj
         self.pre_roll = deque(maxlen=int(pre_roll_frames))
         self.silence_end_frames = int(silence_end_frames)
         self.min_speech_frames = int(min_speech_frames)
+        self.endpoint_window_frames = max(0, int(endpoint_window_frames))
+        self.endpoint_min_silence_ratio = max(
+            0.0,
+            min(1.0, float(endpoint_min_silence_ratio)),
+        )
+        self.endpoint_required_silence_frames = int(
+            math.ceil(
+                self.endpoint_window_frames * self.endpoint_min_silence_ratio
+            )
+        )
+        self.endpoint_trailing_silence_frames = max(
+            0,
+            int(endpoint_trailing_silence_frames),
+        )
+        self.endpoint_window = (
+            deque(maxlen=self.endpoint_window_frames)
+            if self.endpoint_window_frames > 0
+            else None
+        )
         self.captured = []
         self.speech_started = False
         self.silence_frames = 0
@@ -182,6 +205,8 @@ class _VadUtteranceAccumulator:
                 self.pre_roll.clear()
                 self.speech_frames += 1
                 self.silence_frames = 0
+                if self.endpoint_window is not None:
+                    self.endpoint_window.append(False)
                 return "speech_start"
             return ""
 
@@ -190,10 +215,22 @@ class _VadUtteranceAccumulator:
         if is_voice:
             self.speech_frames += 1
             self.silence_frames = 0
-            return ""
+        else:
+            self.silence_frames += 1
 
-        self.silence_frames += 1
-        if self.silence_frames >= self.silence_end_frames and self.speech_frames >= self.min_speech_frames:
+        if self.endpoint_window is not None:
+            self.endpoint_window.append(not is_voice)
+            endpoint_ready = (
+                len(self.endpoint_window) >= self.endpoint_window_frames
+                and sum(self.endpoint_window)
+                >= self.endpoint_required_silence_frames
+                and self.silence_frames
+                >= self.endpoint_trailing_silence_frames
+            )
+        else:
+            endpoint_ready = self.silence_frames >= self.silence_end_frames
+
+        if endpoint_ready and self.speech_frames >= self.min_speech_frames:
             self.done = True
             return "endpoint"
 
@@ -217,7 +254,11 @@ def _rt_stream_mode_enabled() -> bool:
     return stt_mode in ("realtime_stream", "rt_stream", "realtime_streaming")
 
 
-def _rt_stream_create_runtime(pre_roll_frames: int):
+def _rt_stream_create_runtime(
+    pre_roll_frames: int,
+    *,
+    manual_commit: bool = False,
+):
     """
     Create a small runtime object for shared realtime-streaming STT capture.
 
@@ -237,7 +278,12 @@ def _rt_stream_create_runtime(pre_roll_frames: int):
         rt_model = (os.getenv("PIPHONE_RT_MODEL", "") or "").strip() or "gpt-4o-transcribe"
         rt_lang = (os.getenv("PIPHONE_RT_LANG", "en") or "en").strip()
         try:
-            rt = StreamingTranscriber(model=rt_model, language=rt_lang)
+            rt = StreamingTranscriber(
+                model=rt_model,
+                language=rt_lang,
+                manual_commit=manual_commit,
+                timeout_s=(8.0 if manual_commit else 4.0),
+            )
         except TypeError:
             rt = StreamingTranscriber(model=rt_model)
     except Exception as e:
@@ -264,6 +310,7 @@ def _rt_stream_create_runtime(pre_roll_frames: int):
         "rt": rt,
         "model": rt_model,
         "lang": rt_lang,
+        "manual_commit": bool(manual_commit),
         "pre_roll_pcm": rt_pre_roll_pcm,
         "voice_started": False,
         "last_rt_log": time.time(),
@@ -409,6 +456,10 @@ def _capture_utterance_from_frame_source(
     silence_end_frames: int,
     min_speech_frames: int,
     prime_only_until_ts: float = 0.0,
+    prime_only_frames: int = 0,
+    endpoint_window_frames: int = 0,
+    endpoint_min_silence_ratio: float = 1.0,
+    endpoint_trailing_silence_frames: int = 0,
     perf_prefix: str = "VAD",
     sleep_per_frame_sec: float = 0.001,
     rt_stream_runtime=None,
@@ -429,12 +480,18 @@ def _capture_utterance_from_frame_source(
         pre_roll_frames=pre_roll_frames,
         silence_end_frames=silence_end_frames,
         min_speech_frames=min_speech_frames,
+        endpoint_window_frames=endpoint_window_frames,
+        endpoint_min_silence_ratio=endpoint_min_silence_ratio,
+        endpoint_trailing_silence_frames=endpoint_trailing_silence_frames,
     )
 
-    start_ts = time.time()
+    start_ts = time.monotonic()
+    speech_start_elapsed_ms = None
+    frames_seen = 0
+    prime_only_frame_count = max(0, int(prime_only_frames))
 
     while continue_recording_fn():
-        if (time.time() - start_ts) >= MAX_UTTERANCE_SECONDS:
+        if (time.monotonic() - start_ts) >= MAX_UTTERANCE_SECONDS:
             break
 
         # First-speech timeout: if VAD hasn't seen speech_start within the
@@ -444,12 +501,12 @@ def _capture_utterance_from_frame_source(
         if (
             first_speech_deadline_ts
             and not vad_capture.speech_started
-            and time.time() >= first_speech_deadline_ts
+            and time.monotonic() >= first_speech_deadline_ts
         ):
             try:
                 logging.info(
                     "%s_FIRST_SPEECH_TIMEOUT elapsed_sec=%.2f",
-                    perf_prefix, time.time() - start_ts,
+                    perf_prefix, time.monotonic() - start_ts,
                 )
             except Exception:
                 pass
@@ -484,8 +541,12 @@ def _capture_utterance_from_frame_source(
         if rt_stream_runtime is not None:
             _rt_stream_append_frame(rt_stream_runtime, arr, sample_rate)
 
-        now = time.time()
-        if prime_only_until_ts and now < prime_only_until_ts:
+        frames_seen += 1
+        now = time.monotonic()
+        if (
+            frames_seen <= prime_only_frame_count
+            or (prime_only_until_ts and now < prime_only_until_ts)
+        ):
             vad_capture.prime(arr)
             time.sleep(sleep_per_frame_sec)
             continue
@@ -497,9 +558,9 @@ def _capture_utterance_from_frame_source(
             return None
 
         if vad_event == "speech_start":
+            speech_start_elapsed_ms = (now - start_ts) * 1000.0
             try:
-                elapsed_ms = (now - start_ts) * 1000.0
-                logging.info("%s_SPEECH_START elapsed_ms=%.1f", perf_prefix, elapsed_ms)
+                logging.info("%s_SPEECH_START elapsed_ms=%.1f", perf_prefix, speech_start_elapsed_ms)
             except Exception:
                 pass
             _perf(f"{perf_prefix}_SPEECH_START")
@@ -566,4 +627,5 @@ def _capture_utterance_from_frame_source(
         "captured_len": int(vad_capture.captured_len),
         "speech_frames": int(vad_capture.speech_frames),
         "silence_frames": int(vad_capture.silence_frames),
+        "speech_start_elapsed_ms": speech_start_elapsed_ms,
     }

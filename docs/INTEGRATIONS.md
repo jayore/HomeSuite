@@ -256,7 +256,42 @@ BotFather docs: https://core.telegram.org/bots/features#botfather
 
 ## Wake Word and Hardware
 
+Wake-word behavior is configured per device and remains isolated from handset
+PTT timing. The recommended current path is OpenWakeWord with a named microphone
+profile and Realtime streaming transcription.
+
+### OpenWakeWord
+
+Install the optional engine in the project virtual environment:
+
+```bash
+cd ~/homesuite
+source .venv/bin/activate
+pip install openwakeword onnxruntime
+```
+
+Then configure the device in `local_prefs.py`:
+
+```python
+WAKEWORD_ENABLED = True
+WAKEWORD_ENGINE = "openwakeword"
+WAKEWORD_MODEL = "your_model_label"
+WAKEWORD_MODEL_PATHS = [
+    "/home/your-user/wake_models/your_model.onnx",
+]
+PTT_ENABLED = False
+HANDSET_PRESENT = False
+```
+
+Use a named `AUDIO_INPUT_PROFILE` so microphone selection and gain survive
+device-index changes and restarts. The complete setup, calibration, tuning,
+Realtime STT, and troubleshooting procedure is in
+[WAKEWORD.md](WAKEWORD.md).
+
 ### Porcupine
+
+Porcupine remains available as a compatibility engine. Set its access key in
+`private_config.py`:
 
 Config keys:
 
@@ -273,4 +308,6 @@ PTT_ENABLED = False
 HANDSET_PRESENT = False
 ```
 
-Hardware and audio setup varies by device. Start with text or capture-mode command tests before enabling live wake-word or handset flows. Once the text path works, add audio routing, microphone input, wake word, and any physical controls one layer at a time.
+Start with text or capture-mode command tests before enabling live wake-word or
+handset flows. Once routing works, add audio output, microphone capture, the
+wake-word model, and any physical controls one layer at a time.
