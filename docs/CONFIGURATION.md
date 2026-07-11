@@ -1,7 +1,8 @@
 # Configuration Guide
 
-Home Suite uses two local files that the installer creates for you:
+Home Suite separates shared behavior from local machine settings and secrets:
 
+* `app_config.py` - shared non-secret home topology and behavior settings
 * `private_config.py` - credentials, tokens, service URLs, and API keys
 * `local_prefs.py` - device-specific room, audio, hardware, and behavior overrides
 
@@ -42,7 +43,6 @@ Then configure the device role in `local_prefs.py`, for example:
 
 ```python
 DEFAULT_ROOM = "living_room"
-DEFAULT_SONOS_ROOM = "living_room"
 ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 WAKEWORD_ENABLED = False
 PTT_ENABLED = False
@@ -81,9 +81,39 @@ Create a long-lived access token from your Home Assistant user profile. Home Ass
 
 Home Suite depends heavily on Home Assistant for entity state, service calls, scenes, scripts, rooms, media players, and many homelab integrations. Good Home Assistant naming makes Home Suite dramatically easier to use: keep area names, entity names, scenes, and scripts human-readable.
 
-## Room Brightness Strategy
+## Rooms And Targets
 
-Room-wide brightness commands use the room entry in `home_registry.py`.
+For the complete room schema, disabling rules, field reference, examples, and
+source-room behavior, see [Room Configuration](ROOM_CONFIGURATION.md).
+
+`app_config.py` contains the canonical `ROOMS` mapping. `DEFAULT_ROOM` stores a
+stable room ID, not another copy of the room object:
+
+```python
+DEFAULT_ROOM = "living_room"
+ROOMS = {
+    "living_room": {
+        "label": "Living Room",
+        "ha_area_id": "living_room",
+        "aliases": ["living room"],
+        "defaults": {
+            # Per-service room targets live here.
+        },
+    },
+}
+```
+
+Runtime modules resolve that ID through `home_registry.get_default_room()`.
+`home_registry.py` owns lookup, validation, and manifest behavior; it does not
+carry a second copy of room topology.
+
+The room's `defaults` object may independently configure brightness, color,
+volume, audio, Spotcast, TV, and Plex routing. Flat compatibility maps such as
+`SONOS_PLAYERS` are derived from these rooms.
+
+### Brightness
+
+Room-wide brightness commands use `brightness_target` in the room object.
 Phrasing such as “brightness 50,” “kitchen lights 50,” and “make the kitchen
 brighter” uses the same configured target.
 
@@ -124,6 +154,44 @@ contain decorative, grouped, or non-dimmable lights. Run `homesuite-doctor`
 to see each room's resolved target. Existing `brightness_number` and
 `brightness_light` keys remain supported for compatibility, but new
 configurations should use `brightness_target`.
+
+### Volume
+
+`volume_target` controls both explicit room phrases and roomless requests:
+
+```python
+"volume_target": {
+    "type": "entity",
+    "entity_id": "number.living_room_volume",
+}
+```
+
+Use a `number.*` or `input_number.*` helper when an automation distributes
+volume, or a `media_player.*` entity for direct speaker control.
+
+### Color, Audio, And Providers
+
+Other room-local mappings use the same defaults object:
+
+```python
+"color_light": "light.living_room_color",
+"audio_output": "media_player.living_room",
+"announcements": "media_player.living_room",
+"spotcast_device_name": "Livingroom",
+"spotcast_device_aliases": ["sonos"],
+"tv": "media_player.living_room_apple_tv",
+"tv_remote": "remote.living_room_apple_tv",
+```
+
+`spotcast_device_name` is the provider's device name, which may differ from
+the Home Suite room ID and Home Assistant entity ID. Leave unsupported
+capabilities as `None`; handlers then fail closed instead of targeting another
+room.
+
+Use `None` for unsupported scalar values and targets, `[]` for optional lists,
+and `{}` for optional mappings. Avoid empty strings. Do not remove a
+`brightness_target` or `volume_target` merely to disable it, because omission
+may activate legacy fallback behavior.
 
 ## Home Suite HTTP API Key
 

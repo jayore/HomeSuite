@@ -62,7 +62,6 @@ Minimum useful `local_prefs.py` values for a simple non-handset test device:
 
 ```python
 DEFAULT_ROOM = "living_room"
-DEFAULT_SONOS_ROOM = "living_room"
 ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 WAKEWORD_ENABLED = False
 PTT_ENABLED = False
@@ -72,6 +71,11 @@ HANDSET_PRESENT = False
 Leave optional service keys blank until you actually connect those services. For optional integrations, blank is better than fake. Fake hostnames can make diagnostics look configured when nothing is actually reachable.
 
 Missing optional integrations should produce a clear not-configured response instead of blocking the whole app.
+
+Room names and Home Assistant targets are shared deployment configuration in
+`app_config.py`. Start with one room, explicitly set unsupported capabilities
+to `None`, and use empty lists or mappings for optional collections. See
+[Room Configuration](ROOM_CONFIGURATION.md) before adding more rooms.
 
 ## 3. Run Doctor
 

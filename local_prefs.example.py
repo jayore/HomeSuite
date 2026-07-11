@@ -51,8 +51,9 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # Default room used when a request has no better source-room context.
 # DEFAULT_ROOM = "living_room"
 
-# Default Sonos room for music, announcements, and routed assistant speech.
-# DEFAULT_SONOS_ROOM = "living_room"
+# DEFAULT_SONOS_ROOM is normally derived from DEFAULT_ROOM and app_config.ROOMS.
+# Override it only for compatibility with a custom flat SONOS_PLAYERS map.
+# DEFAULT_SONOS_ROOM = "living room"
 
 # Route assistant responses locally or through a Sonos speaker.
 # Supported values: "local", "sonos"

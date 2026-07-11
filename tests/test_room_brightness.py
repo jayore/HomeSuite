@@ -260,11 +260,6 @@ class RoomBrightnessParserTests(unittest.TestCase):
             "resolve_light_target": lambda _text: (None, False),
             "remember_light": lambda _entity_id: None,
             "get_recent_light": lambda: None,
-            "entity_exists": lambda _eid, _states: False,
-            "set_number_value": lambda _eid, _value: False,
-            "default_brightness_number": "",
-            "brightness_numbers": {},
-            "light_phrase_overrides": {},
         }
 
     def test_global_brightness_uses_active_room_proxy(self):
@@ -296,6 +291,24 @@ class RoomBrightnessParserTests(unittest.TestCase):
         self.assertEqual(calls, [(
             "light/turn_on",
             {"entity_id": "light.test_proxy", "brightness_pct": 50},
+        )])
+
+    def test_roomless_global_brightness_uses_configured_default_room(self):
+        from brightness_controls import handle_brightness_controls
+
+        calls = []
+        response = handle_brightness_controls(
+            tl="brightness 40",
+            **self._handler_kwargs(calls),
+        )
+
+        self.assertEqual(response, "Brightness 40 percent.")
+        self.assertEqual(calls, [(
+            "light/turn_on",
+            {
+                "entity_id": "light.living_room_brightness",
+                "brightness_pct": 40,
+            },
         )])
 
     def test_lights_level_uses_room_area_strategy(self):

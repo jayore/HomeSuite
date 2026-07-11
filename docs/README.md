@@ -5,6 +5,7 @@ Start here if you are installing or evaluating Home Suite:
 * [Getting started](GETTING_STARTED.md)
 * [Install guide](INSTALL.md)
 * [Configuration guide](CONFIGURATION.md)
+* [Room configuration](ROOM_CONFIGURATION.md)
 * [Credentials and connected services](CREDENTIALS.md)
 * [Integrations](INTEGRATIONS.md)
 * [Wake-word audio guide](WAKEWORD.md)

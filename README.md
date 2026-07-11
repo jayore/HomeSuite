@@ -164,22 +164,26 @@ Inside `pptest`, type a phrase such as `service status`. For a single reproducib
 
 The installer creates shortcuts in `$HOME/.local/bin`, including `homesuite-doctor`, `pptest`, `pplive`, `ppchattest`, and `ppchat`.
 
-If you are new to the project, start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), general settings live in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), account and key setup lives in [docs/CREDENTIALS.md](docs/CREDENTIALS.md), service-specific behavior lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), and voice-appliance setup lives in [docs/WAKEWORD.md](docs/WAKEWORD.md).
+If you are new to the project, start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md). Detailed install notes live in [docs/INSTALL.md](docs/INSTALL.md), general settings live in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), room topology lives in [docs/ROOM_CONFIGURATION.md](docs/ROOM_CONFIGURATION.md), account and key setup lives in [docs/CREDENTIALS.md](docs/CREDENTIALS.md), service-specific behavior lives in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), and voice-appliance setup lives in [docs/WAKEWORD.md](docs/WAKEWORD.md).
 
 ## Configuration Model
 
 Home Suite separates shared defaults from local/private values:
 
-* `app_config.py` - shared non-secret defaults and feature mappings
+* `app_config.py` - tracked, shared non-secret defaults and home topology
 * `private_config.py` - local credentials, tokens, service URLs, and API keys
 * `local_prefs.py` - per-device room, audio, hardware, and behavior overrides
 
-Only the example files are meant to be committed in public deployments:
+`app_config.py` is part of the repository because its settings are shared by
+devices in one deployment. Review topology changes like code changes.
+
+The real private and per-device files are gitignored; only their examples are
+committed:
 
 * `private_config.example.py`
 * `local_prefs.example.py`
 
-Real local config files should stay private.
+Real `private_config.py` and `local_prefs.py` files should stay private.
 
 ## HTTP API
 

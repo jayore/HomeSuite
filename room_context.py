@@ -12,8 +12,13 @@ for current Home Assistant group state.
 import re
 from typing import Optional
 
-from app_config import SONOS_PLAYERS, DEFAULT_SONOS_ROOM, APPLE_TV_ENTITY, APPLE_TV_REMOTE
-from home_registry import get_room, find_room_by_alias
+from app_config import SONOS_PLAYERS, DEFAULT_SONOS_ROOM
+from home_registry import (
+    get_default_room_id,
+    get_room,
+    get_room_alias_map,
+    resolve_room_id,
+)
 from request_context import get_active_room_for_request_defaults
 
 
@@ -64,7 +69,7 @@ def _request_default_sonos_room(room_override: Optional[str] = None) -> str:
     Precedence:
       1) explicit room mentioned in this utterance, if it maps to a Sonos player
       2) request effective/default room, if it maps to a Sonos player
-      3) legacy DEFAULT_SONOS_ROOM
+      3) configured DEFAULT_SONOS_ROOM compatibility view
     """
     mapped = _request_room_to_sonos_room(room_override)
     if mapped:
@@ -87,44 +92,8 @@ def _request_default_sonos_room(room_override: Optional[str] = None) -> str:
 
 
 def _registry_room_id_from_any(room: Optional[str]) -> Optional[str]:
-    """
-    Normalize room ids/aliases for registry lookup.
-
-    Handles: living_room, living room, kitchen, etc.
-    """
-    raw = (room or "").strip()
-    if not raw:
-        return None
-
-    try:
-        if get_room(raw):
-            return raw
-    except Exception:
-        pass
-
-    underscored = raw.replace(" ", "_").strip()
-    try:
-        if underscored and get_room(underscored):
-            return underscored
-    except Exception:
-        pass
-
-    try:
-        by_alias = find_room_by_alias(raw)
-        if by_alias:
-            return by_alias
-    except Exception:
-        pass
-
-    spoken = raw.replace("_", " ").strip()
-    try:
-        by_alias = find_room_by_alias(spoken)
-        if by_alias:
-            return by_alias
-    except Exception:
-        pass
-
-    return None
+    """Backward-compatible wrapper around the canonical room resolver."""
+    return resolve_room_id(room)
 
 
 def _known_room_aliases_for_text():
@@ -136,32 +105,8 @@ def _known_room_aliases_for_text():
     out = []
 
     try:
-        import home_registry as _hr
-        rooms = getattr(_hr, "ROOMS", {}) or {}
-    except Exception:
-        rooms = {}
-
-    try:
-        if isinstance(rooms, dict):
-            for room_id, cfg in rooms.items():
-                rid = str(room_id or "").strip()
-                if not rid:
-                    continue
-
-                aliases = set()
-                aliases.add(rid)
-                aliases.add(rid.replace("_", " "))
-
-                if isinstance(cfg, dict):
-                    for alias in (cfg.get("aliases") or []):
-                        a = str(alias or "").strip()
-                        if a:
-                            aliases.add(a)
-
-                for alias in aliases:
-                    a = str(alias or "").strip().lower()
-                    if a:
-                        out.append((rid, a))
+        for alias, room_id in get_room_alias_map().items():
+            out.append((room_id, alias))
     except Exception:
         pass
 
@@ -246,7 +191,7 @@ def _request_default_tv_context(room_override: Optional[str] = None) -> dict:
 
     Rules:
     * explicit room mentioned in the utterance wins for this command
-    * roomless/default requests preserve legacy living-room TV behavior
+    * roomless/default requests use the configured DEFAULT_ROOM
     * request rooms only get TV behavior when the registry defines a TV
     * rooms without TV config must not silently fall through to living-room TV
     """
@@ -260,9 +205,9 @@ def _request_default_tv_context(room_override: Optional[str] = None) -> dict:
 
         room_id = _registry_room_id_from_any(req_room)
 
-    # Preserve legacy behavior for roomless sources / default physical phone.
+    # Roomless sources use the configured default room.
     if not room_id:
-        room_id = "living_room"
+        room_id = get_default_room_id()
 
     room_cfg = get_room(room_id) or {}
     defaults = room_cfg.get("defaults") or {}
@@ -274,14 +219,6 @@ def _request_default_tv_context(room_override: Optional[str] = None) -> dict:
     tv_on_scene = defaults.get("tv_on_scene")
     plex_client_name = defaults.get("plex_client_name")
     plex_launch_script = defaults.get("plex_launch_script")
-
-    # Backward-compatible fallback for the known living-room setup.
-    if room_id == "living_room":
-        tv_entity = tv_entity or APPLE_TV_ENTITY
-        tv_remote = tv_remote or APPLE_TV_REMOTE
-        tv_on_scene = tv_on_scene or "scene.tv_on"
-        plex_client_name = plex_client_name or "Apple TV"
-        plex_launch_script = plex_launch_script or "script.launch_plex"
 
     def clean(v):
         if v is None:

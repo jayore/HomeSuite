@@ -15,6 +15,8 @@ from typing import Optional
 import re
 import time
 
+from app_config import ROOMS
+
 
 class RouteOutcome(str, Enum):
     DEVICE = "device"
@@ -79,11 +81,21 @@ _INSIDE_MARKERS = (
     "in here",
     "in the house",
     "at home",
-    "living room",
-    "kitchen",
-    "bedroom",
-    "office",
 )
+
+
+def _configured_room_phrases() -> set[str]:
+    phrases = set()
+    for room_id, room in (ROOMS or {}).items():
+        phrases.add(str(room_id).strip().lower().replace("_", " "))
+        if isinstance(room, dict):
+            phrases.update(
+                str(alias).strip().lower()
+                for alias in (room.get("aliases") or [])
+                if str(alias).strip()
+            )
+    return phrases
+
 
 def _looks_device_state_question(t: str) -> bool:
     if not t:
@@ -94,7 +106,9 @@ def _looks_device_state_question(t: str) -> bool:
 
     # "what's the temperature inside", "temperature in the living room", etc.
     if any(w in t for w in _SENSOR_WORDS):
-        if any(m in t for m in _INSIDE_MARKERS):
+        if any(m in t for m in _INSIDE_MARKERS) or any(
+            room in t for room in _configured_room_phrases()
+        ):
             return True
 
     return False
@@ -130,7 +144,7 @@ def _looks_deviceish(t: str) -> bool:
     if _looks_device_state_question(t):
         return True
     # Single room/scene-ish words should bias DEVICE (and error if no action exists)
-    if t in ("living room", "kitchen", "bedroom", "office", "movie"):
+    if t in _configured_room_phrases() or t == "movie":
         return True
     return False
 

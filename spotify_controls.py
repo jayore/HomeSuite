@@ -602,6 +602,8 @@ def handle_spotcast_play_controls(
         return None
 
     device_name = _extract_spotcast_device_name(t, device_aliases, default_device_name)
+    if not str(device_name or "").strip():
+        return None
 
     data: Dict[str, Any] = {"device_name": device_name}
 

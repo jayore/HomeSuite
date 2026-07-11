@@ -33,7 +33,12 @@ from normalize_helpers import (
     _parse_number_words,
     _normalize_device_text,
 )
-from app_config import DEFAULT_SONOS_ROOM, SONOS_PLAYERS
+from app_config import (
+    APPLE_TV_DEFAULT_SKIP_SECONDS,
+    DEFAULT_SONOS_ROOM,
+    HOME_LOCATION,
+    SONOS_PLAYERS,
+)
 from room_context import (
     _norm_sonos_room_key,
     _request_room_to_sonos_room,
@@ -91,8 +96,13 @@ from request_context import (
     get_room_default_for_request,
 )
 from home_registry import (
+    get_brightness_light_phrase_overrides,
+    get_default_room_id,
     get_room,
+    get_room_color_light_map,
     find_room_by_alias,
+    get_room_spotcast_device_name,
+    get_spotcast_device_aliases,
     get_source_room,
     get_source_room_key,
     get_room_label,
@@ -150,49 +160,6 @@ from scene_script_controls import (
 # =========================
 
 CONTEXT_TTL_SECONDS = 30 * 60
-
-DEFAULT_VOLUME_NUMBER = "number.living_room_volume"
-DEFAULT_BRIGHTNESS_NUMBER = "number.living_room_brightness"
-
-# Weather fallback "home" location (Santa Barbara-ish)
-HOME_LAT = 34.4208
-HOME_LON = -119.6982
-
-BRIGHTNESS_NUMBERS = {
-    "living room": "number.living_room_brightness",
-    "kitchen": "number.kitchen_brightness",
-    "bedroom": "number.bedroom_brightness",
-    "office": "number.office_brightness",
-}
-
-# Explicit phrase -> light entity overrides (guarantee correct mapping)
-LIGHT_PHRASE_OVERRIDES = {
-    "living room brightness": "light.living_room_brightness",
-    "kitchen brightness": "light.kitchen_brightness",
-    "bedroom brightness": "light.bedroom_brightness",
-    "office brightness": "light.office_brightness",
-}
-
-# Explicit phrase -> entity overrides for non-light domains (turn on/off, etc.)
-DEVICE_PHRASE_OVERRIDES = {
-    "dining light": "light.dining_light",
-}
-
-DEFAULT_SKIP_SECONDS = 10
-DEFAULT_SPOTCAST_DEVICE_NAME = "Livingroom"
-SPOTCAST_DEVICE_ALIASES = {
-    "living room": "Livingroom",
-    "livingroom": "Livingroom",
-    "sonos": "Livingroom",
-}
-
-COLOR_LIGHTS = {
-    "living room": "light.living_room_color",
-    "bedroom": "light.bedroom_color",
-    "office": "light.office_color",
-}
-
-DEFAULT_COLOR_ROOM = "living room"
 
 # Spoken confirmations (pref-backed; see app_config). ACTION = device control
 # (default off); MEDIA = now-playing content across Plex/YouTube/music (default on).
@@ -706,13 +673,6 @@ def _resolve_device_entity(phrase: str, states_snapshot: Optional[list]) -> Opti
         return None
     norm_phrase = _sanitize_device_phrase(phrase)
 
-    # Explicit overrides (avoid ambiguous friendly_name matches)
-    if norm_phrase in DEVICE_PHRASE_OVERRIDES:
-        eid = DEVICE_PHRASE_OVERRIDES[norm_phrase]
-        if isinstance(eid, str) and "." in eid:
-            domain = eid.split(".", 1)[0]
-            return (eid, domain, {"via": "override", "phrase": norm_phrase})
-
     # -----------------------------
     # 0) Exact device alias mapping (app_config.HA_DEVICE_ALIASES)
     # -----------------------------
@@ -1147,14 +1107,19 @@ def handle_time_query(location: Optional[str]) -> Optional[str]:
 
 def handle_weather_query(location: Optional[str]) -> Optional[str]:
     """
-    - "what's the weather" -> local weather (HA weather entity if possible; otherwise HOME_LAT/LON)
+    - "what's the weather" -> HA weather, then configured HOME_LOCATION
     - "weather in tokyo" -> geocode + open-meteo
     """
     if not location:
         haw = _ha_local_weather()
         if haw:
             return haw
-        return _open_meteo_weather(HOME_LAT, HOME_LON) or "I couldn't get the weather right now."
+        try:
+            latitude = float((HOME_LOCATION or {}).get("latitude"))
+            longitude = float((HOME_LOCATION or {}).get("longitude"))
+        except (TypeError, ValueError):
+            return "Local weather isn't configured yet."
+        return _open_meteo_weather(latitude, longitude) or "I couldn't get the weather right now."
 
     geo = geocode_location(location)
     if not geo:
@@ -2174,7 +2139,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             maybe_say=_maybe_say,
             sonos_players=globals().get("SONOS_PLAYERS", {}),
-            default_sonos_room=globals().get("DEFAULT_SONOS_ROOM", "living room"),
+            default_sonos_room=globals().get("DEFAULT_SONOS_ROOM"),
         )
     except Exception:
         logging.exception("alarm_controls failed")
@@ -2614,9 +2579,13 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         states_snapshot=_states_snapshot,
         call_ha_service=call_ha_service,
         maybe_say=_maybe_say,
-        default_volume_number=(DEFAULT_VOLUME_NUMBER if _request_sonos_room == _legacy_sonos_room else ""),
         sonos_players=SONOS_PLAYERS,
         default_sonos_room=_request_sonos_room,
+        default_volume_room=(
+            _explicit_room_id_for_request
+            or get_active_room_for_request_defaults()
+            or get_default_room_id()
+        ),
     )
     if VOLUME_MODULE_RESP is not None and _ppchat_volume_ctx is not None:
         set_text_confirm_context(
@@ -2947,7 +2916,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     except Exception:
         pass
 
-    sonos_entity_id = SONOS_PLAYERS.get(sonos_room) or SONOS_PLAYERS.get(_request_sonos_room) or "media_player.living_room"
+    sonos_entity_id = SONOS_PLAYERS.get(sonos_room) or SONOS_PLAYERS.get(_request_sonos_room)
 
     
     
@@ -3794,7 +3763,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             maybe_say=_maybe_say,
             entity_id=(_request_tv_entity or ""),
             remote_entity_id=(_request_tv_remote or ""),
-            default_skip_seconds=DEFAULT_SKIP_SECONDS,
+            default_skip_seconds=APPLE_TV_DEFAULT_SKIP_SECONDS,
             get_fresh_state=ha_get_state,
         )
     if apple_tv_resp is not None:
@@ -3849,8 +3818,8 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         tl=tl,
         call_ha_service=call_ha_service,
         maybe_say=_maybe_say,
-        default_device_name=DEFAULT_SPOTCAST_DEVICE_NAME,
-        device_aliases=SPOTCAST_DEVICE_ALIASES,
+        default_device_name=(get_room_spotcast_device_name(_request_sonos_room) or ""),
+        device_aliases=get_spotcast_device_aliases(),
     )
     if spotcast_resp is not None:
         logging.info("CLAIM: spotcast_play")
@@ -3884,7 +3853,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
                     pass
             return _resolve_light_target(
                 phrase,
-                light_phrase_overrides=LIGHT_PHRASE_OVERRIDES,
+                light_phrase_overrides=get_brightness_light_phrase_overrides(),
                 get_recent_light=_get_recent_light,
                 entity_exists=lambda eid: _entity_exists(eid, _states_snapshot),
                 logger=logging,
@@ -3893,22 +3862,23 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         def _resolve_kelvin_target(phrase: str):
             # Color temperature can also target the per-room virtual "color"
             # light (the same entity "set color to X" drives), not just named
-            # lights. Map "color"/"<room> color" to COLOR_LIGHTS; everything
+            # lights. Map "color"/"<room> color" to configured room entities; everything
             # else falls back to normal light-target resolution.
+            color_lights = get_room_color_light_map()
             p = re.sub(r"^(?:the|my)\s+", "", (phrase or "").strip().lower()).strip()
             if p in ("color", "colour"):
                 eid = (
                     get_room_default_for_request("color_light", fallback=None)
-                    or COLOR_LIGHTS.get(DEFAULT_COLOR_ROOM)
+                    or color_lights.get((get_default_room_id() or "").replace("_", " "))
                 )
                 return (eid, True) if eid else (None, False)
             m = re.fullmatch(r"(.+?)\s+colou?rs?", p)
             if m:
                 rk = m.group(1).strip()
-                eid = COLOR_LIGHTS.get(rk)
+                eid = color_lights.get(rk)
                 if not eid:
                     rid = find_room_by_alias(rk) or ""
-                    eid = COLOR_LIGHTS.get(rid.replace("_", " ").strip())
+                    eid = color_lights.get(rid.replace("_", " ").strip())
                 if eid:
                     return (eid, False)
             return _resolve_light_target_aliases(phrase)
@@ -3975,17 +3945,17 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             resolve_light_target=_resolve_light_target_aliases,
             remember_light=_remember_light,
             get_recent_light=_get_recent_light,
-            entity_exists=_entity_exists,
-            set_number_value=_set_number_value,
-            default_brightness_number=DEFAULT_BRIGHTNESS_NUMBER,
-            brightness_numbers=BRIGHTNESS_NUMBERS,
-            light_phrase_overrides=LIGHT_PHRASE_OVERRIDES,
         )
         if bri_resp is not None and _ppchat_brightness_ctx is not None:
+            brightness_room = (
+                _explicit_room_id_for_request
+                or get_active_room_for_request_defaults()
+                or get_default_room_id()
+            )
             set_text_confirm_context(
                 kind="brightness",
                 value=_ppchat_brightness_ctx,
-                label="living room brightness",
+                label=f"{get_room_label(brightness_room) or 'Room'} brightness",
             )
         if bri_resp is not None:
             logging.info(f"DEBUG: bri_resp={bri_resp!r}")
@@ -4003,8 +3973,8 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             maybe_say=_maybe_say,
             resolve_light_target=_resolve_light_target_aliases,
             remember_light=_remember_light,
-            color_lights=COLOR_LIGHTS,
-            default_color_room=DEFAULT_COLOR_ROOM,
+            color_lights=get_room_color_light_map(),
+            default_color_room=(get_default_room_id() or "").replace("_", " "),
             resolve_color=_color_resolver,
         )
         if color_resp is not None:

@@ -16,286 +16,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
-# Which room a client (menubar, raycast, etc.) defaults to when the user
-# hasn't picked one explicitly.
-DEFAULT_ROOM: str = "living_room"
-
-# Schema version exposed in the manifest. Bump when the shape changes in a
-# way clients need to adapt to (additive fields don't require a bump).
-MANIFEST_SCHEMA_VERSION: int = 1
-
-
-ROOMS: Dict[str, Dict[str, Any]] = {
-    "living_room": {
-        "label": "Living Room",
-        "ha_area_id": "living_room",
-        "aliases": ["living room"],
-        "defaults": {
-            "lights": "light.living_room_brightness",
-            "color_light": "light.living_room_color",
-            "brightness_target": {
-                "type": "entity",
-                "entity_id": "light.living_room_brightness",
-            },
-            "brightness_number": None,
-            "brightness_light": "light.living_room_brightness",
-            "audio_output": "media_player.living_room",
-            "announcements": "media_player.living_room",
-            "tv": "media_player.living_room_apple_tv",
-            "tv_remote": "remote.living_room_apple_tv",
-            "tv_on_scene": "scene.tv_on",
-            "plex_client_name": "Apple TV",
-            "plex_launch_script": "script.launch_plex",
-        },
-        "media_players": [
-            {"entity": "media_player.living_room",          "label": "Living Room"},
-            {"entity": "media_player.living_room_apple_tv", "label": "Apple TV"},
-            {"entity": "media_player.bookshelf",            "label": "Bookshelf"},
-        ],
-        "audio_outputs": [
-            "media_player.living_room",
-            "media_player.bookshelf",
-        ],
-        "focus_participants": [
-            "media_player.living_room",
-            "media_player.bookshelf",
-        ],
-        # Buttons surfaced in client UIs (menubar, raycast, etc.).
-        # Each entry is one of:
-        #   {"label": "X", "command": "<NL phrase>"}   → POST to PiPhone /command
-        #   {"label": "X", "scene":   "scene.X"}       → direct HA scene.turn_on
-        #   {"label": "X", "script":  "script.X"}      → direct HA script.turn_on
-        # Mix and match freely.
-        "scenes": [
-            {"label": "Bright",       "command": "living room bright"},
-            {"label": "Medium",       "command": "living room medium"},
-            {"label": "Low",          "command": "living room low"},
-            {"label": "Dim",          "command": "living room dim"},
-            {"label": "Off",          "command": "living room off"},
-            {"label": "Stair Light",  "command": "toggle stair light"},
-            {"label": "Dining Light", "command": "toggle dining light"},
-        ],
-        # Devices listed in client UIs with their live state.
-        # Each entry: {"label": "X", "entity": "<domain.entity_id>"}
-        # Click toggles the entity via HA directly (light.toggle, switch.toggle,
-        # lock.lock/unlock, etc.) — domain is inferred from the entity prefix.
-        # Add devices you actually want to see at a glance; leave the list empty
-        # if you don't want a device section for this room.
-        "devices": [
-            # Example shapes:
-            # {"label": "Stair Light", "entity": "light.stair_light"},
-            # {"label": "Side Lamp",   "entity": "light.side_lamp"},
-            # {"label": "Front Door",  "entity": "lock.front_door"},
-        ],
-    },
-    "bedroom": {
-        "label": "Bedroom",
-        "ha_area_id": "bedroom",
-        "aliases": ["bedroom"],
-        "defaults": {
-            "lights": None,
-            "color_light": "light.bedroom_color",
-            "brightness_target": {
-                "type": "entity",
-                "entity_id": "light.bedroom_brightness",
-            },
-            "brightness_number": None,
-            "brightness_light": "light.bedroom_brightness",
-            "audio_output": "media_player.bedroom",
-            "announcements": "media_player.bedroom",
-            "tv": None,
-        },
-        "audio_outputs": [
-            "media_player.bedroom",
-        ],
-        "focus_participants": [
-            "media_player.bedroom",
-        ],
-        "scenes": [
-            {"label": "Bright", "command": "bedroom bright"},
-            {"label": "Medium", "command": "bedroom medium"},
-            {"label": "Low",    "command": "bedroom low"},
-            {"label": "Dim",    "command": "bedroom dim"},
-            {"label": "Off",    "command": "bedroom off"},
-        ],
-        "devices": [],
-    },
-    "kitchen": {
-        "label": "Kitchen",
-        "ha_area_id": "kitchen",
-        "aliases": ["kitchen"],
-        "defaults": {
-            "lights": None,
-            "color_light": None,
-            "brightness_target": {
-                "type": "entity",
-                "entity_id": "light.kitchen_brightness",
-            },
-            "brightness_number": None,
-            "brightness_light": "light.kitchen_brightness",
-            "audio_output": "media_player.kitchen",
-            "announcements": "media_player.kitchen",
-            "tv": None,
-        },
-        "audio_outputs": [
-            "media_player.kitchen",
-        ],
-        "focus_participants": [
-            "media_player.kitchen",
-        ],
-        "scenes": [
-            {"label": "Bright",       "command": "kitchen bright"},
-            {"label": "Medium",       "command": "kitchen medium"},
-            {"label": "Low",          "command": "kitchen low"},
-            {"label": "Dim",          "command": "kitchen dim"},
-            {"label": "Off",          "command": "kitchen off"},
-            {"label": "Stair Light",  "command": "toggle stair light"},
-            {"label": "Dining Light", "command": "toggle dining light"},
-        ],
-        "devices": [],
-    },
-    "bathroom": {
-        "label": "Bathroom",
-        "ha_area_id": "bathroom",
-        "aliases": ["bathroom"],
-        "defaults": {
-            "lights": None,
-            "color_light": None,
-            "brightness_number": None,
-            "brightness_light": None,
-            "audio_output": "media_player.bathroom",
-            "announcements": "media_player.bathroom",
-            "tv": None,
-        },
-        "audio_outputs": [
-            "media_player.bathroom",
-        ],
-        "focus_participants": [
-            "media_player.bathroom",
-        ],
-        "scenes": [
-            {"label": "Bright", "command": "bathroom bright"},
-            {"label": "Medium", "command": "bathroom medium"},
-            {"label": "Low",    "command": "bathroom low"},
-            {"label": "Dim",    "command": "bathroom dim"},
-            {"label": "Off",    "command": "bathroom off"},
-        ],
-        "devices": [],
-    },
-    "office": {
-        "label": "Office",
-        "ha_area_id": "office",
-        "aliases": ["office"],
-        "defaults": {
-            "lights": None,
-            "color_light": "light.office_color",
-            "brightness_target": {
-                "type": "entity",
-                "entity_id": "light.office_brightness",
-            },
-            "brightness_number": None,
-            "brightness_light": "light.office_brightness",
-            "audio_output": "media_player.office",
-            "announcements": "media_player.office",
-            "tv": None,
-        },
-        "audio_outputs": [
-            "media_player.office",
-        ],
-        "focus_participants": [
-            "media_player.office",
-        ],
-        "scenes": [
-            {"label": "Bright", "command": "office bright"},
-            {"label": "Medium", "command": "office medium"},
-            {"label": "Low",    "command": "office low"},
-            {"label": "Dim",    "command": "office dim"},
-            {"label": "Off",    "command": "office off"},
-        ],
-        "devices": [],
-    },
-}
-
-
-
-SOURCES: Dict[str, Dict[str, Any]] = {
-    # Local/default appliance source for the current PiPhone runtime.
-    #
-    # `mobile`: whether the source can change its own room focus at runtime via
-    # an "I'm in the <room>" command. Stationary devices (the handset, physical
-    # buttons, the out-loud wakeword option) are fixed to their room and must
-    # refuse room changes. Portable frontends (the menubar app, Raycast,
-    # Telegram) are mobile and remember a sticky room per `device_group`/id.
-    "default_piphone": {
-        "label": "Default PiPhone",
-        "type": "piphone",
-        "room": "living_room",
-        "mobile": False,
-        "default_scope": "room_local",
-        "focus_policy": "sticky",
-        "output_mode": "inherit_room",
-    },
-
-    # Room-agnostic sources.
-    "telegram": {
-        "label": "Telegram",
-        "type": "telegram",
-        "room": None,
-        "mobile": True,
-        "default_scope": "none",
-        "focus_policy": "sticky_recent_room",
-        "output_mode": "none",
-    },
-    "http": {
-        "label": "HTTP",
-        "type": "http",
-        "room": None,
-        "mobile": True,
-        "default_scope": "none",
-        "focus_policy": "explicit_or_recent_room",
-        "output_mode": "inherit_request",
-    },
-    # Mac menubar app and Raycast extension run on the same laptop, so they
-    # share one logical "laptop" room focus via `device_group`.
-    "menubar": {
-        "label": "Menubar app",
-        "type": "remote",
-        "room": None,
-        "mobile": True,
-        "device_group": "laptop",
-        "default_scope": "none",
-        "focus_policy": "explicit_or_recent_room",
-        "output_mode": "inherit_request",
-    },
-    "raycast": {
-        "label": "Raycast",
-        "type": "remote",
-        "room": None,
-        "mobile": True,
-        "device_group": "laptop",
-        "default_scope": "none",
-        "focus_policy": "explicit_or_recent_room",
-        "output_mode": "inherit_request",
-    },
-    "scheduler": {
-        "label": "Scheduler",
-        "type": "scheduler",
-        "room": None,
-        "mobile": False,
-        "default_scope": "none",
-        "focus_policy": "none",
-        "output_mode": "none",
-    },
-    "physical_button": {
-        "label": "Physical Button",
-        "type": "button",
-        "room": "living_room",
-        "mobile": False,
-        "default_scope": "room_local",
-        "focus_policy": "sticky",
-        "output_mode": "none",
-    },
-}
+from app_config import (
+    DEFAULT_ROOM,
+    ENTITY_LABEL_OVERRIDES,
+    MANIFEST_SCHEMA_VERSION,
+    ROOMS,
+    SOURCES,
+)
 
 
 def get_room(room_id: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -328,6 +55,8 @@ def get_source_room(source_id: Optional[str]) -> Optional[str]:
     src = get_source(source_id)
     if not src:
         return None
+    if src.get("inherit_default_room"):
+        return get_default_room_id()
     room = src.get("room")
     if room is None:
         return None
@@ -403,19 +132,147 @@ def get_room_focus_participants(room_id: Optional[str]) -> list[str]:
 
 
 def find_room_by_alias(name: Optional[str]) -> Optional[str]:
-    if not name:
+    needle = str(name or "").strip().lower().replace("_", " ")
+    return get_room_alias_map().get(needle) if needle else None
+
+
+def get_room_alias_map() -> Dict[str, str]:
+    """Map normalized room IDs and spoken aliases to canonical room IDs."""
+    out: Dict[str, str] = {}
+    for room_id, room in (ROOMS or {}).items():
+        rid = str(room_id or "").strip()
+        if not rid or not isinstance(room, dict):
+            continue
+        aliases = {rid, rid.replace("_", " ")}
+        aliases.update(room.get("aliases") or [])
+        for alias in aliases:
+            key = str(alias or "").strip().lower().replace("_", " ")
+            if key:
+                out[key] = rid
+    return out
+
+
+def resolve_room_id(name: Optional[str]) -> Optional[str]:
+    """Resolve a configured room ID from an ID, spoken form, or alias."""
+    raw = str(name or "").strip()
+    if not raw:
         return None
-    needle = str(name).strip().lower()
-    if not needle:
+    if get_room(raw):
+        return raw
+    underscored = raw.lower().replace(" ", "_")
+    if get_room(underscored):
+        return underscored
+    return get_room_alias_map().get(raw.lower().replace("_", " "))
+
+
+def get_default_room_id() -> Optional[str]:
+    """Return the configured default only when it names a real room."""
+    return resolve_room_id(DEFAULT_ROOM)
+
+
+def get_default_room() -> Optional[Dict[str, Any]]:
+    """Return the canonical configuration object for DEFAULT_ROOM."""
+    return get_room(get_default_room_id())
+
+
+def get_room_volume_target(room_hint: Optional[str]) -> Optional[Dict[str, str]]:
+    """Return a validated entity target for room-level volume commands."""
+    raw_hint = str(room_hint or "").strip()
+    room_id = resolve_room_id(raw_hint) if raw_hint else get_default_room_id()
+    if not room_id:
+        return None
+    defaults = get_room_defaults(room_id)
+    if "volume_target" in defaults:
+        raw = defaults.get("volume_target")
+        if isinstance(raw, dict) and str(raw.get("type") or "").strip().lower() == "entity":
+            entity_id = str(raw.get("entity_id") or "").strip()
+            if entity_id.startswith(("media_player.", "number.", "input_number.")):
+                return {"type": "entity", "entity_id": entity_id, "room_id": room_id}
         return None
 
-    for room_id, room in ROOMS.items():
-        aliases = room.get("aliases") or []
-        alias_set = {str(room_id).strip().lower()}
-        alias_set.update(str(a).strip().lower() for a in aliases if str(a).strip())
-        if needle in alias_set:
-            return room_id
+    # Backward compatibility for installations that predate volume_target.
+    legacy = defaults.get("volume_number") or defaults.get("audio_output")
+    entity_id = str(legacy or "").strip()
+    if entity_id.startswith(("media_player.", "number.", "input_number.")):
+        return {"type": "entity", "entity_id": entity_id, "room_id": room_id}
     return None
+
+
+def get_room_color_light_map() -> Dict[str, str]:
+    """Map every configured room ID/alias to its room color entity."""
+    out: Dict[str, str] = {}
+    for room_id, room in (ROOMS or {}).items():
+        defaults = room.get("defaults") or {}
+        entity_id = str(defaults.get("color_light") or "").strip()
+        if not entity_id:
+            continue
+        aliases = {str(room_id).strip().lower().replace("_", " ")}
+        aliases.update(
+            str(alias).strip().lower().replace("_", " ")
+            for alias in (room.get("aliases") or [])
+            if str(alias).strip()
+        )
+        for alias in aliases:
+            out[alias] = entity_id
+    return out
+
+
+def get_brightness_light_phrase_overrides() -> Dict[str, str]:
+    """Derive legacy '<room> brightness' light aliases from room targets."""
+    out: Dict[str, str] = {}
+    for room_id, room in (ROOMS or {}).items():
+        defaults = room.get("defaults") or {}
+        target = defaults.get("brightness_target")
+        if not isinstance(target, dict):
+            continue
+        entity_id = str(target.get("entity_id") or "").strip()
+        if not entity_id.startswith("light."):
+            continue
+        aliases = {str(room_id).strip().lower().replace("_", " ")}
+        aliases.update(
+            str(alias).strip().lower().replace("_", " ")
+            for alias in (room.get("aliases") or [])
+            if str(alias).strip()
+        )
+        for alias in aliases:
+            out[f"{alias} brightness"] = entity_id
+    return out
+
+
+def get_room_spotcast_device_name(room_hint: Optional[str]) -> Optional[str]:
+    raw_hint = str(room_hint or "").strip()
+    room_id = resolve_room_id(raw_hint) if raw_hint else get_default_room_id()
+    if not room_id:
+        return None
+    value = get_room_default(room_id, "spotcast_device_name")
+    value = str(value or "").strip()
+    return value or None
+
+
+def get_spotcast_device_aliases() -> Dict[str, str]:
+    """Map configured room aliases to provider-specific Spotcast names."""
+    out: Dict[str, str] = {}
+    for room_id, room in (ROOMS or {}).items():
+        value = str((room.get("defaults") or {}).get("spotcast_device_name") or "").strip()
+        if not value:
+            continue
+        aliases = {
+            str(room_id).strip().lower().replace("_", " "),
+            str(room_id).strip().lower().replace("_", ""),
+        }
+        aliases.update(
+            str(alias).strip().lower()
+            for alias in (room.get("aliases") or [])
+            if str(alias).strip()
+        )
+        aliases.update(
+            str(alias).strip().lower()
+            for alias in ((room.get("defaults") or {}).get("spotcast_device_aliases") or [])
+            if str(alias).strip()
+        )
+        for alias in aliases:
+            out[alias] = value
+    return out
 
 
 # ============================================================================
@@ -466,18 +323,11 @@ def find_room_by_alias(name: Optional[str]) -> Optional[str]:
 # changes via WebSocket). Click semantics are domain-inferred:
 # light.*/switch.* → toggle, lock.* → lock/unlock, etc.
 
-# Explicit display-label overrides for entities where the heuristic produces
-# a misleading result (e.g., "Living Room Apple TV" → "Apple TV").
-_ENTITY_LABEL_OVERRIDES: Dict[str, str] = {
-    "media_player.living_room_apple_tv": "Apple TV",
-}
-
-
 def get_entity_label(entity_id: str) -> str:
     """Return the display label for an entity ID.
 
     Checks explicit overrides first; falls back to the heuristic."""
-    return _ENTITY_LABEL_OVERRIDES.get(entity_id) or _pretty_label_from_entity(entity_id)
+    return ENTITY_LABEL_OVERRIDES.get(entity_id) or _pretty_label_from_entity(entity_id)
 
 
 def _pretty_label_from_entity(entity_id: str) -> str:

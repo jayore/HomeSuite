@@ -14,6 +14,7 @@ import time
 from typing import Optional
 
 import requests
+from app_config import LOCATION_ALIASES
 
 # Normalize a location string before sending to geocoding
 def _location_clean_for_geo(loc: str) -> str:
@@ -59,11 +60,7 @@ def geocode_location(loc: str) -> Optional[dict]:
     if not loc:
         return None
 
-    # A couple common voice aliases
-    if loc.lower() == "la":
-        loc = "Los Angeles"
-    if loc.lower() in ("sb", "santa barbara ca"):
-        loc = "Santa Barbara"
+    loc = (LOCATION_ALIASES or {}).get(loc.lower(), loc)
 
     url = "https://geocoding-api.open-meteo.com/v1/search"
     params = {"name": loc, "count": 1, "language": "en", "format": "json"}

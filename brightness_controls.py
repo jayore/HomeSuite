@@ -27,11 +27,6 @@ def handle_brightness_controls(
     resolve_light_target,
     remember_light,
     get_recent_light,
-    entity_exists,
-    set_number_value,
-    default_brightness_number: str,
-    brightness_numbers: dict,
-    light_phrase_overrides: dict,
 ) -> Optional[str]:
     """Parse brightness language and update one or more resolved targets."""
     """
@@ -107,7 +102,7 @@ def handle_brightness_controls(
             resolved_eid, used_ctx = resolve_light_target(_explicit_target)
 
         if not resolved_eid:
-            # Fall back: recent light → room default → hard default (living room brightness)
+            # Fall back: recent light, then the active room strategy.
             resolved_eid = get_recent_light()
             if resolved_eid:
                 used_ctx = True
@@ -124,7 +119,6 @@ def handle_brightness_controls(
                         direction = "brighter" if step > 0 else "dimmer"
                         return maybe_say(f"Making it {direction}.")
                     return None
-                resolved_eid = light_phrase_overrides.get("living room brightness")
 
         if resolved_eid:
             if call_ha_service(
@@ -176,14 +170,6 @@ def handle_brightness_controls(
                 ):
                     any_ok = True
                 continue
-            phrase_key = f"{t} brightness".lower()
-            if phrase_key in light_phrase_overrides:
-                eid = light_phrase_overrides[phrase_key]
-                if call_ha_service("light/turn_on", {"entity_id": eid, "brightness_pct": val}):
-                    remember_light(eid)
-                    any_ok = True
-                    continue
-
             eid, used_ctx = resolve_light_target(t)
             if eid:
                 if call_ha_service("light/turn_on", {"entity_id": eid, "brightness_pct": val}):
@@ -224,18 +210,6 @@ def handle_brightness_controls(
                 return maybe_say(f"Brightness {val} percent.")
             return None
 
-        # Fall back to the legacy global default behavior if no request-local
-        # brightness default applies.
-        if default_brightness_number and entity_exists(default_brightness_number, states_snapshot):
-            if set_number_value(default_brightness_number, val):
-                return maybe_say(f"Brightness {val} percent.")
-
-        lr_key = "living room brightness"
-        if lr_key in light_phrase_overrides:
-            eid = light_phrase_overrides[lr_key]
-            if call_ha_service("light/turn_on", {"entity_id": eid, "brightness_pct": val}):
-                remember_light(eid)
-                return maybe_say(f"Brightness {val} percent.")
         return None
 
     # --------------------------------------------------

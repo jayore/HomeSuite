@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 
 from request_context import get_active_room_for_request_defaults
+from home_registry import get_default_room_id, resolve_room_id
 from spoken_text import normalize_for_tts, tokenize_for_gtts
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -896,8 +897,9 @@ def _cancel_has_explicit_global_scope(text: str) -> bool:
 
 
 def _default_alarm_scope_room(rows: Optional[list] = None) -> Optional[str]:
-    # Current deployed fallback room behavior for roomless source contexts.
-    return "living room"
+    room = get_active_room_for_request_defaults() or get_default_room_id()
+    room_id = resolve_room_id(room)
+    return room_id.replace("_", " ") if room_id else None
 
 
 def _room_sort_key(alarm: dict, preferred_room: Optional[str]) -> Tuple[int, float]:

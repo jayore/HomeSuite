@@ -1,9 +1,10 @@
-"""Repository-wide, non-secret HomeSuite defaults and spoken-name mappings.
+"""Shared non-secret HomeSuite behavior, topology, and spoken-name mappings.
 
-This file defines portable behavior shared by installations. Machine-specific
-audio, wakeword, and hardware choices belong in ``local_prefs.py``; credentials
-belong in ``private_config.py``. Environment variables may override selected
-runtime values where the consuming module documents that behavior.
+This file defines defaults and home topology shared by devices in one
+deployment. Machine-specific audio, wakeword, and hardware choices belong in
+``local_prefs.py``; credentials belong in ``private_config.py``. Environment
+variables may override selected runtime values where the consuming module
+documents that behavior.
 
 Dictionary keys representing spoken phrases should use ``_norm_key``. Values
 that name external library objects, such as Plex titles, must preserve the
@@ -11,6 +12,7 @@ exact spelling expected by that service.
 """
 
 import re
+from typing import Any, Dict
 
 # =============================
 # Normalizers / helpers
@@ -29,6 +31,349 @@ def _norm_ordinal_key(s: str) -> str:
     s = (s or "").lower()
     s = re.sub(r"[^a-z0-9]+", " ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+# =============================
+# Home topology
+# =============================
+# This is the canonical deployment map for rooms and source instances. Runtime
+# modules consume it through home_registry helpers instead of carrying their
+# own room/entity fallbacks.
+#
+# Per-room defaults currently understood by the runtime include:
+#   brightness_target: room brightness strategy (entity, area, or entities)
+#   color_light:        entity used by "set color" room shorthand
+#   volume_target:      entity used by room volume commands
+#   audio_output:       primary media_player for music/announcements
+#   spotcast_device_name: provider device name expected by Spotcast
+#   tv/tv_remote/...:   room-local television and Plex routing
+#
+# Use None to explicitly disable an optional scalar/target, [] for an optional
+# list, and {} for an optional mapping. Avoid empty strings. Omitting
+# brightness_target or volume_target may activate legacy compatibility
+# fallbacks, so set either field to None when the capability should be off.
+#
+# Which room a client (menubar, raycast, etc.) defaults to when the user
+# has not picked one explicitly.
+DEFAULT_ROOM: str = "living_room"
+
+# Schema version exposed in the manifest. Bump when the shape changes in a
+# way clients need to adapt to (additive fields don't require a bump).
+MANIFEST_SCHEMA_VERSION: int = 1
+
+
+ROOMS: Dict[str, Dict[str, Any]] = {
+    "living_room": {
+        "label": "Living Room",
+        "ha_area_id": "living_room",
+        "aliases": ["living room"],
+        "defaults": {
+            "lights": "light.living_room_brightness",
+            "color_light": "light.living_room_color",
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.living_room_brightness",
+            },
+            "volume_target": {
+                "type": "entity",
+                "entity_id": "number.living_room_volume",
+            },
+            "audio_output": "media_player.living_room",
+            "announcements": "media_player.living_room",
+            "spotcast_device_name": "Livingroom",
+            "spotcast_device_aliases": ["sonos"],
+            "tv": "media_player.living_room_apple_tv",
+            "tv_remote": "remote.living_room_apple_tv",
+            "tv_on_scene": "scene.tv_on",
+            "plex_client_name": "Apple TV",
+            "plex_launch_script": "script.launch_plex",
+        },
+        "media_players": [
+            {"entity": "media_player.living_room",          "label": "Living Room"},
+            {"entity": "media_player.living_room_apple_tv", "label": "Apple TV"},
+            {"entity": "media_player.bookshelf",            "label": "Bookshelf"},
+        ],
+        "audio_outputs": [
+            "media_player.living_room",
+            "media_player.bookshelf",
+        ],
+        "audio_aliases": {
+            "bookshelf": "media_player.bookshelf",
+        },
+        "focus_participants": [
+            "media_player.living_room",
+            "media_player.bookshelf",
+        ],
+        # Buttons surfaced in client UIs (menubar, raycast, etc.).
+        # Each entry is one of:
+        #   {"label": "X", "command": "<NL phrase>"}   → POST to PiPhone /command
+        #   {"label": "X", "scene":   "scene.X"}       → direct HA scene.turn_on
+        #   {"label": "X", "script":  "script.X"}      → direct HA script.turn_on
+        # Mix and match freely.
+        "scenes": [
+            {"label": "Bright",       "command": "living room bright"},
+            {"label": "Medium",       "command": "living room medium"},
+            {"label": "Low",          "command": "living room low"},
+            {"label": "Dim",          "command": "living room dim"},
+            {"label": "Off",          "command": "living room off"},
+            {"label": "Stair Light",  "command": "toggle stair light"},
+            {"label": "Dining Light", "command": "toggle dining light"},
+        ],
+        # Devices listed in client UIs with their live state.
+        # Each entry: {"label": "X", "entity": "<domain.entity_id>"}
+        # Click toggles the entity via HA directly (light.toggle, switch.toggle,
+        # lock.lock/unlock, etc.) — domain is inferred from the entity prefix.
+        # Add devices you actually want to see at a glance; leave the list empty
+        # if you don't want a device section for this room.
+        "devices": [
+            # Example shapes:
+            # {"label": "Stair Light", "entity": "light.stair_light"},
+            # {"label": "Side Lamp",   "entity": "light.side_lamp"},
+            # {"label": "Front Door",  "entity": "lock.front_door"},
+        ],
+    },
+    "bedroom": {
+        "label": "Bedroom",
+        "ha_area_id": "bedroom",
+        "aliases": ["bedroom"],
+        "defaults": {
+            "lights": None,
+            "color_light": "light.bedroom_color",
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.bedroom_brightness",
+            },
+            "volume_target": {
+                "type": "entity",
+                "entity_id": "media_player.bedroom",
+            },
+            "audio_output": "media_player.bedroom",
+            "announcements": "media_player.bedroom",
+            "spotcast_device_name": None,
+            "tv": None,
+        },
+        "audio_outputs": [
+            "media_player.bedroom",
+        ],
+        "focus_participants": [
+            "media_player.bedroom",
+        ],
+        "scenes": [
+            {"label": "Bright", "command": "bedroom bright"},
+            {"label": "Medium", "command": "bedroom medium"},
+            {"label": "Low",    "command": "bedroom low"},
+            {"label": "Dim",    "command": "bedroom dim"},
+            {"label": "Off",    "command": "bedroom off"},
+        ],
+        "devices": [],
+    },
+    "kitchen": {
+        "label": "Kitchen",
+        "ha_area_id": "kitchen",
+        "aliases": ["kitchen"],
+        "defaults": {
+            "lights": None,
+            "color_light": None,
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.kitchen_brightness",
+            },
+            "volume_target": {
+                "type": "entity",
+                "entity_id": "media_player.kitchen",
+            },
+            "audio_output": "media_player.kitchen",
+            "announcements": "media_player.kitchen",
+            "spotcast_device_name": None,
+            "tv": None,
+        },
+        "audio_outputs": [
+            "media_player.kitchen",
+        ],
+        "focus_participants": [
+            "media_player.kitchen",
+        ],
+        "scenes": [
+            {"label": "Bright",       "command": "kitchen bright"},
+            {"label": "Medium",       "command": "kitchen medium"},
+            {"label": "Low",          "command": "kitchen low"},
+            {"label": "Dim",          "command": "kitchen dim"},
+            {"label": "Off",          "command": "kitchen off"},
+            {"label": "Stair Light",  "command": "toggle stair light"},
+            {"label": "Dining Light", "command": "toggle dining light"},
+        ],
+        "devices": [],
+    },
+    "bathroom": {
+        "label": "Bathroom",
+        "ha_area_id": "bathroom",
+        "aliases": ["bathroom"],
+        "defaults": {
+            "lights": None,
+            "color_light": None,
+            "brightness_target": None,
+            "volume_target": {
+                "type": "entity",
+                "entity_id": "media_player.bathroom",
+            },
+            "audio_output": "media_player.bathroom",
+            "announcements": "media_player.bathroom",
+            "spotcast_device_name": None,
+            "tv": None,
+        },
+        "audio_outputs": [
+            "media_player.bathroom",
+        ],
+        "focus_participants": [
+            "media_player.bathroom",
+        ],
+        "scenes": [
+            {"label": "Bright", "command": "bathroom bright"},
+            {"label": "Medium", "command": "bathroom medium"},
+            {"label": "Low",    "command": "bathroom low"},
+            {"label": "Dim",    "command": "bathroom dim"},
+            {"label": "Off",    "command": "bathroom off"},
+        ],
+        "devices": [],
+    },
+    "office": {
+        "label": "Office",
+        "ha_area_id": "office",
+        "aliases": ["office"],
+        "defaults": {
+            "lights": None,
+            "color_light": "light.office_color",
+            "brightness_target": {
+                "type": "entity",
+                "entity_id": "light.office_brightness",
+            },
+            "volume_target": {
+                "type": "entity",
+                "entity_id": "media_player.office",
+            },
+            "audio_output": "media_player.office",
+            "announcements": "media_player.office",
+            "spotcast_device_name": None,
+            "tv": None,
+        },
+        "audio_outputs": [
+            "media_player.office",
+        ],
+        "focus_participants": [
+            "media_player.office",
+        ],
+        "scenes": [
+            {"label": "Bright", "command": "office bright"},
+            {"label": "Medium", "command": "office medium"},
+            {"label": "Low",    "command": "office low"},
+            {"label": "Dim",    "command": "office dim"},
+            {"label": "Off",    "command": "office off"},
+        ],
+        "devices": [],
+    },
+}
+
+
+
+SOURCES: Dict[str, Dict[str, Any]] = {
+    # Local/default appliance source for the current PiPhone runtime.
+    #
+    # `mobile`: whether the source can change its own room focus at runtime via
+    # an "I'm in the <room>" command. Stationary devices (the handset, physical
+    # buttons, the out-loud wakeword option) are fixed to their room and must
+    # refuse room changes. Portable frontends (the menubar app, Raycast,
+    # Telegram) are mobile and remember a sticky room per `device_group`/id.
+    "default_piphone": {
+        "label": "Default PiPhone",
+        "type": "piphone",
+        "room": None,
+        "inherit_default_room": True,
+        "mobile": False,
+        "default_scope": "room_local",
+        "focus_policy": "sticky",
+        "output_mode": "inherit_room",
+    },
+
+    # Room-agnostic sources.
+    "telegram": {
+        "label": "Telegram",
+        "type": "telegram",
+        "room": None,
+        "mobile": True,
+        "default_scope": "none",
+        "focus_policy": "sticky_recent_room",
+        "output_mode": "none",
+    },
+    "http": {
+        "label": "HTTP",
+        "type": "http",
+        "room": None,
+        "mobile": True,
+        "default_scope": "none",
+        "focus_policy": "explicit_or_recent_room",
+        "output_mode": "inherit_request",
+    },
+    # Mac menubar app and Raycast extension run on the same laptop, so they
+    # share one logical "laptop" room focus via `device_group`.
+    "menubar": {
+        "label": "Menubar app",
+        "type": "remote",
+        "room": None,
+        "mobile": True,
+        "device_group": "laptop",
+        "default_scope": "none",
+        "focus_policy": "explicit_or_recent_room",
+        "output_mode": "inherit_request",
+    },
+    "raycast": {
+        "label": "Raycast",
+        "type": "remote",
+        "room": None,
+        "mobile": True,
+        "device_group": "laptop",
+        "default_scope": "none",
+        "focus_policy": "explicit_or_recent_room",
+        "output_mode": "inherit_request",
+    },
+    "scheduler": {
+        "label": "Scheduler",
+        "type": "scheduler",
+        "room": None,
+        "mobile": False,
+        "default_scope": "none",
+        "focus_policy": "none",
+        "output_mode": "none",
+    },
+    "physical_button": {
+        "label": "Physical Button",
+        "type": "button",
+        "room": None,
+        "inherit_default_room": True,
+        "mobile": False,
+        "default_scope": "room_local",
+        "focus_policy": "sticky",
+        "output_mode": "none",
+    },
+}
+
+# Used only when Home Assistant does not expose a local weather entity.
+# Set either coordinate to None to disable coordinate-based fallback.
+HOME_LOCATION = {
+    "latitude": 34.4208,
+    "longitude": -119.6982,
+}
+
+# Optional spoken shorthand for geocoded locations.
+LOCATION_ALIASES = {
+    "la": "Los Angeles",
+    "sb": "Santa Barbara",
+    "santa barbara ca": "Santa Barbara",
+}
+
+# Display labels used when an entity ID alone would produce an awkward name.
+ENTITY_LABEL_OVERRIDES = {
+    "media_player.living_room_apple_tv": "Apple TV",
+}
 
 
 # =============================
@@ -716,6 +1061,9 @@ HA_DEVICE_ALIASES = {
         "the door",
         "door",
      ],
+     "light.dining_light": [
+        "dining light",
+     ],
 #     "light.side_lamp": [
 #        "sidelamp",
 #        "sidelamps",
@@ -1008,17 +1356,49 @@ ALARM_ACTION_BEFORE_NOTIFICATION = True
 # Sonos / Music routing
 # =============================
 
-# Room -> media_player entity map used throughout the command pipeline.
-# Override in local_prefs.py if your rooms differ.
-DEFAULT_SONOS_ROOM = "living room"
-SONOS_PLAYERS = {
-    "living room": "media_player.living_room",
-    "bedroom":     "media_player.bedroom",
-    "kitchen":     "media_player.kitchen",
-    "office":      "media_player.office",
-    "bookshelf":   "media_player.bookshelf",
-    "bathroom":    "media_player.bathroom",
-}
+def _room_aliases(room_id: str, room: Dict[str, Any]) -> list[str]:
+    aliases = {str(room_id).strip().lower().replace("_", " ")}
+    aliases.update(
+        str(alias).strip().lower().replace("_", " ")
+        for alias in (room.get("aliases") or [])
+        if str(alias).strip()
+    )
+    return sorted(aliases)
+
+
+def _derive_sonos_players() -> Dict[str, str]:
+    """Build the legacy player lookup from canonical room audio settings."""
+    players: Dict[str, str] = {}
+    for room_id, room in (ROOMS or {}).items():
+        if not isinstance(room, dict):
+            continue
+        defaults = room.get("defaults") or {}
+        entity_id = str(defaults.get("audio_output") or "").strip()
+        if entity_id:
+            for alias in _room_aliases(room_id, room):
+                players[alias] = entity_id
+        for alias, extra_entity in (room.get("audio_aliases") or {}).items():
+            key = str(alias or "").strip().lower().replace("_", " ")
+            value = str(extra_entity or "").strip()
+            if key and value:
+                players[key] = value
+    return players
+
+
+def _derive_default_sonos_room() -> str:
+    return str(DEFAULT_ROOM).strip().lower().replace("_", " ")
+
+
+def _default_room_setting(key: str):
+    room = ROOMS.get(DEFAULT_ROOM) or {}
+    defaults = room.get("defaults") or {}
+    return defaults.get(key)
+
+
+# Compatibility views for modules that still consume a flat player map.
+# They are derived from ROOMS so room topology has one source of truth.
+DEFAULT_SONOS_ROOM = _derive_default_sonos_room()
+SONOS_PLAYERS = _derive_sonos_players()
 
 # If False, My Sonos / Sonos Favorites only responds to explicit favorite
 # phrases like "play favorite KCLU" or "play my sonos KCLU".
@@ -1029,10 +1409,13 @@ SONOS_MY_SONOS_GENERIC_PLAY_ENABLED = False
 # TV / Apple TV defaults
 # =============================
 
-# Living-room Apple TV entities — used as fallback when the home registry
-# does not define a TV for the requested room.
-APPLE_TV_ENTITY = "media_player.living_room_apple_tv"
-APPLE_TV_REMOTE = "remote.living_room_apple_tv"
+# Default skip interval for room TV remotes that support seek commands.
+APPLE_TV_DEFAULT_SKIP_SECONDS = 10
+
+# Compatibility names for older TV helpers. Both derive from DEFAULT_ROOM;
+# request-aware routing reads each room's TV settings directly.
+APPLE_TV_ENTITY = _default_room_setting("tv")
+APPLE_TV_REMOTE = _default_room_setting("tv_remote")
 
 # =============================
 # Physical command buttons
@@ -1270,3 +1653,15 @@ try:
     del _local_prefs, _k
 except ImportError:
     pass
+
+# Recompute room-derived compatibility views after local preferences load.
+# Explicit legacy overrides remain honored for installations that still set
+# these names directly.
+if "DEFAULT_SONOS_ROOM" not in LOCAL_PREFS_KEYS:
+    DEFAULT_SONOS_ROOM = _derive_default_sonos_room()
+if "SONOS_PLAYERS" not in LOCAL_PREFS_KEYS:
+    SONOS_PLAYERS = _derive_sonos_players()
+if "APPLE_TV_ENTITY" not in LOCAL_PREFS_KEYS:
+    APPLE_TV_ENTITY = _default_room_setting("tv")
+if "APPLE_TV_REMOTE" not in LOCAL_PREFS_KEYS:
+    APPLE_TV_REMOTE = _default_room_setting("tv_remote")

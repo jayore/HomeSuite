@@ -9,9 +9,11 @@ other numeric controls are intentionally outside this module.
 import re
 from typing import Optional, Dict, Any
 
-
-
+from home_registry import get_room_alias_map, get_room_volume_target, resolve_room_id
 from multi_target_utils import split_targets
+from room_volume import apply_room_volume, apply_room_volume_step
+
+
 def _norm(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"[.!,?]+$", "", s).strip()
@@ -21,7 +23,9 @@ def _norm(s: str) -> str:
 
 def _find_room_in_text(tl: str, players_map: Dict[str, str]) -> Optional[str]:
     t = _norm(tl)
-    for room in sorted(players_map.keys(), key=len, reverse=True):
+    candidates = set(players_map.keys())
+    candidates.update(get_room_alias_map().keys())
+    for room in sorted(candidates, key=len, reverse=True):
         if re.search(rf"\b{re.escape(room)}\b", t):
             return room
     return None
@@ -150,10 +154,10 @@ def handle_volume_controls(
     tl: str,
     call_ha_service,
     maybe_say,
-    default_volume_number: str,
     states_snapshot=None,
     sonos_players: Optional[Dict[str, str]] = None,
     default_sonos_room: Optional[str] = None,
+    default_volume_room: Optional[str] = None,
     step_percent: int = 5,
 ) -> Optional[str]:
     """Parse media-volume language and update one resolved player."""
@@ -182,8 +186,8 @@ def handle_volume_controls(
     def target_media_entity() -> Optional[str]:
         if not players:
             return None
-        if room and room in players:
-            return players[room]
+        if room:
+            return players.get(room)
         if default_sonos_room and default_sonos_room in players:
             return players[default_sonos_room]
         return None
@@ -239,7 +243,8 @@ def handle_volume_controls(
     # - For multi-room lists we are strict: if any token can't be resolved, we do nothing.
 
     players = sonos_players or {}
-    default_room = _norm(default_sonos_room) if default_sonos_room else None
+    volume_room = default_volume_room or default_sonos_room
+    default_room = _norm(volume_room)
 
     def _resolve_room_token(tok: str) -> Optional[str]:
         tok = (tok or "").strip()
@@ -248,6 +253,9 @@ def handle_volume_controls(
         tn = _norm(tok)
         if tn in ("here", "this room"):
             return default_room
+        room_id = resolve_room_id(tn)
+        if room_id:
+            return room_id.replace("_", " ")
         if tn in players:
             return tn
         return _find_room_in_text(tn, players)
@@ -269,7 +277,16 @@ def handle_volume_controls(
         return out if out else None
 
     def _set_room_volume(room_name: str, pct: int) -> bool:
-        if not players or not room_name:
+        if not room_name:
+            return False
+        configured_target = get_room_volume_target(room_name)
+        if configured_target:
+            return apply_room_volume(
+                room_name,
+                pct,
+                call_ha_service=call_ha_service,
+            )
+        if not players:
             return False
         rn = _norm(room_name)
         eid = players.get(rn)
@@ -320,19 +337,17 @@ def handle_volume_controls(
             return maybe_say(f"{rooms[0].title()} volume {pct} percent.")
         return maybe_say("Okay.")
 
-    # 3) Global: adjust default volume target.
-    #
-    # Legacy living-room path uses default_volume_number.
-    # Request-room media path can pass an empty default_volume_number, in which
-    # case we set the default Sonos/media_player volume directly.
+    # 3) Global: adjust the request room's configured volume target.
     m_abs_global = re.search(r"\b(?:set\s+)?volumes?\s+(?:to\s+)?(\d{1,3})\s*%?\b", t)
     if m_abs_global:
         pct = _clamp_int(int(m_abs_global.group(1)))
 
-        if default_volume_number:
-            ok = call_ha_service(
-                "number/set_value",
-                {"entity_id": default_volume_number, "value": pct},
+        configured_target = get_room_volume_target(volume_room)
+        if configured_target:
+            ok = apply_room_volume(
+                volume_room,
+                pct,
+                call_ha_service=call_ha_service,
             )
             if not ok:
                 return None
@@ -391,8 +406,19 @@ def handle_volume_controls(
 
         delta = int(amt) if amt is not None else int(step_percent)
 
-        # Room-specific: prefer media_player volume_up/down (doesn't need current volume)
+        # Room-specific: honor the room's configured helper/media target.
         if room:
+            configured_target = get_room_volume_target(room)
+            if configured_target:
+                signed_delta = delta if direction == "up" else -delta
+                ok = apply_room_volume_step(
+                    room,
+                    signed_delta,
+                    call_ha_service=call_ha_service,
+                    states_snapshot=states_snapshot,
+                )
+                return maybe_say("Okay.") if ok else None
+
             eid = target_media_entity()
             if not eid:
                 return None
@@ -427,25 +453,17 @@ def handle_volume_controls(
                 return None
             return maybe_say("Okay.")
 
-        # No explicit room: adjust the default volume target.
-        #
-        # Legacy living-room path uses default_volume_number.
-        # Request-room media path can pass an empty default_volume_number, in which
-        # case we adjust the default Sonos/media_player volume directly.
-        if default_volume_number:
-            cur_s = _get_state(default_volume_number, states_snapshot)
-            try:
-                cur = int(float(cur_s))
-            except Exception:
-                return None
-            newv = _clamp_int(cur + (delta if direction == "up" else -delta))
-            ok = call_ha_service(
-                "number/set_value",
-                {"entity_id": default_volume_number, "value": newv},
+        # No explicit room: adjust the request room's configured target.
+        configured_target = get_room_volume_target(volume_room)
+        if configured_target:
+            signed_delta = delta if direction == "up" else -delta
+            ok = apply_room_volume_step(
+                volume_room,
+                signed_delta,
+                call_ha_service=call_ha_service,
+                states_snapshot=states_snapshot,
             )
-            if not ok:
-                return None
-            return maybe_say(f"Volume {newv} percent.")
+            return maybe_say("Okay.") if ok else None
 
         eid = target_media_entity()
         if not eid:

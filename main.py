@@ -795,8 +795,7 @@ from app_config import (
 # Session memory TTL: used for pronoun resolution ("it") and continuity
 SESSION_TTL_SECONDS = 30 * 60
 
-# Default HA Number entity for volume control (template number you created)
-# DEFAULT_VOLUME_NUMBER and DEFAULT_BRIGHTNESS_NUMBER moved to command_dispatch.py
+# Flat media-player compatibility maps are derived from app_config.ROOMS.
 from app_config import DEFAULT_SONOS_ROOM, SONOS_PLAYERS
 from room_context import (
     _norm_sonos_room_key,
@@ -1192,8 +1191,6 @@ from command_dispatch import (
     mark_action_occurred,
     process_device_commands,
     _strip_for_tts,
-    HOME_LAT,
-    HOME_LON,
     reset_dispatch_state,
 )
 # Wire callbacks into command_dispatch now that both the module is imported

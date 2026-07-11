@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from home_registry import find_room_by_alias, get_room, get_room_defaults
+from home_registry import (
+    find_room_by_alias,
+    get_default_room_id,
+    get_room,
+    get_room_defaults,
+)
 from request_context import get_active_room_for_request_defaults
 
 
@@ -19,7 +24,7 @@ def resolve_room_id(room_hint: Optional[str] = None) -> Optional[str]:
     if not raw:
         raw = str(get_active_room_for_request_defaults() or "").strip()
     if not raw:
-        return None
+        return get_default_room_id()
 
     if get_room(raw):
         return raw
