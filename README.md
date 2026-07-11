@@ -75,8 +75,9 @@ Hardware still matters. Far-field arrays with beamforming and acoustic echo
 cancellation can substantially improve room-scale detection and interruption
 while the assistant is speaking.
 
-See [Wake-word audio](docs/WAKEWORD.md) for setup, calibration, diagnostics, and
-tuning.
+See [Wake-word audio](docs/WAKEWORD.md) for wakeword setup, calibration,
+diagnostics, and tuning, or [PTT handset setup](docs/PTT.md) for the current
+hook-switch and capture contract.
 
 ## How It Works
 
@@ -120,7 +121,7 @@ faster, cheaper, easier to test, and more predictable.
 On a Raspberry Pi or Debian-like host:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
+curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
 ```
 
 Configure the generated local files, then run the setup doctor and safe command
@@ -129,9 +130,11 @@ shell:
 ```bash
 cd ~/homesuite
 nano private_config.py
+nano deployment_config.py
 nano local_prefs.py
 homesuite-doctor
 pptest
+sudo systemctl start homesuite.service
 ```
 
 Inside `pptest`, try `service status`, or run
@@ -153,11 +156,12 @@ including web search, but not for text-only deterministic commands.
 
 Home Suite separates configuration by responsibility:
 
-* `app_config.py` - tracked, shared non-secret defaults and room topology
+* `app_config.py` - tracked application defaults
+* `deployment_config.py` - ignored shared topology and home-specific catalogs
 * `private_config.py` - ignored credentials, tokens, service URLs, and API keys
 * `local_prefs.py` - ignored per-device room, audio, hardware, and behavior overrides
 
-Only `private_config.example.py` and `local_prefs.example.py` are committed.
+Only the corresponding `*.example.py` templates are committed for local files.
 Optional integrations can remain blank; unavailable services should be reported
 without preventing the core runtime from starting.
 
@@ -185,13 +189,16 @@ contains the Home Suite runtime, API, installer, and documentation.
 When enabled, the in-process server exposes:
 
 * `GET /health`
+* `GET /healthz`
 * `GET /manifest`
 * `GET /state/{room_id}`
 * `POST /command`
 * `GET /ws`
 
-Clients authenticate with the API key configured in
-`HOMESUITE_HTTP_API_KEY`.
+The server is enabled by default and fails closed when
+`HOMESUITE_HTTP_API_KEY` is blank. `/health` and `/healthz` are public for
+monitoring; all state, command, manifest, and WebSocket routes require the
+shared key.
 
 ```bash
 curl -sS http://homesuite.local:8765/command \
@@ -199,6 +206,10 @@ curl -sS http://homesuite.local:8765/command \
   -H "X-API-Key: $HOMESUITE_HTTP_API_KEY" \
   -d '{"text":"turn on the living room lights"}'
 ```
+
+Telegram runs directly inside Home Suite and does not require this API. Raycast,
+satellites, menu-bar apps, and custom clients do. See [API](docs/API.md) for the
+request, response, WebSocket, and authentication contract.
 
 ## Status
 
@@ -231,6 +242,8 @@ Documentation:
 * [Integrations](docs/INTEGRATIONS.md)
 * [Features](docs/FEATURES.md)
 * [Commands](docs/COMMANDS.md)
+* [HTTP and WebSocket API](docs/API.md)
+* [PTT handset setup](docs/PTT.md)
 * [FAQ](docs/FAQ.md)
 
 ## Security
@@ -238,9 +251,13 @@ Documentation:
 Home Suite can control your home. Treat Home Assistant tokens, API keys,
 Telegram bots, and HTTP clients as sensitive control surfaces.
 
-Never commit `private_config.py` or `local_prefs.py`. Deleting a secret in a
-later commit does not remove it from earlier Git history; rotate any credential
-that has ever been committed.
+Never commit `private_config.py`, `deployment_config.py`, or `local_prefs.py`.
+Deleting a secret in a later commit does not remove it from earlier Git history;
+rotate any credential that has ever been committed.
+
+The companion API binds to the local network without TLS. Keep it on a trusted
+LAN or VPN, use the generated shared key, and do not expose port `8765` directly
+to the internet.
 
 ## License
 

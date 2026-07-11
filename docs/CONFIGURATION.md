@@ -1,8 +1,14 @@
 # Configuration Guide
 
-Home Suite separates shared behavior from local machine settings and secrets:
+This is the setting and behavior reference. Credential acquisition belongs in
+[CREDENTIALS.md](CREDENTIALS.md), while service capabilities and operational
+prerequisites belong in [INTEGRATIONS.md](INTEGRATIONS.md).
 
-* `app_config.py` - shared non-secret home topology and behavior settings
+Home Suite separates application defaults, shared deployment topology,
+device-specific settings, and secrets:
+
+* `app_config.py` - tracked application defaults; normally do not edit in a public install
+* `deployment_config.py` - ignored shared room topology and entity mappings
 * `private_config.py` - credentials, tokens, service URLs, and API keys
 * `local_prefs.py` - device-specific room, audio, hardware, and behavior overrides
 
@@ -10,12 +16,22 @@ Start by copying the examples if you installed manually:
 
 ```bash
 cp private_config.example.py private_config.py
+cp deployment_config.example.py deployment_config.py
 cp local_prefs.example.py local_prefs.py
 ```
 
 Never commit real local config files to a public repo.
 
-Use `private_config.py` for values that are shared across a deployment, such as Home Assistant tokens and service API keys. Use `local_prefs.py` for values that describe one device, such as its default room, audio output, wake-word behavior, or handset hardware.
+Use `deployment_config.py` for non-secret values shared by every device, such
+as `ROOMS`, `HOME_LOCATION`, and entity labels. Use `private_config.py` for
+shared secrets and endpoints. Use `local_prefs.py` for one device's audio,
+wake-word, handset, source, and output behavior.
+
+The deployment template also starts home-specific catalogs empty. Populate
+`HA_DEVICE_ALIASES`, `HA_TRIGGER_ALIASES`, pinned playlists/stations,
+`YOUTUBE_CHANNELS`, `HOMELAB_SERVICES`, phonetic device repairs, and TTS
+pronunciation overrides there when you need them. This prevents a fresh install
+from inheriting the original deployment's entities or personal media choices.
 
 ## Optional Integrations
 
@@ -29,10 +45,10 @@ security guidance, see [CREDENTIALS.md](CREDENTIALS.md).
 
 ## Minimum Useful Setup
 
-For the currently supported public-alpha path, set:
+For deterministic text control with the companion API enabled, set:
 
 ```python
-OPENAI_API_KEY = "..."
+OPENAI_API_KEY = ""  # Optional until conversation or voice is enabled.
 HA_URL = "http://homeassistant.local:8123"
 HA_TOKEN = "..."
 HOMESUITE_HTTP_API_KEY = "choose-a-random-local-api-key"
@@ -92,8 +108,9 @@ Home Suite depends heavily on Home Assistant for entity state, service calls, sc
 For the complete room schema, disabling rules, field reference, examples, and
 source-room behavior, see [Room Configuration](ROOM_CONFIGURATION.md).
 
-`app_config.py` contains the canonical `ROOMS` mapping. `DEFAULT_ROOM` stores a
-stable room ID, not another copy of the room object:
+For public installs, `deployment_config.py` contains the canonical `ROOMS`
+override. `DEFAULT_ROOM` stores a stable room ID, not another copy of the room
+object:
 
 ```python
 DEFAULT_ROOM = "living_room"
@@ -201,14 +218,19 @@ may activate legacy fallback behavior.
 
 ## Home Suite HTTP API Key
 
-Set a local API key for clients that call Home Suite over HTTP/WebSocket:
+The in-process server is enabled by default. Set one shared local API key for
+clients that call Home Suite over HTTP or WebSocket:
 
 ```python
 HOMESUITE_HTTP_API_KEY = "a-long-random-string"
 PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
-Use the same value in Raycast, menu-bar clients, satellites, or other tools that send commands to `POST /command`.
+The API component fails closed when the key is blank. `/health` and `/healthz`
+remain public; all other routes require authentication. Use the same value in
+Raycast, menu-bar clients, satellites, or other tools that call Home Suite.
+Telegram is an in-process frontend and does not require this API. See
+[API.md](API.md).
 
 ## Plex
 

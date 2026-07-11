@@ -7,6 +7,7 @@ BRANCH="${HOMESUITE_BRANCH:-main}"
 INSTALL_SYSTEMD=0
 START_SERVICE=0
 SKIP_APT=0
+EXISTING_CHECKOUT=0
 
 usage() {
   cat <<'USAGE'
@@ -22,7 +23,7 @@ Environment overrides:
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd --start
+  curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
 USAGE
 }
 
@@ -52,6 +53,7 @@ if [[ "$SKIP_APT" != "1" ]]; then
 fi
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
+  EXISTING_CHECKOUT=1
   echo "Updating existing checkout..."
   git -C "$INSTALL_DIR" fetch origin "$BRANCH"
   git -C "$INSTALL_DIR" checkout "$BRANCH"
@@ -72,12 +74,29 @@ fi
 
 if [[ ! -f private_config.py ]]; then
   cp private_config.example.py private_config.py
+  generated_api_key="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  sed -i "s|^HOMESUITE_HTTP_API_KEY = \"\"$|HOMESUITE_HTTP_API_KEY = \"$generated_api_key\"|" private_config.py
+  unset generated_api_key
+  chmod 0600 private_config.py
   echo "Created private_config.py from private_config.example.py"
+  echo "Generated HOMESUITE_HTTP_API_KEY in private_config.py"
 fi
 
 if [[ ! -f local_prefs.py ]]; then
   cp local_prefs.example.py local_prefs.py
+  chmod 0600 local_prefs.py
   echo "Created local_prefs.py from local_prefs.example.py"
+fi
+
+if [[ ! -f deployment_config.py ]]; then
+  if [[ "$EXISTING_CHECKOUT" == "0" ]]; then
+    cp deployment_config.example.py deployment_config.py
+    chmod 0600 deployment_config.py
+    echo "Created deployment_config.py from deployment_config.example.py"
+  else
+    echo "Existing checkout has no deployment_config.py; tracked app_config.py behavior is unchanged."
+    echo "See docs/ROOM_CONFIGURATION.md to migrate shared topology when convenient."
+  fi
 fi
 
 mkdir -p logs state backups
@@ -96,6 +115,11 @@ if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
   $SUDO systemctl daemon-reload
   $SUDO systemctl enable homesuite.service
   if [[ "$START_SERVICE" == "1" ]]; then
+    echo "Validating configuration before service start..."
+    if ! .venv/bin/python tools/doctor.py; then
+      echo "Refusing to start homesuite.service until required configuration checks pass." >&2
+      exit 1
+    fi
     $SUDO systemctl restart homesuite.service
     $SUDO systemctl --no-pager --full status homesuite.service || true
   fi
@@ -108,10 +132,12 @@ Home Suite install complete.
 Next steps:
   1. Edit $INSTALL_DIR/private_config.py with your Home Assistant/OpenAI/service credentials.
   2. Edit $INSTALL_DIR/local_prefs.py for this device's room, audio, and hardware role.
-  3. Check setup and test command routing:
+  3. Edit $INSTALL_DIR/deployment_config.py for shared rooms, mappings, and catalogs
+     (fresh installs only; existing installs may continue using app_config.py).
+  4. Check setup and test command routing:
        homesuite-doctor
        pptest "service status"
-  4. Start or restart the service when ready:
+  5. Start or restart the service when ready:
        sudo systemctl restart homesuite.service
 
 EOF

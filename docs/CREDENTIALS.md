@@ -3,6 +3,10 @@
 Home Suite can start with most optional integrations left blank. Add credentials
 only for the services and commands you intend to use.
 
+This guide explains how to obtain and protect credentials. For setting names
+and behavior, use [CONFIGURATION.md](CONFIGURATION.md); for what each connected
+service does, use [INTEGRATIONS.md](INTEGRATIONS.md).
+
 This guide distinguishes four setup types:
 
 * **API account** - create a developer/platform account and usually enable billing.
@@ -18,7 +22,7 @@ gitignored; only their `.example.py` templates should be committed.
 
 | Integration | Setup type | Account or subscription | What it unlocks |
 |---|---|---|---|
-| OpenAI | API account and API billing | OpenAI API platform account; ChatGPT billing is separate | Current STT modes, conversation, fuzzy interpretation |
+| OpenAI | API account and API billing | OpenAI API platform account; ChatGPT billing is separate | Current STT modes, conversation, web search, fuzzy interpretation |
 | Home Assistant | Existing-service token | Home Assistant user | Home state, service calls, rooms, scenes, media players |
 | Home Suite HTTP API | Locally generated key | None | Satellites, Raycast, menu-bar and custom clients |
 | Plex | Existing-service token | Plex account and Plex Media Server | Library-grounded matching and playback |
@@ -44,8 +48,9 @@ For a manual installation:
 ```bash
 cd ~/homesuite
 cp private_config.example.py private_config.py
+cp deployment_config.example.py deployment_config.py
 cp local_prefs.example.py local_prefs.py
-chmod 600 private_config.py local_prefs.py
+chmod 600 private_config.py deployment_config.py local_prefs.py
 ```
 
 Leave unused optional values as empty strings or empty lists. Do not enter fake
@@ -76,12 +81,11 @@ OPENAI_API_KEY = "sk-..."
 1. Sign in to the [OpenAI API platform](https://platform.openai.com/).
 2. Configure API billing or prepaid credits in the API platform.
 3. Create a key on the [API keys page](https://platform.openai.com/api-keys).
-
-Store the key only in the ignored `private_config.py` file or the
-`OPENAI_API_KEY` environment variable. Never commit a real key. If a key is
-ever committed, rotate it in the OpenAI dashboard even after removing the file
-from the current Git revision because it remains present in repository history.
-4. Store the key in `private_config.py`; do not put it in `app_config.py` or Git.
+4. Store the key only in the ignored `private_config.py` file or the
+   `OPENAI_API_KEY` environment variable. Never commit a real key. If a key is
+   ever committed, rotate it in the OpenAI dashboard even after removing the
+   file from the current Git revision because it remains present in repository
+   history.
 
 A ChatGPT Free, Plus, Pro, Business, or other ChatGPT subscription does **not**
 include OpenAI API usage. ChatGPT and API billing are managed separately. See
@@ -93,7 +97,13 @@ Home Suite currently uses this one key for:
 * OpenAI Realtime streaming transcription
 * file transcription through hosted `whisper-1`
 * conversational fallback
+* hosted web search for current conversational questions when enabled
 * fuzzy media and color interpretation where enabled
+
+The current realtime and file-transcription paths send captured command audio
+to OpenAI. Conversational fallback and web search send the relevant transcript
+and short-lived conversational context. Review that data flow before enabling
+voice or AI features in a shared space.
 
 Important: `PIPHONE_STT_MODE=whisper` means the hosted OpenAI Whisper API. It is
 not a local Whisper process. All currently implemented STT modes require
@@ -154,6 +164,11 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 Give the same value to trusted satellites and clients that call Home Suite.
 Anyone holding it can submit commands to your home, so do not embed it in a
 public client repository or browser bundle.
+
+The server is enabled by default and requires this key for every route except
+the `/health` and `/healthz` monitoring aliases. WebSocket clients use the same
+key; there is no separate WebSocket passphrase. See [API.md](API.md) for header
+and browser-client authentication.
 
 ## Speech Output
 

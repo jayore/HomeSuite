@@ -23,6 +23,10 @@ usually describes one specific Pi, room, audio device, or speaker target.
 
 # Wake-word engine. Common values are "openwakeword" or "porcupine".
 # WAKEWORD_ENGINE = "openwakeword"
+# WAKEWORD_MODEL = "your_model_label"
+# WAKEWORD_MODEL_PATHS = ["/home/your-user/wake_models/model.onnx"]
+# WAKEWORD_THRESHOLD = 0.5
+# WAKEWORD_VAD_THRESHOLD = 0.5
 
 # Completed wakeword commands can use file STT independently of PTT streaming.
 # WAKEWORD_USE_STREAMING_STT = True
@@ -39,6 +43,13 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # This keeps the cue unchanged but permits a new wakeword during its tail.
 # WAKEWORD_SUPPRESS_DURING_SFX = False
 # WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 0.0
+
+# Interrupt local assistant speech with another wakeword. A separate speaking
+# threshold keeps normal idle detection strict. Hardware AEC is strongly
+# preferred for reliable barge-in.
+# WAKEWORD_ASYNC_TTS_ENABLED = True
+# WAKEWORD_BARGE_IN_ENABLED = True
+# WAKEWORD_BARGE_IN_THRESHOLD = 0.4
 
 # If a handset needs a slight delay before the chime so it reaches your ear.
 # START_CHIME_DELAY_SECONDS = 0.0
@@ -114,3 +125,14 @@ usually describes one specific Pi, room, audio device, or speaker target.
 
 # gTTS regional voice. Common TLDs: "com", "co.uk", "com.au", "ie".
 # TTS_TLD = "ie"
+
+
+# ---------------------------------------------------------------------------
+# Companion API
+# ---------------------------------------------------------------------------
+
+# The in-process HTTP/WebSocket server is enabled by default and requires the
+# shared HOMESUITE_HTTP_API_KEY from private_config.py. Disable it on devices
+# that should not accept companion-client connections.
+# UNIFIED_SERVER_ENABLED = True
+# UNIFIED_SERVER_PORT = 8765

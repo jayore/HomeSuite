@@ -204,7 +204,7 @@ def _pref_float(name: str, default: float = 0.0) -> float:
 
 
 def _ptt_enabled() -> bool:
-    return _pref_bool("PTT_ENABLED", True)
+    return _pref_bool("PTT_ENABLED", False)
 
 
 def _wakeword_enabled() -> bool:
@@ -3862,15 +3862,22 @@ def _execute_scheduled_command_in_process(
 def main():
     logging.info("STARTUP_SIGNATURE main.py loaded")
     try:
-        # Surface per-device override status so it's obvious in the boot log
-        # whether local_prefs.py was applied and which keys it changed.
+        # Surface shared and per-device override status in the boot log.
         try:
             import app_config as _pp
+            _deployment_loaded = bool(getattr(_pp, "DEPLOYMENT_CONFIG_LOADED", False))
+            _deployment_keys = list(getattr(_pp, "DEPLOYMENT_CONFIG_KEYS", []) or [])
             _local_loaded = bool(getattr(_pp, "LOCAL_PREFS_LOADED", False))
             _local_keys = list(getattr(_pp, "LOCAL_PREFS_KEYS", []) or [])
         except Exception:
+            _deployment_loaded = False
+            _deployment_keys = []
             _local_loaded = False
             _local_keys = []
+        logging.info(
+            "DEPLOYMENT_CONFIG loaded=%s keys=%r",
+            _deployment_loaded, _deployment_keys,
+        )
         logging.info(
             "LOCAL_PREFS loaded=%s keys=%r",
             _local_loaded, _local_keys,
@@ -3925,13 +3932,14 @@ def main():
         logging.exception("RT_WARMUP_BOOT_THREAD_START_FAIL")
 
     # -----------------------------------------------------------------
-    # Unified runtime: in-process HTTP/WS server (opt-in via pref).
+    # Unified runtime: in-process HTTP/WS companion server.
     # When enabled, replaces piphone-wsh.service by serving the same
-    # surface area from inside this process. Default OFF during migration.
+    # surface area from inside this process. The server itself fails closed
+    # when its shared client key is missing; the local runtime keeps running.
     # -----------------------------------------------------------------
     try:
         import app_config as _pp
-        if bool(getattr(_pp, "UNIFIED_SERVER_ENABLED", False)):
+        if bool(getattr(_pp, "UNIFIED_SERVER_ENABLED", True)):
             try:
                 import unified_server
                 import sys as _sys
@@ -4009,7 +4017,10 @@ def main():
         logging.exception("PHYSICAL_BUTTONS_START_FAIL")
 
 
-    print("\nSystem ready - press and hold button to speak")
+    if _ptt_enabled():
+        print("\nSystem ready - lift the handset to speak")
+    else:
+        print("\nSystem ready - PTT handset disabled")
 
     try:
         global is_processing, is_speaking, button_pressed, last_interaction_ts
@@ -4032,6 +4043,10 @@ def main():
             pass
 
         while True:
+            if not _ptt_enabled():
+                time.sleep(1.0)
+                continue
+
             current_button_state = not GPIO.input(GPIO_PIN)
 
             if current_button_state and not button_pressed:

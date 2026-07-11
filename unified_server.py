@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import hmac
 import json
 import logging
 import threading
@@ -152,11 +153,30 @@ def _install_cache_swaps() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _auth_ok(request: web.Request) -> bool:
+def _request_api_key(request: web.Request, *, allow_query: bool = False) -> str:
+    """Read the shared client key without inventing a second auth scheme."""
+    incoming = str(request.headers.get("X-API-Key", "") or "").strip()
+    if incoming:
+        return incoming
+
+    authorization = str(request.headers.get("Authorization", "") or "").strip()
+    scheme, separator, value = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer" and value.strip():
+        return value.strip()
+
+    if allow_query:
+        try:
+            return str(request.rel_url.query.get("api_key", "") or "").strip()
+        except Exception:
+            return ""
+    return ""
+
+
+def _auth_ok(request: web.Request, *, allow_query: bool = False) -> bool:
     if not _API_KEY:
-        return True
-    incoming = request.headers.get("X-API-Key", "")
-    return bool(incoming and incoming == _API_KEY)
+        return False
+    incoming = _request_api_key(request, allow_query=allow_query)
+    return bool(incoming and hmac.compare_digest(incoming, _API_KEY))
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +465,13 @@ async def handle_command(request: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 
 
-async def handle_ws(request: web.Request) -> web.WebSocketResponse:
+async def handle_ws(request: web.Request) -> web.StreamResponse:
+    # Native browser WebSocket clients cannot set arbitrary headers, so they
+    # may use ?api_key=... as a compatibility fallback. Prefer X-API-Key or an
+    # Authorization Bearer header in clients that support headers.
+    if not _auth_ok(request, allow_query=True):
+        return web.json_response({"ok": False, "error": "forbidden"}, status=403)
+
     ws = web.WebSocketResponse()
     await ws.prepare(request)
 
@@ -560,7 +586,7 @@ def start_in_background_thread(
 
     Args:
       port: TCP port to bind (typically 8765).
-      api_key: X-API-Key value to require on auth-protected routes ("" disables auth).
+      api_key: Shared key required by every non-health HTTP/WS route.
       ha_url: Home Assistant base URL (http(s)://host:port).
       ha_token: HA long-lived access token.
       runtime_module: The main runtime module reference (used by handle_text_interaction).
@@ -570,11 +596,17 @@ def start_in_background_thread(
     global _SERVER_THREAD, _API_KEY, _HA_URL, _HA_TOKEN, _HA_WS_URL, _PORT
     global _RUNTIME_MODULE, _CMD_EXECUTOR
 
+    configured_api_key = (api_key or "").strip()
+    if not configured_api_key:
+        raise ValueError(
+            "HOMESUITE_HTTP_API_KEY is required when the unified server is enabled"
+        )
+
     if _SERVER_THREAD is not None and _SERVER_THREAD.is_alive():
         log.warning("UNIFIED_SERVER_ALREADY_RUNNING skipping start")
         return
 
-    _API_KEY = (api_key or "").strip()
+    _API_KEY = configured_api_key
     _HA_URL = (ha_url or "").rstrip("/")
     _HA_TOKEN = (ha_token or "").strip()
     _HA_WS_URL = _HA_URL.replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"

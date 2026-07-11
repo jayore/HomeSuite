@@ -6,12 +6,15 @@ Start here if you are installing or evaluating Home Suite:
 * [Install guide](INSTALL.md)
 * [Configuration guide](CONFIGURATION.md)
 * [Room configuration](ROOM_CONFIGURATION.md)
+* [HTTP and WebSocket API](API.md)
 * [Credentials and connected services](CREDENTIALS.md)
 * [Integrations](INTEGRATIONS.md)
 * [Wake-word audio guide](WAKEWORD.md)
+* [PTT handset guide](PTT.md)
 * [Features](FEATURES.md)
 * [Commands to try](COMMANDS.md)
 * [FAQ](FAQ.md)
+* [Contributing](../CONTRIBUTING.md)
 
 The public docs focus on installing, configuring, and using Home Suite.
 

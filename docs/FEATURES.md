@@ -71,3 +71,15 @@ See [WAKEWORD.md](WAKEWORD.md) for the hardware and tuning details.
 The same command brain can be used from a local handset or wake-word appliance, `pptest`, `pplive`, `ppchattest`, `ppchat`, HTTP `POST /command`, WebSocket `/ws`, Telegram, scheduled jobs, physical buttons, and companion apps.
 
 Raycast, menu-bar, and other satellite-style clients should become separate repos that link back to Home Suite's HTTP/WebSocket API.
+
+## Experimental Hardware And Applets
+
+Home Suite includes an auxiliary physical-button mapper and a small applet
+lifecycle registry. Buttons translate gestures into normal command strings, so
+they reuse the same deterministic router. Applets can run an independent
+subprocess or temporarily remap buttons for a mode such as an Apple TV remote.
+
+These are extension points rather than polished portable features today. Pin
+maps, gestures, and `PHYSICAL_BUTTON_ACTIONS` belong in `local_prefs.py`.
+Applet registrations currently live in `applet_controls.py` and may require
+device-specific dependencies or exclusive microphone ownership.

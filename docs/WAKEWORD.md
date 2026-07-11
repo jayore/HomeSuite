@@ -90,6 +90,10 @@ WAKEWORD_MODEL_PATHS = [
     "/home/your-user/wake_models/hal_v2.onnx",
 ]
 
+# Tune from labeled samples for this model and room.
+WAKEWORD_THRESHOLD = 0.5
+WAKEWORD_VAD_THRESHOLD = 0.5
+
 PTT_ENABLED = False
 HANDSET_PRESENT = False
 ```
@@ -256,6 +260,51 @@ The normal rearm floor, model deactivation frames, and debounce still apply.
 Validate repeated commands and watch `WAKEWORD_REARM_READY`,
 `WAKEWORD_TRIGGER_ARMED`, false detections, and PortAudio status counters
 before keeping the faster policy.
+
+## Barge-In During Assistant Speech
+
+Wakeword barge-in lets a new detection stop local assistant speech and begin a
+replacement command capture. It is wakeword-only; PTT keeps hang-up as its
+authoritative interruption gesture.
+
+Enable asynchronous local response speech and barge-in together in the
+wakeword device's `local_prefs.py`:
+
+```python
+ASSISTANT_AUDIO_OUTPUT_MODE = "local"
+WAKEWORD_ASYNC_TTS_ENABLED = True
+WAKEWORD_BARGE_IN_ENABLED = True
+
+# Keep normal idle detection strict while allowing more sensitivity when the
+# user's voice competes with assistant playback.
+WAKEWORD_THRESHOLD = 0.75
+WAKEWORD_BARGE_IN_THRESHOLD = 0.55
+```
+
+`WAKEWORD_BARGE_IN_THRESHOLD` is consulted only while local TTS is active and
+barge-in is enabled. It does not lower the normal idle threshold. Start close to
+the normal threshold and lower it only after reviewing real scores; an overly
+low value can let speaker bleed or unrelated speech trigger the detector.
+
+On a successful detection, Home Suite logs `WAKEWORD_BARGE_IN_STOP_TTS`, stops
+the specific local player process it launched, and hands the same continuous
+microphone stream into command capture.
+
+Current boundaries:
+
+* This interrupts **local TTS while speaking**. It does not yet cancel an
+  arbitrary in-flight AI/network request during the thinking phase.
+* Sonos/remote assistant output is not locally terminable by this path.
+* Without acoustic echo cancellation, the wakeword model must recognize the
+  user through the assistant's own speaker output. A separate speaking
+  threshold helps, but hardware AEC is the robust solution.
+* Completion-cue suppression and model rearm policy still apply before or after
+  spoken responses as configured.
+
+Test with long spoken responses, different distances, and phrases that resemble
+the wakeword. Watch `WAKEWORD_NEAR_MISS`, `WAKEWORD_ENGINE_OPENWAKEWORD_HIT`,
+`WAKEWORD_BARGE_IN_STOP_TTS`, and false activations before keeping a lower
+speaking threshold.
 
 ## Realtime Transcription and Fallback
 

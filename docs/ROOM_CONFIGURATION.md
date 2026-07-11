@@ -1,16 +1,32 @@
 # Room Configuration
 
-Home Suite keeps shared, non-secret home topology in `ROOMS` inside
-`app_config.py`. This is the canonical place to describe rooms, their Home
-Assistant targets, media devices, spoken aliases, and client-visible controls.
+Fresh public installs keep shared, non-secret home topology in `ROOMS` inside
+the ignored `deployment_config.py`. This is the canonical deployment place to
+describe rooms, Home Assistant targets, media devices, spoken aliases, and
+client-visible controls without modifying the upstream source checkout.
 
 `home_registry.py` provides lookup and validation helpers. Do not create a
 second room mapping there. Per-device microphone, wake-word, handset, and audio
 hardware settings still belong in `local_prefs.py`.
 
-`app_config.py` is tracked because this topology is shared across devices in
-one deployment. Review and commit topology changes intentionally. Secrets
-never belong in a room object.
+`app_config.py` still supplies tracked defaults and remains the topology source
+for older/private deployments that intentionally version their complete home
+configuration. `deployment_config.py` overrides those defaults before
+per-device `local_prefs.py` is applied. Secrets never belong in a room object.
+
+## Existing Deployment Migration
+
+Existing installations without `deployment_config.py` continue using
+`app_config.py` unchanged. To migrate deliberately:
+
+1. Copy `deployment_config.example.py` to `deployment_config.py`.
+2. Replace its sample `DEFAULT_ROOM`, `ROOMS`, location, and label values with
+   the corresponding deployment values from `app_config.py`.
+3. Run `homesuite-doctor` and compare room/target output before restarting.
+4. Keep the real deployment file ignored and distribute it privately to other
+   Home Suite devices.
+
+Do not accept the generic example over an existing working topology.
 
 ## IDs And Objects
 
@@ -256,13 +272,13 @@ consult the same room configuration.
 
 ## Applying Changes
 
-After editing `app_config.py`:
+After editing `deployment_config.py` (or tracked `app_config.py` in a private
+source-of-truth deployment):
 
 1. Check syntax and configuration with `homesuite-doctor`.
 2. Use `pptest` for safe parsing checks.
 3. Use `pplive` for a small number of deliberate Home Assistant actions.
-4. Restart `homesuite.service` and any separate Home Suite HTTP service so
-   imported room configuration is reloaded.
+4. Restart `homesuite.service` so room configuration is reloaded.
 5. Verify bare commands in the default room and explicit commands for each
    newly configured room.
 

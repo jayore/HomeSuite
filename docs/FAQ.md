@@ -52,7 +52,14 @@ Then type `what lights are on?` at the prompt. For one-shot debugging, `pptest "
 
 Use `pptest` and `ppchattest` while setting up. Use `pplive`, `ppchat`, or the systemd service only when you are ready for commands to affect real devices.
 
-## What Is The Difference Between `private_config.py` And `local_prefs.py`?
+## What Are The Configuration Files For?
+
+`deployment_config.py` is for shared, non-secret home topology:
+
+* rooms, aliases, and default room
+* Home Assistant entity mappings
+* shared source/client definitions
+* location aliases and display labels
 
 `private_config.py` is for deployment-wide private values:
 
@@ -71,9 +78,16 @@ Use `pptest` and `ppchattest` while setting up. Use `pplive`, `ppchat`, or the s
 
 If you eventually run multiple Home Suite devices, they may share similar `private_config.py` values but have different `local_prefs.py` files.
 
+`app_config.py` supplies tracked application defaults. Fresh public installs
+should normally override topology in ignored `deployment_config.py` so upstream
+updates remain fast-forwardable.
+
 ## Do I Need Every Service In The Example Config?
 
-No. Home Suite is designed around optional integrations. Start with Home Assistant, an OpenAI API key, and local device preferences. Leave Plex, Spotify, Telegram, Uptime Kuma, qBittorrent, Seerr, YouTube, and wake-word settings blank until you actually use them.
+No. Start with Home Assistant, a room definition, and local device preferences.
+Add OpenAI for conversation or the currently supported voice transcription
+paths. Leave Plex, Spotify, Telegram, Uptime Kuma, qBittorrent, Seerr, YouTube,
+and wake-word settings blank until you use them.
 
 Run:
 
@@ -96,7 +110,10 @@ Voice, wake word, handset behavior, and Sonos-routed speech can be added later.
 
 ## Can I Use It From Other Apps?
 
-Yes. Home Suite exposes an HTTP/WebSocket API when the server is enabled. Companion clients should send commands to the same core runtime rather than reimplementing logic.
+Yes. Home Suite enables its authenticated HTTP/WebSocket API by default.
+Companion clients should send commands to the same core runtime rather than
+reimplementing logic. The API component refuses to start when its shared key is
+blank.
 
 The important endpoint for simple clients is:
 

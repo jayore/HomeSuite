@@ -39,6 +39,7 @@ class Doctor:
         self.timeout = timeout
         self.checks: list[Check] = []
         self.private_config = self._load_module("private_config")
+        self.app_config = self._load_module("app_config")
         self.local_prefs = self._load_module("local_prefs")
 
     def _load_module(self, name: str):
@@ -62,6 +63,11 @@ class Doctor:
             return default
         return getattr(self.private_config, name, default)
 
+    def pref(self, name: str, default=None):
+        if self.app_config is None:
+            return default
+        return getattr(self.app_config, name, default)
+
     @staticmethod
     def has_value(value) -> bool:
         if value is None:
@@ -81,6 +87,7 @@ class Doctor:
     def run(self) -> int:
         self.check_local_files()
         self.check_core_config()
+        self.check_room_registry()
         self.check_room_brightness()
         self.check_optional_config()
         if self.live:
@@ -106,12 +113,20 @@ class Doctor:
             "local_prefs.py",
             "found" if prefs_path.exists() else "missing; copy local_prefs.example.py for device-specific settings",
         )
+        deployment_path = ROOT / "deployment_config.py"
+        self.add(
+            "Config files",
+            "OK" if deployment_path.exists() else "WARN",
+            "deployment_config.py",
+            (
+                "found"
+                if deployment_path.exists()
+                else "missing; using tracked app_config.py topology (see room migration guide)"
+            ),
+        )
 
     def check_core_config(self) -> None:
-        core = {
-            "OpenAI API key": ["OPENAI_API_KEY"],
-            "Home Assistant": ["HA_URL", "HA_TOKEN"],
-        }
+        core = {"Home Assistant": ["HA_URL", "HA_TOKEN"]}
         for label, names in core.items():
             missing = self.missing(names)
             self.add(
@@ -122,13 +137,54 @@ class Doctor:
                 required=True,
             )
 
-        api_key = self.value("HOMESUITE_HTTP_API_KEY") or self.value("PIPHONE_HTTP_API_KEY")
-        self.add(
-            "Core",
-            "OK" if self.has_value(api_key) else "WARN",
-            "Home Suite HTTP API key",
-            "configured" if self.has_value(api_key) else "missing; needed for HTTP/WebSocket clients",
+        openai_key = self.value("OPENAI_API_KEY")
+        voice_enabled = bool(
+            self.pref("PTT_ENABLED", False) or self.pref("WAKEWORD_ENABLED", False)
         )
+        if self.has_value(openai_key):
+            self.add("Core", "OK", "OpenAI API key", "configured")
+        else:
+            self.add(
+                "Core",
+                "FAIL" if voice_enabled else "WARN",
+                "OpenAI API key",
+                (
+                    "missing; required by the enabled voice transcription path"
+                    if voice_enabled
+                    else "missing; deterministic text commands work, conversation and OpenAI speech do not"
+                ),
+                required=voice_enabled,
+            )
+
+        server_enabled = bool(self.pref("UNIFIED_SERVER_ENABLED", True))
+        api_key = self.value("HOMESUITE_HTTP_API_KEY") or self.value("PIPHONE_HTTP_API_KEY")
+        if not server_enabled:
+            self.add("Core", "SKIP", "Home Suite HTTP/WebSocket API", "disabled in preferences")
+        else:
+            self.add(
+                "Core",
+                "OK" if self.has_value(api_key) else "FAIL",
+                "Home Suite HTTP/WebSocket API key",
+                "configured" if self.has_value(api_key) else "missing; server is enabled and fails closed without it",
+                required=True,
+            )
+
+    def check_room_registry(self) -> None:
+        rooms = self.pref("ROOMS", {}) or {}
+        default_room = str(self.pref("DEFAULT_ROOM", "") or "").strip()
+        if not isinstance(rooms, dict) or not rooms:
+            self.add("Rooms", "FAIL", "room registry", "ROOMS is empty", required=True)
+            return
+        if not default_room or default_room not in rooms:
+            self.add(
+                "Rooms",
+                "FAIL",
+                "default room",
+                f"DEFAULT_ROOM {default_room!r} is not present in ROOMS",
+                required=True,
+            )
+            return
+        self.add("Rooms", "OK", "default room", default_room)
 
     def check_room_brightness(self) -> None:
         try:
@@ -140,6 +196,7 @@ class Doctor:
 
         for room_id, room in (ROOMS or {}).items():
             defaults = (room or {}).get("defaults") or {}
+            explicit_target = defaults.get("brightness_target")
             configured = (
                 "brightness_target" in defaults
                 or bool(defaults.get("brightness_number"))
@@ -148,11 +205,21 @@ class Doctor:
             target = get_room_brightness_target(room_id)
             label = f"{room_id} brightness"
             if not target:
+                explicitly_disabled = (
+                    "brightness_target" in defaults
+                    and explicit_target is None
+                    and not defaults.get("brightness_number")
+                    and not defaults.get("brightness_light")
+                )
                 self.add(
                     "Rooms",
-                    "WARN" if configured else "SKIP",
+                    "SKIP" if explicitly_disabled or not configured else "WARN",
                     label,
-                    "invalid configuration" if configured else "not configured",
+                    (
+                        "disabled"
+                        if explicitly_disabled
+                        else "invalid configuration" if configured else "not configured"
+                    ),
                 )
                 continue
 

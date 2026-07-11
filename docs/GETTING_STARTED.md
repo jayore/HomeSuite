@@ -1,6 +1,8 @@
 # Getting Started
 
-This guide takes a fresh Home Suite install to the first useful command. Start small: get Home Assistant and conversational fallback working, then add optional media and homelab services one at a time.
+This guide takes a fresh Home Suite install to the first useful command. Start
+small: get Home Assistant and deterministic text commands working, then add
+conversation, voice, media, and homelab services one at a time.
 
 The goal of first setup is not to configure everything. The goal is to make `homesuite-doctor` pass its core checks, open `pptest`, and get one safe plain-English phrase returning a sensible result.
 
@@ -11,8 +13,10 @@ You should already have:
 * a Raspberry Pi or Debian-like host on the same network as Home Assistant
 * Home Assistant running and reachable from that host
 * a Home Assistant long-lived access token
-* an OpenAI API key for the currently supported conversational path
 * basic comfort editing files over SSH
+
+An OpenAI API key is optional for deterministic text commands. It is required
+for the current conversational and hosted speech-to-text paths.
 
 Optional services such as Plex, Spotify, Uptime Kuma, qBittorrent, Seerr, Telegram, and wake-word hardware can wait until after the core path works.
 
@@ -24,13 +28,18 @@ On a Raspberry Pi or Debian-like host:
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash
 ```
 
-To also install and start the systemd service:
+To install and enable the systemd service without starting an unconfigured
+runtime:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
+curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
 ```
 
 The installer creates `~/homesuite`, a Python virtual environment, local config files, state folders, convenience shortcuts, and optionally a `homesuite.service` unit.
+
+Fresh installs receive a randomly generated `HOMESUITE_HTTP_API_KEY` in
+`private_config.py`; the value is not printed. Reuse that key only in trusted
+companion clients.
 
 The most useful shortcuts are:
 
@@ -45,13 +54,14 @@ The most useful shortcuts are:
 ```bash
 cd ~/homesuite
 nano private_config.py
+nano deployment_config.py
 nano local_prefs.py
 ```
 
 Minimum useful `private_config.py` values:
 
 ```python
-OPENAI_API_KEY = "..."
+OPENAI_API_KEY = ""  # Add for conversation or voice.
 HA_URL = "http://homeassistant.local:8123"
 HA_TOKEN = "..."
 HOMESUITE_HTTP_API_KEY = "choose-a-long-random-local-key"
@@ -73,7 +83,7 @@ Leave optional service keys blank until you actually connect those services. For
 Missing optional integrations should produce a clear not-configured response instead of blocking the whole app.
 
 Room names and Home Assistant targets are shared deployment configuration in
-`app_config.py`. Start with one room, explicitly set unsupported capabilities
+the ignored `deployment_config.py`. Start with one room, explicitly set unsupported capabilities
 to `None`, and use empty lists or mappings for optional collections. See
 [Room Configuration](ROOM_CONFIGURATION.md) before adding more rooms.
 
@@ -134,6 +144,10 @@ Check the local HTTP health endpoint when the server is enabled:
 ```bash
 curl -sS http://localhost:8765/health
 ```
+
+The server is enabled by default. Every route except the `/health` and
+`/healthz` monitoring aliases requires `HOMESUITE_HTTP_API_KEY`; startup fails
+closed for the API component when that key is blank.
 
 ## 7. Add Optional Integrations
 

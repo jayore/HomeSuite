@@ -2,12 +2,13 @@
 
 This repository is a sanitized public snapshot generated from the private HomeSuite development repo.
 
-Source commit: `fa09fe9` (`fa09fe9ed584a87894834987edcd2418199fede2`)
+Source commit: `87691b0` (`87691b03f21f84240d501288f7deca298b7649fd`)
 
 Excluded from this public snapshot:
 
 * `private_config.py`
 * `local_prefs.py`
+* `deployment_config.py`
 * `backups/**`
 * `logs/**`
 * `state/**`

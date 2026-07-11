@@ -1,10 +1,10 @@
-"""Shared non-secret HomeSuite behavior, topology, and spoken-name mappings.
+"""Tracked HomeSuite behavior defaults and reference deployment mappings.
 
-This file defines defaults and home topology shared by devices in one
-deployment. Machine-specific audio, wakeword, and hardware choices belong in
-``local_prefs.py``; credentials belong in ``private_config.py``. Environment
-variables may override selected runtime values where the consuming module
-documents that behavior.
+Fresh public installs override home-specific topology and catalogs in the
+ignored ``deployment_config.py`` file. Machine-specific audio, wakeword, and
+hardware choices belong in ``local_prefs.py``; credentials belong in
+``private_config.py``. Existing private deployments may continue using the
+reference mappings here until they deliberately migrate.
 
 Dictionary keys representing spoken phrases should use ``_norm_key``. Values
 that name external library objects, such as Plex titles, must preserve the
@@ -36,9 +36,10 @@ def _norm_ordinal_key(s: str) -> str:
 # =============================
 # Home topology
 # =============================
-# This is the canonical deployment map for rooms and source instances. Runtime
-# modules consume it through home_registry helpers instead of carrying their
-# own room/entity fallbacks.
+# These reference defaults preserve the original deployment. Fresh public
+# installs replace them from deployment_config.py. Runtime modules consume the
+# effective values through home_registry helpers instead of carrying their own
+# room/entity fallbacks.
 #
 # Per-room defaults currently understood by the runtime include:
 #   brightness_target: room brightness strategy (entity, area, or entities)
@@ -679,12 +680,13 @@ WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 1.0
 # Set False on devices that have no handset (e.g. the wakeword-only Pi 4 rig,
 # or a future push-and-hold-button-only device). When False, the runtime
 # treats the handset as always "lifted" so spoken responses are not suppressed
-# and wakeword/push-and-hold UX works normally. Default True preserves the
-# original Pi 3 handset behavior.
+# and wakeword/push-and-hold UX works normally. Setting it True preserves the
+# original Pi 3 handset behavior. Fresh installs default to no handset hardware.
 HANDSET_PRESENT = False
 
-# Preserve current handset push-to-talk behavior by default.
-PTT_ENABLED = True
+# Hardware input paths are opt-in per device. Fresh installs begin as safe text
+# command nodes until local_prefs.py explicitly enables a handset or wakeword.
+PTT_ENABLED = False
 
 # Assistant audio output policy for normal assistant responses.
 # Supported values:
@@ -1269,10 +1271,6 @@ TTS_PRONUNCIATION_OVERRIDES = {
 
     # Brand casing/spacing that sometimes helps
     "youtube": "you tube",
-    
-    # Other replacements just for fun
-    "donald trump": "douche fuck",
-    "trump": "douche fuck",
 }
 
 # =============================
@@ -1488,14 +1486,14 @@ PHYSICAL_BUTTON_ACTIONS = {}
 # Unified runtime: in-process HTTP/WS server
 # =============================================================================
 # When True, main.main() starts unified_server.start_in_background_thread()
-# during boot. This makes homesuite.service serve the same HTTP/WS surface
-# currently served by piphone-wsh.service (port 8765 by default), sharing the
-# entity_cache and request handlers in-process with the PTT command path.
+# during boot. This makes homesuite.service serve the HTTP/WS surface formerly
+# provided by piphone-wsh.service (port 8765 by default), sharing entity_cache
+# and request handlers in-process with the voice and text command paths.
 #
-# Default False so the new code path is opt-in during migration. Flip to True
-# in local_prefs.py (Pi 3B first, then Pi 4) once verified. Stop the
-# old piphone-wsh.service on each device after flipping the pref.
-UNIFIED_SERVER_ENABLED = False
+# Enabled by default so HTTP and WebSocket companion clients work after normal
+# setup. Startup fails closed for this component when HOMESUITE_HTTP_API_KEY is
+# blank; the rest of the Home Suite runtime continues without a network API.
+UNIFIED_SERVER_ENABLED = True
 UNIFIED_SERVER_PORT = 8765
 
 
@@ -1646,8 +1644,28 @@ HOMELAB_SERVICES = {
 
 
 # =============================================================================
-# Per-device overrides
+# Deployment and per-device overrides
 # =============================================================================
+# Public/source checkouts may keep shared home topology in the ignored
+# `deployment_config.py` file so upstream updates never collide with room and
+# entity mappings. Existing private deployments that intentionally version
+# topology in app_config.py remain compatible when this file is absent.
+DEPLOYMENT_CONFIG_LOADED = False
+DEPLOYMENT_CONFIG_KEYS = []
+try:
+    import deployment_config as _deployment_config
+    for _k in dir(_deployment_config):
+        if _k.startswith("_"):
+            continue
+        globals()[_k] = getattr(_deployment_config, _k)
+        DEPLOYMENT_CONFIG_KEYS.append(_k)
+    DEPLOYMENT_CONFIG_LOADED = True
+    del _deployment_config, _k
+except ModuleNotFoundError as _deployment_error:
+    if _deployment_error.name != "deployment_config":
+        raise
+
+# Each physical device then applies its own local overrides.
 # Each physical device (e.g. Pi 3B with PTT-only handset, Pi 4 with wakeword)
 # places its own `local_prefs.py` at the project root with ONLY the
 # values that differ from the defaults defined above. That file is gitignored
@@ -1678,11 +1696,12 @@ except ImportError:
 # Recompute room-derived compatibility views after local preferences load.
 # Explicit legacy overrides remain honored for installations that still set
 # these names directly.
-if "DEFAULT_SONOS_ROOM" not in LOCAL_PREFS_KEYS:
+_CONFIG_OVERRIDE_KEYS = set(DEPLOYMENT_CONFIG_KEYS) | set(LOCAL_PREFS_KEYS)
+if "DEFAULT_SONOS_ROOM" not in _CONFIG_OVERRIDE_KEYS:
     DEFAULT_SONOS_ROOM = _derive_default_sonos_room()
-if "SONOS_PLAYERS" not in LOCAL_PREFS_KEYS:
+if "SONOS_PLAYERS" not in _CONFIG_OVERRIDE_KEYS:
     SONOS_PLAYERS = _derive_sonos_players()
-if "APPLE_TV_ENTITY" not in LOCAL_PREFS_KEYS:
+if "APPLE_TV_ENTITY" not in _CONFIG_OVERRIDE_KEYS:
     APPLE_TV_ENTITY = _default_room_setting("tv")
-if "APPLE_TV_REMOTE" not in LOCAL_PREFS_KEYS:
+if "APPLE_TV_REMOTE" not in _CONFIG_OVERRIDE_KEYS:
     APPLE_TV_REMOTE = _default_room_setting("tv_remote")

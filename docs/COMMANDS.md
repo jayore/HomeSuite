@@ -42,6 +42,12 @@ These routes go through Home Assistant entities, areas, scenes, scripts, and ser
 * `what lights are on?`
 * `run movie night`
 
+Advanced light forms:
+
+* `set the lamp to 3000K`
+* `set the lamp to hex FF00AA`
+* `set the lamp to RGB 255 0 170`
+
 ## Rooms, Focus, And Defaults
 
 Home Suite can use a fixed room for a device or a sticky room focus for mobile/text clients. That lets shorter commands route to the right room without repeating the room every time.
@@ -69,6 +75,8 @@ These commands use the currently focused room, source, or media player when poss
 * `mute the TV`
 * `play music in the kitchen`
 * `switch the living room Sonos to TV audio`
+* `group kitchen with living room`
+* `ungroup`
 
 ## Plex
 
@@ -93,6 +101,19 @@ Spotify commands require Spotify API credentials and a playback path your Sonos/
 * `save this song`
 * `play music here`
 * `play music in the kitchen`
+* `play KCLU` (when `PINNED_RADIO_STATIONS` contains `kclu`)
+
+## Time, Weather, And Repeat
+
+These are deterministic utility routes rather than AI answers:
+
+* `what time is it?`
+* `what time is it in Tokyo?`
+* `what's the weather?`
+* `what's the weather in Tokyo?`
+* `say that again`
+* `repeat that`
+* `what did you say?`
 
 ## YouTube Lounge
 
@@ -148,6 +169,7 @@ Use `say` for local speech/TTS testing. Use `announce` when you want the message
 
 AI can answer conversational questions and leave short-lived context breadcrumbs. Follow-up actions still route through deterministic Plex, Spotify, or Home Assistant handlers.
 
+* `what's the latest news?`
 * `what is the most popular Beatles song?`
 * `play it`
 * `what movie has Darth Vader telling Luke he is his father?`
@@ -169,7 +191,7 @@ These are not spoken commands, but they are useful ways to send the same command
 * Telegram bot frontend
 * Raycast or menu-bar clients that call the HTTP/WebSocket API
 
-# Dismissing An Accidental Summon
+## Dismissing An Accidental Summon
 
 After a wakeword or PTT capture begins, say one of these exact phrases to end
 the current interaction silently:

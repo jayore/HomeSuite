@@ -1,6 +1,12 @@
 # Integrations
 
-Home Suite is designed so most integrations are optional. Configure the services you use, leave the rest blank, and run `homesuite-doctor` when you want a quick read on what is ready. For account requirements, OAuth flows, credential acquisition, and supported speech alternatives, see [CREDENTIALS.md](CREDENTIALS.md).
+Home Suite is designed so most integrations are optional. This guide describes
+what each integration enables and its runtime prerequisites. Configure the
+services you use, leave the rest blank, and run `homesuite-doctor` when you want
+a quick read on what is ready. For account requirements, OAuth flows,
+credential acquisition, and supported speech alternatives, see
+[CREDENTIALS.md](CREDENTIALS.md). For individual setting behavior, see
+[CONFIGURATION.md](CONFIGURATION.md).
 
 As a rule, start with Home Assistant integrations when they expose enough state and control. Add direct API credentials only when Home Suite can do something meaningfully richer with them, such as qBittorrent download actions, Seerr request summaries, Plex library matching, or Spotify library operations.
 
@@ -30,6 +36,7 @@ Docs: https://www.home-assistant.io/docs/authentication/
 What it enables:
 
 * conversational fallback
+* current-information web search when enabled
 * summarization and interpretation
 * media breadcrumb extraction for follow-up actions handled by deterministic routes
 
@@ -61,6 +68,12 @@ PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
 Use the same key in any client that calls Home Suite. Treat it like a local control token because a client with this key can send commands to your home.
+
+The server is enabled by default but fails closed when the key is blank.
+`/health` and `/healthz` are public monitoring aliases; all other routes,
+including WebSocket state, require the same passphrase. Telegram is implemented
+in-process and does not depend on this API. See [API.md](API.md) for the
+complete contract.
 
 ## Choosing Home Assistant vs Direct APIs
 
