@@ -400,6 +400,13 @@ TTS_TLD = "ie"
 #   "gpt-5.5"      = stronger model for deeper reasoning/conversation
 CHATGPT_MODEL = "gpt-5.4-mini"
 
+# Allow the conversational fallback to use OpenAI's hosted web-search tool for
+# current questions such as news, scores, schedules, and recent events. Device
+# commands still run through deterministic handlers first and never require
+# web search. Disable this to avoid web-search tool-call charges.
+CHATGPT_WEB_SEARCH_ENABLED = True
+CHATGPT_WEB_SEARCH_MODEL = CHATGPT_MODEL
+
 # Extract short-lived media breadcrumbs from ChatGPT answers so deterministic
 # Plex/Spotify handlers can resolve follow-ups like "play it" or "watch that".
 # The extractor stores searchable names/kinds only, never model-invented IDs.
@@ -443,6 +450,16 @@ TV_ON_COOLDOWN_SECONDS = 10 * 60
 #          device confirmations, or vice versa.
 SPEAK_ACTION_CONFIRMATIONS = False
 SPEAK_MEDIA_CONFIRMATIONS = True
+
+# Exact transcripts that silently dismiss the current interaction. Matching is
+# case/punctuation-insensitive and permits one leading or trailing "please".
+# Keep this narrow so commands such as "cancel my timer" still reach their
+# normal deterministic handlers.
+INTERACTION_CANCEL_PHRASES = (
+    "cancel",
+    "never mind",
+    "nevermind",
+)
 
 # --- Handset Feedback ---
 # Handset-to-ear delay BEFORE the start chime. Only relevant on devices
@@ -639,6 +656,10 @@ WAKEWORD_ERROR_TONE_ENABLED = True
 # PTT and existing wakeword installations retain synchronous speech.
 WAKEWORD_ASYNC_TTS_ENABLED = False
 WAKEWORD_BARGE_IN_ENABLED = False
+# Optional lower OpenWakeWord score threshold while local assistant speech is
+# active. It has no effect unless barge-in is enabled. Keeping it equal to the
+# normal threshold preserves existing behavior; tune per microphone/speaker.
+WAKEWORD_BARGE_IN_THRESHOLD = WAKEWORD_THRESHOLD
 
 # Whether the wakeword listener should be suppressed while any UI sound
 # (start chime, finish chime, error tone) is playing.

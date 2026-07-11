@@ -135,6 +135,7 @@ except Exception:
 import time
 import types
 import uuid
+from datetime import datetime
 from realtime_transcribe import realtime_transcribe_wav
 from pathlib import Path
 
@@ -268,6 +269,14 @@ def _wakeword_barge_in_enabled() -> bool:
         _pref_bool("WAKEWORD_BARGE_IN_ENABLED", False)
         and _assistant_audio_output_mode() == "local"
     )
+
+
+def _wakeword_detection_threshold() -> float:
+    """Use the separately tuned threshold only while local TTS is playing."""
+    normal = _pref_float("WAKEWORD_THRESHOLD", 0.5)
+    if _wakeword_barge_in_enabled() and bool(globals().get("is_speaking")):
+        return _pref_float("WAKEWORD_BARGE_IN_THRESHOLD", normal)
+    return normal
 
 
 def _wakeword_async_tts_enabled() -> bool:
@@ -2205,6 +2214,7 @@ def _start_wakeword_listener_if_enabled() -> bool:
             model=_wakeword_model_name(),
             should_listen_fn=_wakeword_should_listen,
             suppress_reason_fn=_wakeword_suppress_reason,
+            threshold_fn=_wakeword_detection_threshold,
             on_detected_fn=_handle_wakeword_detected,
             rearm_sec=_wakeword_rearm_sec(),
             logger=logging,
@@ -3193,13 +3203,50 @@ def get_chatgpt_response(text: str) -> str:
         interaction_flow.conversation_history.append({"role": "user", "content": text})
         interaction_flow.trim_history()
 
-        response = OPENAI_CLIENT.chat.completions.create(
-            model=_chatgpt_model(),
-            messages=interaction_flow.conversation_history,
-        )
+        assistant_text = ""
+        web_search_used = False
+        web_search_enabled = _pref_bool("CHATGPT_WEB_SEARCH_ENABLED", True)
+        responses_api = getattr(OPENAI_CLIENT, "responses", None)
 
-        assistant_text = response.choices[0].message.content or ""
-        assistant_text = assistant_text.strip()
+        if web_search_enabled and responses_api is not None:
+            try:
+                response = responses_api.create(
+                    model=(
+                        _pref_str("CHATGPT_WEB_SEARCH_MODEL", _chatgpt_model())
+                        or _chatgpt_model()
+                    ),
+                    input=list(interaction_flow.conversation_history),
+                    instructions=(
+                        "The device's current local date is "
+                        f"{datetime.now().strftime('%B %d, %Y').replace(' 0', ' ')}. "
+                        "Use this local date when interpreting today, yesterday, "
+                        "or other relative dates. Keep the answer concise for speech."
+                    ),
+                    tools=[{"type": "web_search"}],
+                )
+                assistant_text = (getattr(response, "output_text", "") or "").strip()
+                web_search_used = any(
+                    getattr(item, "type", "") == "web_search_call"
+                    for item in (getattr(response, "output", None) or [])
+                )
+                logging.info(
+                    "CHATGPT_RESPONSES_DONE web_search_used=%s chars=%s",
+                    web_search_used,
+                    len(assistant_text),
+                )
+            except Exception:
+                logging.exception("CHATGPT_WEB_SEARCH_FAIL_FALLBACK_CHAT_COMPLETIONS")
+        elif web_search_enabled:
+            logging.warning("CHATGPT_WEB_SEARCH_UNAVAILABLE reason=old_openai_sdk")
+
+        if not assistant_text:
+            response = OPENAI_CLIENT.chat.completions.create(
+                model=_chatgpt_model(),
+                messages=interaction_flow.conversation_history,
+            )
+            assistant_text = (response.choices[0].message.content or "").strip()
+            logging.info("CHATGPT_CHAT_COMPLETIONS_DONE fallback=%s", web_search_enabled)
+
         print(f"AI response: {assistant_text}")
 
         interaction_flow.conversation_history.append({"role": "assistant", "content": assistant_text})
@@ -3577,6 +3624,28 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         if not text:
             with lock:
                 is_processing = False
+            return
+
+        # A mistaken summon can be dismissed without entering device routing,
+        # ChatGPT, conversation history, or outcome-tone logic. Wakeword
+        # interactions rearm through their existing outer finally block; PTT
+        # interactions simply return to the off-hook capture loop.
+        if interaction_flow.is_interaction_cancel(text):
+            command_dispatch._ACTION_OCCURRED = False
+            try:
+                clear_text_confirm_context()
+            except Exception:
+                pass
+            logging.info(
+                "INTERACTION_CANCEL trigger=%r text=%r outcome=silent",
+                trigger,
+                text,
+            )
+            _trace_audio_event(
+                "process_audio_cancelled",
+                trigger=trigger,
+                text=(text or "")[:120],
+            )
             return
 
         # On devices with no physical handset (HANDSET_PRESENT=False), treat the

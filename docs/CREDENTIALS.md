@@ -76,6 +76,11 @@ OPENAI_API_KEY = "sk-..."
 1. Sign in to the [OpenAI API platform](https://platform.openai.com/).
 2. Configure API billing or prepaid credits in the API platform.
 3. Create a key on the [API keys page](https://platform.openai.com/api-keys).
+
+Store the key only in the ignored `private_config.py` file or the
+`OPENAI_API_KEY` environment variable. Never commit a real key. If a key is
+ever committed, rotate it in the OpenAI dashboard even after removing the file
+from the current Git revision because it remains present in repository history.
 4. Store the key in `private_config.py`; do not put it in `app_config.py` or Git.
 
 A ChatGPT Free, Plus, Pro, Business, or other ChatGPT subscription does **not**

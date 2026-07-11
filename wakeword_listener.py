@@ -61,6 +61,7 @@ class WakewordListener:
         model: str = "",
         should_listen_fn: Optional[Callable[[], bool]] = None,
         suppress_reason_fn: Optional[Callable[[], str]] = None,
+        threshold_fn: Optional[Callable[[], float]] = None,
         on_detected_fn: Optional[Callable[[], None]] = None,
         rearm_sec: float = 1.5,
         logger=None,
@@ -69,6 +70,7 @@ class WakewordListener:
         self.model = (model or "").strip()
         self.should_listen_fn = should_listen_fn or (lambda: False)
         self.suppress_reason_fn = suppress_reason_fn or (lambda: "unknown")
+        self.threshold_fn = threshold_fn
         self.on_detected_fn = on_detected_fn
         self.rearm_sec = float(rearm_sec or 1.5)
         self.log = logger or logging.getLogger(__name__)
@@ -220,6 +222,11 @@ class WakewordListener:
             return default
 
     def _get_openwakeword_threshold(self) -> float:
+        if callable(self.threshold_fn):
+            try:
+                return float(self.threshold_fn())
+            except Exception:
+                self.log.exception("WAKEWORD_THRESHOLD_PROVIDER_FAIL")
         return float(self._pref("WAKEWORD_THRESHOLD", 0.5))
 
     def _get_openwakeword_vad_threshold(self) -> float:

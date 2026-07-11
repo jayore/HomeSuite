@@ -62,6 +62,12 @@ Set `OPENAI_API_KEY` from the OpenAI API key page:
 
 * https://platform.openai.com/api-keys
 
+Conversational questions can use OpenAI web search for current information.
+`CHATGPT_WEB_SEARCH_ENABLED` controls this separately from deterministic home
+commands; disabling it avoids web-search tool-call charges. Override
+`CHATGPT_WEB_SEARCH_MODEL` only when search should use a different model from
+`CHATGPT_MODEL`. Older OpenAI SDKs automatically fall back to non-web chat.
+
 Home Suite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Home commands first go through Home Suite's deterministic natural-language processing and handlers; OpenAI is mainly for open-ended conversation and interpretation.
 
 Most routine home-control commands should not call OpenAI. This keeps common actions faster and conservative with token usage, while preserving AI for cases where language understanding or conversation actually helps.

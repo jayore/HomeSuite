@@ -168,3 +168,19 @@ These are not spoken commands, but they are useful ways to send the same command
 * WebSocket `/ws`
 * Telegram bot frontend
 * Raycast or menu-bar clients that call the HTTP/WebSocket API
+
+# Dismissing An Accidental Summon
+
+After a wakeword or PTT capture begins, say one of these exact phrases to end
+the current interaction silently:
+
+```text
+cancel
+never mind
+nevermind
+```
+
+Home Suite performs no device action, sends nothing to ChatGPT, and plays
+neither a success nor an error tone. Wakeword mode rearms normally; an off-hook
+PTT session returns to its listening loop. Longer commands such as `cancel my
+timer` are not dismissals and continue to their normal handlers.

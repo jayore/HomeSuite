@@ -14,6 +14,13 @@ Examples include lights, switches, locks, scenes, scripts, state questions, and 
 
 Fixed devices can have fixed room defaults. Mobile clients such as chat, Telegram, Raycast-style launchers, or future satellites can keep sticky room focus. That lets Home Suite route short commands to the room or media player that makes sense without forcing every request to mention a Home Assistant entity.
 
+A room can coordinate multiple kinds of targets rather than pretending they are
+one physical entity. Its configuration may include media players, Sonos
+speakers, Apple TV devices, brightness strategies, and aliases. Commands such
+as `pause`, `what's playing?`, or `lights to 30%` resolve against that topology
+and current state. Explicit room and device names remain supported when the
+default context is not appropriate.
+
 ## Media Control
 
 Home Suite keeps room, source, and media context so follow-ups can work when possible. Bare commands such as `pause`, `resume`, or `volume up` can route to the focused player instead of requiring an entity name every time.
@@ -44,7 +51,20 @@ The `say` path is useful when tuning TTS cadence, punctuation normalization, or 
 
 ## Chat And Conversational Fallback
 
-The AI fallback can leave short-lived media breadcrumbs. Follow-up actions still route through deterministic Plex/Spotify/Home Assistant handlers.
+The AI fallback can answer conversational questions, optionally use hosted web
+search for current information, and leave short-lived media breadcrumbs.
+Follow-up actions still route through deterministic Plex, Spotify, or Home
+Assistant handlers. The runtime is self-hosted, but OpenAI and other configured
+integrations are network services rather than local-only dependencies.
+
+## Voice, PTT, And Wake Words
+
+Handset push-to-talk and wake-word capture share transcription, interaction,
+and command-routing behavior while keeping trigger-specific audio mechanics
+separate. The wake-word path supports continuous capture, same-stream command
+handoff, VAD endpointing, microphone profiles, calibration, near-miss logging,
+asynchronous response speech, barge-in, and configurable OpenWakeWord models.
+See [WAKEWORD.md](WAKEWORD.md) for the hardware and tuning details.
 
 ## External Interfaces
 

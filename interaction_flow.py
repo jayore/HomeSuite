@@ -13,6 +13,8 @@ import logging
 import re
 from dataclasses import dataclass
 
+from app_config import INTERACTION_CANCEL_PHRASES
+
 
 @dataclass
 class InteractionResult:
@@ -25,6 +27,28 @@ class InteractionResult:
 
 def _clean_text(text: str) -> str:
     return (text or "").strip()
+
+
+def _normalize_cancel_text(text: str) -> str:
+    value = _clean_text(text).lower().replace("’", "'")
+    value = re.sub(r"[^a-z0-9'\s]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"^please\s+", "", value).strip()
+    value = re.sub(r"\s+please$", "", value).strip()
+    return value
+
+
+def is_interaction_cancel(text: str) -> bool:
+    """Return True only for an exact, configured dismissal phrase."""
+    normalized = _normalize_cancel_text(text)
+    if not normalized:
+        return False
+    phrases = set()
+    for phrase in (INTERACTION_CANCEL_PHRASES or ()):
+        candidate = _normalize_cancel_text(phrase)
+        if candidate:
+            phrases.add(candidate)
+    return normalized in phrases
 
 
 def _looks_like_joke_request(gpio_ptt, text: str) -> bool:
@@ -253,6 +277,15 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
     except Exception:
         pass
 
+    if is_interaction_cancel(text):
+        logging.info("INTERACTION_CANCEL source=text text=%r", text)
+        return InteractionResult(
+            handled=True,
+            action_occurred=False,
+            response_text="",
+            source="cancelled",
+        )
+
     device_response = None
     try:
         device_response = gpio_ptt.process_device_commands(text)
@@ -331,7 +364,12 @@ MAX_HISTORY_MESSAGES = 20
 
 _BASE_SYSTEM_MESSAGE = {
     "role": "system",
-    "content": "You are a helpful assistant that can answer questions concisely and control smart home devices.",
+    "content": (
+        "You are a helpful voice assistant that can answer questions concisely "
+        "and control smart home devices. Keep answers natural when spoken aloud. "
+        "When web search is available, use it for current or time-sensitive facts. "
+        "Do not read URLs aloud; name important publications briefly when useful."
+    ),
 }
 
 conversation_history: list = [_BASE_SYSTEM_MESSAGE.copy()]

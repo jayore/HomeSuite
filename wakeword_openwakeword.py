@@ -287,6 +287,9 @@ def run_openwakeword(listener) -> None:
 
             interaction_started = False
             for prediction_pcm in prediction_chunks:
+                # Barge-in can be more sensitive during local TTS without
+                # weakening normal idle wakeword detection.
+                threshold = listener._get_openwakeword_threshold()
                 try:
                     scores = model.predict(prediction_pcm)
                 except Exception:
