@@ -27,7 +27,18 @@ import difflib
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
 
-from weather_utils import geocode_location, _ha_local_weather, _open_meteo_weather
+from weather_utils import (
+    WeatherQuery,
+    _ha_daily_forecasts,
+    _ha_local_weather,
+    _open_meteo_report,
+    _open_meteo_weather,
+    forecast_days_needed,
+    format_forecast_response,
+    geocode_location,
+    parse_weather_query,
+)
+from date_controls import format_date_response, parse_date_query
 from normalize_helpers import (
     _looks_like_device_command,
     _parse_number_words,
@@ -125,9 +136,13 @@ from on_off_controls import handle_on_off_controls, handle_toggle_controls
 from room_lights_controls import handle_room_lights_controls
 from youtube_controls import handle_youtube_controls
 from lock_controls import handle_lock_controls
-from state_query_controls import handle_state_query_controls
+from ha_capability_controls import handle_ha_capability_controls
+from state_query_controls import handle_state_query_controls, looks_like_state_query
 from alarm_controls import handle_alarm_controls, set_command_executor as set_alarm_command_executor
 from schedule_controls import handle_schedule_controls
+from solar_utils import resolve_solar_event
+from astronomy_controls import handle_astronomy_query, parse_astronomy_query
+from stock_quote_controls import handle_stock_quote_query
 from homelab_controls import handle_homelab_controls
 from now_playing_controls import handle_now_playing_controls
 from kelvin_controls import handle_kelvin_controls
@@ -1105,31 +1120,131 @@ def handle_time_query(location: Optional[str]) -> Optional[str]:
     disp = _strip_for_tts(geo["display"])
     return f"{disp}. {_format_local_time()}"
 
-def handle_weather_query(location: Optional[str]) -> Optional[str]:
-    """
-    - "what's the weather" -> HA weather, then configured HOME_LOCATION
-    - "weather in tokyo" -> geocode + open-meteo
-    """
+
+def handle_date_query(location: Optional[str]) -> str:
+    """Answer today's date locally or in a geocoded timezone."""
     if not location:
-        haw = _ha_local_weather()
-        if haw:
-            return haw
-        try:
-            latitude = float((HOME_LOCATION or {}).get("latitude"))
-            longitude = float((HOME_LOCATION or {}).get("longitude"))
-        except (TypeError, ValueError):
-            return "Local weather isn't configured yet."
-        return _open_meteo_weather(latitude, longitude) or "I couldn't get the weather right now."
+        return format_date_response()
 
     geo = geocode_location(location)
     if not geo:
         return f"I couldn't find {location}."
-    w = _open_meteo_weather(geo["lat"], geo["lon"])
-    if not w:
-        return f"I couldn't get the weather for {location}."
+
     _remember_location(location)
+
+    tz = geo.get("timezone")
+    if tz:
+        try:
+            from zoneinfo import ZoneInfo
+
+            dt = datetime.now(ZoneInfo(tz))
+            disp = _strip_for_tts(geo["display"])
+            return f"{disp}. {format_date_response(dt)}"
+        except Exception:
+            pass
+
     disp = _strip_for_tts(geo["display"])
-    return f"{disp}. {w}"
+    return f"{disp}. {format_date_response()}"
+
+def _home_weather_coordinates() -> Optional[Tuple[float, float]]:
+    try:
+        return (
+            float((HOME_LOCATION or {}).get("latitude")),
+            float((HOME_LOCATION or {}).get("longitude")),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def handle_weather_query(
+    location: Optional[str],
+    *,
+    query: Optional[WeatherQuery] = None,
+    states_snapshot: Optional[list] = None,
+) -> Optional[str]:
+    """
+    Current local conditions prefer HA; future local forecasts prefer HA's
+    response-producing weather action. Open-Meteo handles named places and is
+    the fallback when HA lacks the requested local forecast horizon.
+    """
+    query = query or WeatherQuery(location=location)
+    location = (location or query.location or "").strip() or None
+
+    if query.mode == "current" and not location:
+        haw = _ha_local_weather(states_snapshot)
+        if haw:
+            return haw
+        coordinates = _home_weather_coordinates()
+        if not coordinates:
+            return "Local weather isn't configured yet."
+        return _open_meteo_weather(*coordinates) or "I couldn't get the weather right now."
+
+    if query.mode == "current":
+        geo = geocode_location(location)
+        if not geo:
+            return f"I couldn't find {location}."
+        response = _open_meteo_weather(geo["lat"], geo["lon"])
+        if not response:
+            return f"I couldn't get the weather for {location}."
+        _remember_location(location)
+        return f"{_strip_for_tts(geo['display'])}. {response}"
+
+    if location:
+        geo = geocode_location(location)
+        if not geo:
+            return f"I couldn't find {location}."
+        timezone_name = geo.get("timezone")
+        report = _open_meteo_report(
+            geo["lat"],
+            geo["lon"],
+            forecast_days=forecast_days_needed(query, timezone_name=timezone_name),
+        )
+        response = (
+            format_forecast_response(
+                query,
+                report.daily,
+                timezone_name=(report.timezone or timezone_name),
+            )
+            if report
+            else None
+        )
+        if not response:
+            return f"I couldn't get the forecast for {location}."
+        _remember_location(location)
+        return f"{_strip_for_tts(geo['display'])}. {response}"
+
+    # Preserve a partial HA range as a final fallback, but first try to fulfill
+    # the entire request through configured coordinates.
+    ha_forecasts = _ha_daily_forecasts(states_snapshot) or []
+    response = format_forecast_response(query, ha_forecasts)
+    if response:
+        return response
+    partial_ha_response = format_forecast_response(
+        query,
+        ha_forecasts,
+        allow_partial=True,
+    )
+
+    coordinates = _home_weather_coordinates()
+    if coordinates:
+        report = _open_meteo_report(
+            *coordinates,
+            forecast_days=forecast_days_needed(query),
+        )
+        response = (
+            format_forecast_response(
+                query,
+                report.daily,
+                timezone_name=report.timezone,
+            )
+            if report
+            else None
+        )
+        if response:
+            return response
+    if partial_ha_response:
+        return partial_ha_response
+    return "I couldn't get the forecast right now."
 
 # =========================
 # COMMAND PARSING
@@ -2288,6 +2403,13 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             maybe_say=_maybe_say,
             validate_command=_validate_scheduled_command_in_process,
+            solar_resolver=lambda event, day_hint, now: resolve_solar_event(
+                event,
+                day_hint,
+                now=now,
+                states_provider=(ha_get_states if callable(ha_get_states) else None),
+                home_location=HOME_LOCATION,
+            ),
         )
     except Exception:
         logging.exception("schedule_controls failed")
@@ -2296,6 +2418,42 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     if schedule_resp is not None:
         logging.info("CLAIM: schedule_controls")
         return schedule_resp
+
+    # Stock quotes and market-clock questions are read-only. Claim them before
+    # device handlers so language such as "market open" cannot become an HA
+    # open/close action.
+    stock_response = handle_stock_quote_query(
+        tl,
+        home_location=HOME_LOCATION,
+    )
+    if stock_response is not None:
+        logging.info("CLAIM: stock_quote_controls")
+        return stock_response
+
+    # Read-only lunar-date and planetary questions can contain action words such
+    # as "next", "set", and "up". Claim them before device/media handlers so
+    # an astronomy question can never mutate Home Assistant state.
+    _early_astronomy_query = parse_astronomy_query(tl)
+    if (
+        _early_astronomy_query is not None
+        and _early_astronomy_query.intent
+        in {
+            "phase_event",
+            "planet_event",
+            "planet_position",
+            "planet_up",
+            "planet_visible",
+            "planet_best",
+            "visible_planets",
+        }
+    ):
+        astronomy_response = handle_astronomy_query(
+            tl,
+            home_location=HOME_LOCATION,
+        )
+        if astronomy_response is not None:
+            logging.info("CLAIM: astronomy_controls")
+            return astronomy_response
 
     # ------------------------------------------------------------------
     # VERBATIM trigger aliases (scenes/scripts) — BEFORE on/off/device resolution
@@ -2536,6 +2694,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
             resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            states_snapshot=_states_snapshot,
         )
         if onoff_resp is not None:
             logging.info("CLAIM: on_off_controls")
@@ -2562,6 +2721,20 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         if lock_resp is not None:
             logging.info("CLAIM: lock_controls")
             return lock_resp
+
+    capability_resp = handle_ha_capability_controls(
+        tl=tl,
+        states_snapshot=_states_snapshot,
+        resolve_device_entity=lambda phrase: _resolve_device_entity_trace(
+            phrase,
+            _states_snapshot,
+        ),
+        call_ha_service=call_ha_service,
+        maybe_say=_maybe_say,
+    )
+    if capability_resp is not None:
+        logging.info("CLAIM: ha_capability_controls")
+        return capability_resp
 
 
     # --- Volume (module) ---
@@ -3051,21 +3224,44 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             pass
         return sonos_resp
 
-# --- Time ---
+    # --- Local astronomy ---
+    astronomy_response = handle_astronomy_query(
+        tl,
+        home_location=HOME_LOCATION,
+        states_snapshot=_states_snapshot,
+    )
+    if astronomy_response is not None:
+        logging.info("CLAIM: astronomy_controls")
+        return astronomy_response
+
+    # --- Time and date ---
     m_time = re.search(r"\bwhat(?:'s| is) the time(?: in (.+))?\b", tl) or re.search(r"\bwhat time is it(?: in (.+))?\b", tl) or re.search(r"\btell me the time(?: in (.+))?\b", tl)
     if m_time:
         loc = m_time.group(1).strip() if m_time.group(1) else None
         if not loc:
             loc = _resolve_location_pronoun(tl)
+        logging.info("CLAIM: time_controls")
         return handle_time_query(loc)
 
-    # --- Weather ---
-    m_weather = re.search(r"\bwhat(?:'s| is) the weather(?: in (.+))?\b", tl) or re.search(r"\bweather(?: in (.+))?\b", tl)
-    if m_weather:
-        loc = m_weather.group(1).strip() if m_weather.group(1) else None
+    date_query = parse_date_query(tl)
+    if date_query:
+        loc = date_query.location
         if not loc:
             loc = _resolve_location_pronoun(tl)
-        return handle_weather_query(loc)
+        logging.info("CLAIM: date_controls")
+        return handle_date_query(loc)
+
+    # --- Weather ---
+    weather_query = parse_weather_query(tl)
+    if weather_query:
+        loc = weather_query.location
+        if not loc:
+            loc = _resolve_location_pronoun(tl)
+        return handle_weather_query(
+            loc,
+            query=weather_query,
+            states_snapshot=_states_snapshot,
+        )
 
     # 6.5) State queries (device state readback)
     # IMPORTANT: this block must be at top-level indentation inside process_device_commands.
@@ -3075,13 +3271,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     except Exception:
         pass
 
-    _looks_state_query = bool(
-        re.match(r'^(is|are)\s+.+\s+(on|off|locked|unlocked)\b', tl)
-        or re.match(r'^are\s+all\b', tl)
-        or re.match(r'^what(?:\'s| is)\s+the\s+temperature\b', tl)
-        or re.match(r'^whats\s+the\s+temperature\b', tl)
-        or re.search(r'\b(volume|how\s+loud)\b', tl)
-    )
+    _looks_state_query = looks_like_state_query(tl)
 
     try:
         if tl.startswith("__alarm_fire__ "):
@@ -3987,6 +4177,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
             resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            states_snapshot=_states_snapshot,
         )
         if onoff_resp is not None:
             logging.info("CLAIM: on_off_controls")

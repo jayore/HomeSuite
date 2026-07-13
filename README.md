@@ -41,12 +41,14 @@ See [Room configuration](docs/ROOM_CONFIGURATION.md) for the topology model and
 
 Current public-alpha capabilities include:
 
-* plain-English control for Home Assistant lights, switches, locks, scenes, scripts, and state
+* plain-English control for Home Assistant lights, switches, locks, covers, fans, thermostats, vacuums, scenes, scripts, and state
 * room-aware defaults and sticky room focus for fixed and mobile command sources
 * media and transport focus across Sonos, Apple TV, Plex, Spotify, and YouTube
 * playback by title or description, resolved against real libraries and services
 * announcements and assistant speech routed locally or through room speakers
-* alarms, timers, reminders, and scheduled Home Assistant actions
+* alarms, editable timers, reminders, and clock- or solar-based Home Assistant actions
+* deterministic date, time, weather, sun, moon, lunar-phase, and planetary questions
+* optional read-only stock quotes, daily movement, prior closes, and U.S. market hours
 * homelab status through Home Assistant and optional direct service APIs
 * AI conversation with continuity into deterministic follow-up actions
 * optional web search for current questions such as news and recent events
@@ -207,9 +209,10 @@ curl -sS http://homesuite.local:8765/command \
   -d '{"text":"turn on the living room lights"}'
 ```
 
-Telegram runs directly inside Home Suite and does not require this API. Raycast,
-satellites, menu-bar apps, and custom clients do. See [API](docs/API.md) for the
-request, response, WebSocket, and authentication contract.
+Telegram loads the shared Home Suite command runtime in a companion service and
+does not require this API. Raycast, satellites, menu-bar apps, and custom
+clients do. See [API](docs/API.md) for the request, response, WebSocket, and
+authentication contract.
 
 ## Status
 

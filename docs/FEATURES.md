@@ -45,6 +45,40 @@ Home Suite prefers Home Assistant for broad status portability. Optional direct 
 
 Scheduled jobs execute through the same command brain as live requests, so delayed actions use the same plain-English routing and safety checks.
 
+## Date, Time, Weather, And Astronomy
+
+Current date and time, current weather, daily forecasts, and local astronomy
+questions use deterministic handlers rather than conversational guesses. Date
+and time can use the host clock or a geocoded named location. Home Suite can
+also answer sunrise, sunset, civil dawn and dusk, moonrise, moonset, lunar
+phase, the next full or new moon date, whether the sun or moon is above the
+horizon, planet rise and set times, current planetary positions, and which
+naked-eye planets should be visible tonight. Astral calculates Sun and Moon
+events; Skyfield uses a packaged JPL ephemeris for planetary answers. Both run
+locally from the configured home coordinates and timezone. Current Home
+Assistant `sun.sun` and `sensor.moon_phase` state is preferred when available.
+
+Planet visibility is an observing estimate, not a claim about actual sky
+conditions. It applies configurable darkness, altitude, magnitude, and minimum
+duration thresholds, then clearly assumes clear skies and an unobstructed local
+horizon.
+
+Sunrise and sunset can anchor scheduled Home Assistant actions. Lunar events
+are query-only in the current release.
+
+## Stock Quotes And Market Hours
+
+An optional deterministic Alpaca integration answers current stock quotes,
+daily movement, completed-session closes, multi-symbol requests, and U.S.
+regular-market open/close questions. It uses a short cache and bounded network
+timeouts so voice, Telegram, and HTTP all receive the same behavior without
+turning repeat requests into unnecessary provider calls.
+
+The default free-data configuration uses Alpaca's IEX feed rather than a
+consolidated whole-market quote. Home Suite does not expose portfolio data,
+recommendations, or trading actions; the integration calls only market
+snapshots and the market clock.
+
 ## Announcements And TTS
 
 The `say` path is useful when tuning TTS cadence, punctuation normalization, or audio routing. Announcements can target configured room speakers instead of requiring raw media player entity IDs.

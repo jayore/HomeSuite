@@ -29,6 +29,11 @@ class DeploymentConfigTests(unittest.TestCase):
             "HOMELAB_SERVICES",
         ):
             self.assertEqual(values[key], {}, key)
+        self.assertEqual(values["ASSISTANT_BULK_EXCLUDED_ENTITY_IDS"], [])
+        self.assertIn(
+            "light.*scene_trigger*",
+            values["ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS"],
+        )
         self.assertFalse(values["YOUTUBE_REEL_REFRESH_ENABLED"])
 
     def test_error_inside_deployment_config_is_not_silently_ignored(self):

@@ -28,7 +28,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -161,6 +161,7 @@ def _is_probably_nested_schedule(cmd: str) -> bool:
         or re.match(r"^(schedule|please schedule|remind me to|set a timer)", t)
         or re.search(rf"\s+in\s+({_NUM_RE})\s+({_REL_UNIT_RE})\b", t)
         or re.search(r"\s+(?:tomorrow\s+)?at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*$", t)
+        or re.search(r"\b(?:at|before|after)\s+(?:sunrise|sunset)\b", t)
     )
 
 
@@ -547,8 +548,162 @@ def _parse_absolute(t: str, now: datetime) -> Optional[ParsedSchedule]:
     return None
 
 
-def parse_schedule_request(text: str, *, now: Optional[datetime] = None) -> Optional[ParsedSchedule]:
-    """Parse one relative or absolute schedule request without side effects."""
+_SOLAR_UNIT_RE = r"seconds?|secs?|minutes?|mins?|hours?|hrs?"
+_SOLAR_SMALL_NUMBER_RE = (
+    r"zero|a|an|one|two|to|too|three|four|for|five|six|seven|eight|nine|"
+    r"ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+    r"eighteen|nineteen"
+)
+_SOLAR_TENS_RE = r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+_SOLAR_NUM_RE = (
+    rf"(?:\d{{1,4}}|(?:{_SOLAR_TENS_RE})(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?"
+    rf"|(?:one|two|three|four|five|six|seven|eight|nine)\s+hundred|(?:{_SOLAR_SMALL_NUMBER_RE}))"
+)
+
+
+def _solar_offset_seconds(num_text: Optional[str], unit: Optional[str]) -> Optional[float]:
+    if not num_text and not unit:
+        return 0.0
+    number = _parse_small_number(num_text or "")
+    if number is None or number <= 0:
+        return None
+    unit = str(unit or "").lower()
+    if unit.startswith(("sec", "second")):
+        return float(number)
+    if unit.startswith(("min", "minute")):
+        return float(number * 60)
+    if unit.startswith(("hr", "hour")):
+        return float(number * 3600)
+    return None
+
+
+def _parse_solar(
+    t: str,
+    now: datetime,
+    solar_resolver: Optional[Callable[[str, str, datetime], Any]],
+) -> Optional[ParsedSchedule]:
+    if not callable(solar_resolver) or not re.search(r"\b(?:sunrise|sunset)\b", t):
+        return None
+
+    offset_event = (
+        rf"(?:(?P<num>{_SOLAR_NUM_RE})\s+(?P<unit>{_SOLAR_UNIT_RE})\s+"
+        r"(?P<direction>before|after)\s+)?(?P<event>sunrise|sunset)"
+    )
+    required_offset_event = (
+        rf"(?P<num>{_SOLAR_NUM_RE})\s+(?P<unit>{_SOLAR_UNIT_RE})\s+"
+        r"(?P<direction>before|after)\s+(?P<event>sunrise|sunset)"
+    )
+    patterns = (
+        # tomorrow at sunset turn on the porch lights
+        rf"^(?:(?P<day>today|tomorrow)\s+)?(?:at\s+)?{offset_event}\s*,?\s+(?P<cmd>.+)$",
+        # turn on the porch lights tomorrow at sunset
+        rf"^(?P<cmd>.+?)\s+(?:(?P<day>today|tomorrow)\s+)?at\s+{offset_event}"
+        r"(?:\s+(?P<day_after>today|tomorrow))?$",
+        # turn on the porch lights 20 minutes before sunset
+        rf"^(?P<cmd>.+?)\s+{required_offset_event}"
+        r"(?:\s+(?P<day_after>today|tomorrow))?$",
+    )
+
+    match = None
+    for pattern in patterns:
+        match = re.fullmatch(pattern, t)
+        if match:
+            break
+    if not match:
+        return None
+
+    command = _clean_command(match.group("cmd"))
+    if not command:
+        return None
+    event = str(match.group("event") or "").lower()
+    day_hint = str(match.groupdict().get("day") or match.groupdict().get("day_after") or "next")
+    offset_seconds = _solar_offset_seconds(
+        match.groupdict().get("num"),
+        match.groupdict().get("unit"),
+    )
+    if offset_seconds is None:
+        return None
+    direction = str(match.groupdict().get("direction") or "").lower()
+    signed_offset = -offset_seconds if direction == "before" else offset_seconds
+
+    try:
+        resolved = solar_resolver(event, day_hint, now)
+    except Exception:
+        logging.exception("SOLAR_RESOLVE_CALLBACK_FAIL event=%s day=%s", event, day_hint)
+        return None
+    if resolved is None:
+        return None
+
+    if isinstance(resolved, datetime):
+        target = resolved
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=now.tzinfo)
+        run_at = target.timestamp() + signed_offset
+    else:
+        try:
+            run_at = float(resolved) + signed_offset
+            target = datetime.fromtimestamp(run_at, tz=now.tzinfo)
+        except (TypeError, ValueError, OSError):
+            return None
+
+    if run_at <= now.timestamp() and day_hint == "next":
+        try:
+            resolved = solar_resolver(event, "tomorrow", now)
+        except Exception:
+            return None
+        if resolved is None:
+            return None
+        if isinstance(resolved, datetime):
+            target = resolved if resolved.tzinfo is not None else resolved.replace(tzinfo=now.tzinfo)
+            run_at = target.timestamp() + signed_offset
+        else:
+            try:
+                run_at = float(resolved) + signed_offset
+                target = datetime.fromtimestamp(run_at, tz=now.tzinfo)
+            except (TypeError, ValueError, OSError):
+                return None
+
+    if run_at <= now.timestamp():
+        return None
+    target = datetime.fromtimestamp(run_at, tz=now.tzinfo)
+
+    if offset_seconds:
+        number = _parse_small_number(match.groupdict().get("num") or "") or 0
+        unit = str(match.groupdict().get("unit") or "minutes").lower()
+        if unit.startswith(("sec", "second")):
+            unit_word = "second" if number == 1 else "seconds"
+        elif unit.startswith(("hr", "hour")):
+            unit_word = "hour" if number == 1 else "hours"
+        else:
+            unit_word = "minute" if number == 1 else "minutes"
+        solar_phrase = f"{number} {unit_word} {direction} {event}"
+    else:
+        solar_phrase = f"at {event}"
+
+    tomorrow = target.date() == (now + timedelta(days=1)).date()
+    today = target.date() == now.date()
+    if day_hint == "tomorrow" or tomorrow:
+        phrase = f"tomorrow {solar_phrase}"
+    elif day_hint == "today" and today:
+        phrase = f"today {solar_phrase}"
+    else:
+        phrase = solar_phrase
+
+    return ParsedSchedule(
+        command=command,
+        run_at=run_at,
+        phrase=phrase,
+        delay_seconds=None,
+    )
+
+
+def parse_schedule_request(
+    text: str,
+    *,
+    now: Optional[datetime] = None,
+    solar_resolver: Optional[Callable[[str, str, datetime], Any]] = None,
+) -> Optional[ParsedSchedule]:
+    """Parse one relative, absolute, or solar schedule request without side effects."""
     t = _norm(text)
     if not t:
         return None
@@ -558,6 +713,10 @@ def parse_schedule_request(text: str, *, now: Optional[datetime] = None) -> Opti
 
     t = re.sub(r"^(please\s+)?schedule\s+", "", t).strip()
     t = re.sub(r"^(please\s+)?set\s+up\s+a\s+schedule\s+to\s+", "", t).strip()
+
+    parsed = _parse_solar(t, now, solar_resolver)
+    if parsed:
+        return parsed
 
     parsed = _parse_relative(t, now)
     if parsed:
@@ -585,6 +744,12 @@ def looks_like_schedule_attempt(text: str) -> bool:
         return True
 
     if re.match(r"^(please\s+)?(?:set\s+)?(?:a\s+)?timer\b", t):
+        return True
+
+    if re.match(r"^(?:(?:today|tomorrow)\s+)?(?:at\s+)?(?:sunrise|sunset)\b", t):
+        return True
+
+    if re.search(r"\b(?:at|before|after)\s+(?:sunrise|sunset)\b", t):
         return True
 
     if re.match(rf"^in\s+({_NUM_RE})\s+({_REL_UNIT_RE})\b", t):
@@ -993,6 +1158,7 @@ def handle_schedule_controls(
     tl: str,
     maybe_say=None,
     validate_command=None,
+    solar_resolver=None,
 ) -> Optional[str]:
     """Handle general scheduled-command create, list, and cancellation intents."""
     """
@@ -1019,10 +1185,15 @@ def handle_schedule_controls(
         logging.info("CLAIM: schedule_controls cancel_latest")
         return _handle_cancel_latest()
 
-    parsed = parse_schedule_request(tl)
+    parsed = parse_schedule_request(tl, solar_resolver=solar_resolver)
     if not parsed:
         if looks_like_schedule_attempt(tl):
             logging.info("SCHED_PARSE_FAIL_SAFETY text=%r", tl)
+            if re.search(r"\b(?:sunrise|sunset)\b", t):
+                return (
+                    "I heard a sunrise or sunset schedule, but I couldn't resolve "
+                    "that solar time. Check the configured home location."
+                )
             return "I heard a schedule request, but I couldn't understand when to run it."
         return None
 

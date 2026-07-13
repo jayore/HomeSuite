@@ -1179,6 +1179,15 @@ def handle_sonos_controls(
     # ----------------------------
     # Transport
     # ----------------------------
+    # Read-only questions can contain transport words (for example, "when is
+    # the next full moon"). Never turn a question-shaped sentence into a media
+    # action just because one transport token appears inside it.
+    if re.match(
+        r"^(?:what|when|where|why|who|how|which|is|are|do|does|did)\b",
+        t,
+    ):
+        return None
+
     # ----------------------------
     # Global transport: "pause everywhere"
     # ----------------------------

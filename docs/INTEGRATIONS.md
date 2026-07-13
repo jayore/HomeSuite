@@ -52,6 +52,71 @@ Model selection lives in `app_config.py` defaults and can be overridden per devi
 
 Because routine control commands use the deterministic NLP layer first, model choice mostly affects open-ended conversation, summaries, and interpretation tasks rather than every light switch or media command.
 
+### Astral
+
+What it enables:
+
+* local sunrise, sunset, civil dawn, and dusk calculations
+* moonrise, moonset, lunar phase, and horizon-status questions
+* network-free fallback for explicit-date solar schedules
+
+Astral is a bundled Python calculation library, not a Home Assistant
+integration or external account. It uses `HOME_LOCATION` from
+`deployment_config.py` and requires no API key or network request. Home Suite
+still prefers Home Assistant's current `sun.sun` and `sensor.moon_phase` state
+when available.
+
+### Skyfield
+
+What it enables:
+
+* local rise and set times for Mercury through Neptune
+* apparent altitude and compass direction from the configured home location
+* potential naked-eye planet visibility and best viewing times for a local night
+
+Skyfield is a bundled Python calculation library, not an account or Home
+Assistant integration. `skyfield-data` installs the JPL DE421 ephemeris with the
+Python dependencies, and Home Suite opens that local file directly. It never
+downloads ephemeris data while handling a command and requires no API key.
+Visibility estimates cannot account for clouds, light pollution, buildings,
+trees, or terrain, so spoken answers include a clear-sky and open-horizon
+caveat.
+
+### Alpaca Market Data
+
+What it enables:
+
+* current and multi-symbol stock quotes
+* movement relative to the previous close
+* completed-session close questions
+* U.S. regular-market status and next open/close times
+
+Config keys:
+
+```python
+ALPACA_API_KEY_ID = "..."
+ALPACA_API_SECRET_KEY = "..."
+```
+
+For a personal Home Suite deployment, choose Alpaca's Trading API and create
+keys in the paper-trading web dashboard. A free Paper Only account on the Basic
+plan is enough; Broker API, a paid market-data plan, Alpaca's SDK, and terminal
+setup are not required.
+
+The default `STOCK_QUOTE_DATA_FEED = "iex"` works with Alpaca's Basic market
+data plan. IEX is one exchange rather than the consolidated SIP feed, so Home
+Suite documents that limitation rather than implying full-market coverage.
+Deployments with appropriate market-data access can override the feed.
+
+This is intentionally a market-data-only integration. Home Suite calls Alpaca's
+stock snapshot and market-clock endpoints, keeps responses in a short bounded
+cache, and never calls account, portfolio, position, or order endpoints. The
+configured paper API base URL is used only for the clock endpoint.
+
+Docs: [market data overview](https://docs.alpaca.markets/us/docs/about-market-data-api),
+[stock snapshots](https://docs.alpaca.markets/us/reference/stocksnapshots-1), and
+[authentication](https://docs.alpaca.markets/us/docs/authentication).
+
 ### Home Suite HTTP API
 
 What it enables:

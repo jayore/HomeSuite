@@ -103,6 +103,155 @@ Create a long-lived access token from your Home Assistant user profile. Home Ass
 
 Home Suite depends heavily on Home Assistant for entity state, service calls, scenes, scripts, rooms, media players, and many homelab integrations. Good Home Assistant naming makes Home Suite dramatically easier to use: keep area names, entity names, scenes, and scripts human-readable.
 
+Assign devices and entities to Home Assistant areas that match each room's configured `ha_area_id`. State questions such as “what is the bedroom humidity?” and “are any windows open?” use those area assignments plus Home Assistant device classes (`temperature`, `humidity`, `battery`, `door`, `window`, `garage_door`, and `opening`). Missing metadata fails explicitly instead of guessing.
+
+Exclude virtual helpers, room proxies, and diagnostic lights from aggregate summaries and whole-home bulk actions with exact IDs or shell-style entity-ID patterns:
+
+```python
+ASSISTANT_BULK_EXCLUDED_ENTITY_IDS = [
+    "light.living_room_brightness_proxy",
+]
+ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS = [
+    "light.*_flicker",
+    "light.*scene_trigger*",
+    "light.*_status_led",
+]
+```
+
+These filters do not block an explicit named command. They only keep helper entities out of aggregate answers such as “what lights are on?” and whole-home commands such as “turn off all the lights.”
+
+Spoken reminders use the same room/output routing and persistence as alarms,
+but are voice-only by default. Change `REMINDER_SOUND_ENABLED` or
+`REMINDER_VOICE_ENABLED` in shared configuration when a deployment needs a
+different notification policy.
+
+## Date, Time, Weather, Forecasts, And Astronomy
+
+Current date and time requests require no configuration or external service.
+Bare requests such as `what time is it?` and `what's the date?` use the host's
+clock and timezone. Named-place requests such as `what date is it in Tokyo?`
+use the same keyless geocoding service as named weather questions, then format
+the answer in the destination timezone.
+
+Weather settings are shared deployment topology and belong in
+`deployment_config.py`:
+
+```python
+# None auto-discovers the first weather.* entity with a current temperature.
+WEATHER_ENTITY_ID = None
+
+# Home coordinates and IANA timezone for weather and astronomy.
+HOME_LOCATION = {
+    "latitude": 34.4208,
+    "longitude": -119.6982,
+    "timezone": "America/Los_Angeles",
+    # Optional; defaults to sea level.
+    "elevation_m": 30,
+}
+
+# Potential naked-eye planetary visibility criteria.
+PLANET_VISIBILITY_PLANETS = ("mercury", "venus", "mars", "jupiter", "saturn")
+PLANET_VISIBILITY_MIN_ALTITUDE_DEGREES = 10.0
+PLANET_VISIBILITY_MAX_SUN_ALTITUDE_DEGREES = -6.0
+PLANET_VISIBILITY_MAX_MAGNITUDE = 6.0
+PLANET_VISIBILITY_MIN_DURATION_MINUTES = 15
+
+LOCATION_ALIASES = {
+    "la": "Los Angeles",
+}
+```
+
+Set `WEATHER_ENTITY_ID` explicitly when Home Assistant exposes several weather
+providers and one should be canonical. Leave it as `None` for automatic
+selection. Home Suite uses the entity's current state for local conditions and
+the modern `weather.get_forecasts` response for future daily forecasts.
+
+`HOME_LOCATION` supplies a keyless Open-Meteo weather fallback when Home
+Assistant is unavailable or its provider does not return the full requested
+horizon. The same coordinates and timezone drive local Astral Sun/Moon and
+Skyfield planetary calculations. `elevation_m` is optional and improves horizon
+geometry for elevated observing locations. Use an IANA timezone name such as
+`America/Los_Angeles`; `None` uses the host's timezone. Set either coordinate to
+`None` to disable coordinate-based features. Named weather locations are
+geocoded independently, so “weather in Tokyo tomorrow” does not use the home
+coordinates. Astronomy questions currently refer to the configured home
+location.
+
+Solar schedules such as `turn on the porch lights at sunset` prefer Home
+Assistant's `sun.sun` next-event attributes and normally require no external
+request. If an explicit day is not represented by that next event, Home Suite
+uses Astral with `HOME_LOCATION` to calculate sunrise or sunset locally.
+Without either source, the schedule fails closed and no immediate action runs.
+
+Read-only astronomy questions cover sunrise, sunset, civil dawn and dusk,
+moonrise, moonset, lunar phase, and whether the sun or moon is above the
+horizon. Current phase prefers Home Assistant's `sensor.moon_phase` when that
+integration is present; Astral supplies the fallback and future dates. Skyfield
+adds planetary rise/set, current position, best viewing time, and visible-
+planets-tonight questions using its locally installed JPL ephemeris. Lunar and
+planetary events are not accepted as scheduling anchors in the current release.
+
+The `PLANET_VISIBILITY_*` values define “potentially visible.” The default list
+contains the five planets commonly treated as naked-eye targets. Uranus and
+Neptune still support named rise, set, and position questions; add either to
+`PLANET_VISIBILITY_PLANETS` only when that matches the intended observing setup.
+The default thresholds require the planet to remain at least 10 degrees above
+the horizon for 15 minutes while the Sun is at least 6 degrees below the
+horizon. Magnitude 6 is the theoretical naked-eye limit under dark conditions,
+not a guarantee in a light-polluted or obstructed location.
+
+Supported deterministic requests include current conditions, today, tomorrow,
+the next occurrence of a weekday, and forecasts of up to 14 days. A bare
+weekday means its next occurrence; `next Thursday` means the following week's
+Thursday. `this week`, `next week`, and `seven-day forecast` mean seven days
+starting today. Forecast dates are resolved in the requested location's
+timezone.
+
+Home Assistant remains the preferred local source. Named-place forecasts and
+weather fallback calls require internet access to Open-Meteo, but no Open-Meteo
+account or API key. Astral and Skyfield calculations are local and require
+neither internet access nor credentials. Skyfield's ephemeris is installed with
+the Python dependencies instead of being downloaded during the first query.
+
+## Stock Quotes
+
+Alpaca credentials are secrets and belong in `private_config.py`:
+
+```python
+ALPACA_API_KEY_ID = "..."
+ALPACA_API_SECRET_KEY = "..."
+```
+
+Shared stock behavior can be overridden in `deployment_config.py`:
+
+```python
+# The Basic Alpaca plan supports IEX. Use another feed only when the account has access.
+STOCK_QUOTE_DATA_FEED = "iex"
+STOCK_QUOTE_MAX_SYMBOLS = 5
+STOCK_QUOTE_CACHE_SECONDS = 15.0
+STOCK_MARKET_CLOCK_CACHE_SECONDS = 30.0
+
+# Extend the built-in company names without replacing them.
+STOCK_SYMBOL_ALIAS_OVERRIDES = {
+    "my company": "ACME",
+}
+STOCK_SYMBOL_LABEL_OVERRIDES = {
+    "ACME": "Acme Corporation",
+}
+```
+
+Direct ticker requests do not require an alias. Aliases help voice recognition
+and support company names or personal shorthand; labels control how a symbol is
+spoken back. Keep symbols uppercase and use Alpaca's symbol form, such as
+`BRK.B`. `STOCK_QUOTE_TIMEOUT_SECONDS` and the provider base URLs are also
+available in `app_config.py` for advanced deployments.
+
+The default IEX feed is not a consolidated U.S. market quote. Home Suite
+compares the latest trade with the previous close and uses the market clock to
+distinguish an in-progress session from a completed close. Market times use
+`HOME_LOCATION["timezone"]`, falling back to the host timezone when it is blank.
+These are shared deployment settings, not per-device `local_prefs.py` values.
+
 ## Rooms And Targets
 
 For the complete room schema, disabling rules, field reference, examples, and
@@ -229,8 +378,8 @@ PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 The API component fails closed when the key is blank. `/health` and `/healthz`
 remain public; all other routes require authentication. Use the same value in
 Raycast, menu-bar clients, satellites, or other tools that call Home Suite.
-Telegram is an in-process frontend and does not require this API. See
-[API.md](API.md).
+Telegram loads the shared command runtime in its own companion service and
+does not require this API. See [API.md](API.md).
 
 ## Plex
 
@@ -279,6 +428,20 @@ Create a bot with Telegram's BotFather. Telegram documents that `/newbot` genera
 * https://core.telegram.org/bots/features#botfather
 
 Keep allowlists tight. A Telegram bot connected to Home Suite can control your home.
+
+Telegram polling runs as a separate long-lived process, so shared command-code
+changes require both services to restart:
+
+```bash
+sudo systemctl restart homesuite.service
+sudo systemctl restart piphone-telegram.service
+```
+
+The retained `piphone-telegram.service` unit name is for compatibility; its
+working directory and interpreter must point to the current Home Suite checkout
+and virtual environment. A portable unit is provided at
+`deploy/systemd/piphone-telegram.service.template`. Do not point the service at
+a retired `/home/.../piphone` checkout or the system Python.
 
 ## YouTube
 

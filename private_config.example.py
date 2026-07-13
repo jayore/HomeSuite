@@ -39,6 +39,12 @@ YOUTUBE_OAUTH_CLIENT_ID = ""
 YOUTUBE_OAUTH_CLIENT_SECRET = ""
 YOUTUBE_OAUTH_REFRESH_TOKEN = ""
 
+# Alpaca read-only stock market data. Generate Trading API keys in the web
+# dashboard; a free Paper Only/Basic account is sufficient for the IEX feed.
+# Home Suite never submits orders or accesses portfolio data.
+ALPACA_API_KEY_ID = ""
+ALPACA_API_SECRET_KEY = ""
+
 # Direct homelab service APIs
 QBITTORRENT_URL = ''
 QBITTORRENT_USERNAME = ''

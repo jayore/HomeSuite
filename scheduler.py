@@ -15,6 +15,7 @@ import uuid
 import fcntl
 import threading
 import logging
+from typing import Optional
 
 import subprocess
 
@@ -110,6 +111,77 @@ def cancel_job(job_id: str):
         if changed:
             _save(new_rows)
         return changed
+
+
+def pause_job(job_id: str, *, now_epoch: Optional[float] = None):
+    """Pause one pending job and persist its remaining delay."""
+    now_ts = time.time() if now_epoch is None else float(now_epoch)
+    with _lock:
+        rows = _load()
+        for row in rows:
+            if row.get("id") != job_id:
+                continue
+            if row.get("status") == "paused":
+                return dict(row)
+            if row.get("status") != "pending":
+                return None
+            try:
+                remaining = max(0.0, float(row.get("run_at")) - now_ts)
+            except (TypeError, ValueError):
+                return None
+            row["status"] = "paused"
+            row["paused_at"] = now_ts
+            row["remaining_seconds"] = remaining
+            _save(rows)
+            logging.info("SCHED_PAUSE id=%s remaining=%.3f", job_id, remaining)
+            return dict(row)
+    return None
+
+
+def resume_job(job_id: str, run_at_epoch: float):
+    """Resume one paused job at a newly calculated absolute time."""
+    run_at = float(run_at_epoch)
+    with _lock:
+        rows = _load()
+        for row in rows:
+            if row.get("id") != job_id or row.get("status") != "paused":
+                continue
+            row["status"] = "pending"
+            row["run_at"] = run_at
+            row["resumed_at"] = time.time()
+            row.pop("remaining_seconds", None)
+            _save(rows)
+            logging.info("SCHED_RESUME id=%s when=%s", job_id, run_at)
+            return dict(row)
+    return None
+
+
+def reschedule_job(
+    job_id: str,
+    run_at_epoch: float,
+    *,
+    remaining_seconds: Optional[float] = None,
+):
+    """Move a pending or paused job without changing its execution state."""
+    run_at = float(run_at_epoch)
+    with _lock:
+        rows = _load()
+        for row in rows:
+            if row.get("id") != job_id or row.get("status") not in {"pending", "paused"}:
+                continue
+            row["run_at"] = run_at
+            row["rescheduled_at"] = time.time()
+            if row.get("status") == "paused" and remaining_seconds is not None:
+                row["remaining_seconds"] = max(0.0, float(remaining_seconds))
+            _save(rows)
+            logging.info(
+                "SCHED_RESCHEDULE id=%s when=%s status=%s",
+                job_id,
+                run_at,
+                row.get("status"),
+            )
+            return dict(row)
+    return None
 
 
 def cancel_all():

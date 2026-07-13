@@ -13,16 +13,40 @@ clients to adapt.
 
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 from typing import Any, Dict, List, Optional
 
 
 from app_config import (
+    ASSISTANT_BULK_EXCLUDED_ENTITY_IDS,
+    ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS,
     DEFAULT_ROOM,
     ENTITY_LABEL_OVERRIDES,
     MANIFEST_SCHEMA_VERSION,
     ROOMS,
     SOURCES,
 )
+
+
+def is_assistant_bulk_entity_allowed(entity_id: Optional[str]) -> bool:
+    """Return whether an entity may appear in summaries or bulk actions."""
+    candidate = str(entity_id or "").strip().lower()
+    if not candidate or "." not in candidate:
+        return False
+
+    excluded_ids = {
+        str(value or "").strip().lower()
+        for value in (ASSISTANT_BULK_EXCLUDED_ENTITY_IDS or [])
+        if str(value or "").strip()
+    }
+    if candidate in excluded_ids:
+        return False
+
+    for pattern in (ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS or []):
+        normalized = str(pattern or "").strip().lower()
+        if normalized and fnmatchcase(candidate, normalized):
+            return False
+    return True
 
 
 def get_room(room_id: Optional[str]) -> Optional[Dict[str, Any]]:

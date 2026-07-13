@@ -24,6 +24,7 @@ gitignored; only their `.example.py` templates should be committed.
 |---|---|---|---|
 | OpenAI | API account and API billing | OpenAI API platform account; ChatGPT billing is separate | Current STT modes, conversation, web search, fuzzy interpretation |
 | Home Assistant | Existing-service token | Home Assistant user | Home state, service calls, rooms, scenes, media players |
+| Alpaca Market Data | API account | Alpaca account; Basic IEX data is sufficient | Read-only stock quotes and U.S. market hours |
 | Home Suite HTTP API | Locally generated key | None | Satellites, Raycast, menu-bar and custom clients |
 | Plex | Existing-service token | Plex account and Plex Media Server | Library-grounded matching and playback |
 | Spotify | OAuth developer app | Spotify Premium currently required for development-mode apps | Search, private playlists, library and playlist operations |
@@ -169,6 +170,42 @@ The server is enabled by default and requires this key for every route except
 the `/health` and `/healthz` monitoring aliases. WebSocket clients use the same
 key; there is no separate WebSocket passphrase. See [API.md](API.md) for header
 and browser-client authentication.
+
+### Alpaca Market Data
+
+Set:
+
+```python
+ALPACA_API_KEY_ID = "..."
+ALPACA_API_SECRET_KEY = "..."
+```
+
+1. Choose Alpaca's **Trading API** path for an individual or personal app, not
+   Broker API, which is for businesses providing brokerage services to users.
+2. Create a free Paper Only account or use an existing paper-trading account.
+   The default Basic plan is sufficient; Home Suite does not require a paid
+   market-data subscription.
+3. Generate a key and secret in the paper-trading web dashboard. Alpaca's SDK
+   and terminal examples are not setup requirements for Home Suite.
+4. Store the key ID and secret key in the ignored `private_config.py` file.
+5. Run `homesuite-doctor --live` to validate a bounded read-only snapshot call.
+
+Paper-account keys are sufficient for Alpaca Basic market data and its IEX
+equities feed. IEX represents one exchange, not the consolidated SIP market;
+the limitation is documented here without making routine quote responses
+needlessly verbose. Accounts with the required data entitlement can set
+`STOCK_QUOTE_DATA_FEED` to another Alpaca feed in deployment configuration.
+
+The standard Alpaca names `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` are
+accepted as alternatives, either in `private_config.py` or as process
+environment variables.
+
+Home Suite never calls Alpaca account, portfolio, position, or order endpoints.
+It uses only stock snapshots and the market clock, but the keys should still be
+protected and rotated if exposed. See Alpaca's
+[authentication guide](https://docs.alpaca.markets/us/docs/authentication),
+[market-data overview](https://docs.alpaca.markets/us/docs/about-market-data-api),
+and [market-data FAQ](https://docs.alpaca.markets/us/docs/market-data-faq).
 
 ## Speech Output
 
@@ -463,6 +500,7 @@ Depending on configuration, these paths can work without another credential:
 * YouTube Lounge TV pairing: one-time TV code, no developer project.
 * Uptime Kuma public status page: base URL and slug only.
 * Open-Meteo weather and geocoding: no key in the current implementation.
+* Astral sun and moon calculations: local library, no key or network request.
 * Sonos, Apple TV, Synology, Reolink, Speedtest and many media/homelab devices:
   use the existing Home Assistant token when exposed through HA.
 

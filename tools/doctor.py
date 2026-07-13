@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -254,6 +255,30 @@ class Doctor:
         self.optional_group("Lidarr", ["LIDARR_URL", "LIDARR_API_KEY"])
         self.optional_group("Porcupine wake word", ["PVPORCUPINE_ACCESS_KEY"])
 
+        alpaca_key = (
+            self.value("ALPACA_API_KEY_ID")
+            or self.value("APCA_API_KEY_ID")
+            or os.getenv("ALPACA_API_KEY_ID")
+            or os.getenv("APCA_API_KEY_ID")
+        )
+        alpaca_secret = (
+            self.value("ALPACA_API_SECRET_KEY")
+            or self.value("APCA_API_SECRET_KEY")
+            or os.getenv("ALPACA_API_SECRET_KEY")
+            or os.getenv("APCA_API_SECRET_KEY")
+        )
+        if self.has_value(alpaca_key) and self.has_value(alpaca_secret):
+            self.add("Optional integrations", "OK", "Alpaca market data", "configured")
+        elif self.has_value(alpaca_key) or self.has_value(alpaca_secret):
+            self.add(
+                "Optional integrations",
+                "WARN",
+                "Alpaca market data",
+                "partially configured; both key ID and secret key are required",
+            )
+        else:
+            self.add("Optional integrations", "SKIP", "Alpaca market data", "not configured")
+
         telegram_missing = self.missing(["TELEGRAM_BOT_TOKEN"])
         if telegram_missing:
             self.add("Optional integrations", "SKIP", "Telegram", "not configured; missing TELEGRAM_BOT_TOKEN")
@@ -284,6 +309,7 @@ class Doctor:
 
     def check_live_services(self) -> None:
         self.check_home_assistant_live()
+        self.check_alpaca_live()
         self.check_uptime_kuma_live()
         self.check_plex_live()
         self.check_telegram_live()
@@ -304,6 +330,40 @@ class Doctor:
             )
         except Exception as exc:
             self.add("Live checks", "FAIL", "Home Assistant reachable", str(exc), required=True)
+
+    def check_alpaca_live(self) -> None:
+        key_id = (
+            self.value("ALPACA_API_KEY_ID")
+            or self.value("APCA_API_KEY_ID")
+            or os.getenv("ALPACA_API_KEY_ID")
+            or os.getenv("APCA_API_KEY_ID")
+        )
+        secret_key = (
+            self.value("ALPACA_API_SECRET_KEY")
+            or self.value("APCA_API_SECRET_KEY")
+            or os.getenv("ALPACA_API_SECRET_KEY")
+            or os.getenv("APCA_API_SECRET_KEY")
+        )
+        if not self.has_value(key_id) or not self.has_value(secret_key):
+            self.add("Live checks", "SKIP", "Alpaca market data", "not configured")
+            return
+        base_url = str(self.pref("STOCK_QUOTE_DATA_BASE_URL", "https://data.alpaca.markets"))
+        feed = quote(str(self.pref("STOCK_QUOTE_DATA_FEED", "iex")))
+        url = urljoin(self.clean_url(base_url), f"v2/stocks/AAPL/snapshot?feed={feed}")
+        headers = {
+            "APCA-API-KEY-ID": str(key_id),
+            "APCA-API-SECRET-KEY": str(secret_key),
+        }
+        try:
+            status, _body = self.get_url(url, headers=headers)
+            self.add(
+                "Live checks",
+                "OK" if status == 200 else "WARN",
+                "Alpaca market data",
+                f"HTTP {status}",
+            )
+        except Exception as exc:
+            self.add("Live checks", "WARN", "Alpaca market data", str(exc))
 
     def check_uptime_kuma_live(self) -> None:
         if not self.configured(["UPTIME_KUMA_URL", "UPTIME_KUMA_STATUS_PAGE_SLUG"]):

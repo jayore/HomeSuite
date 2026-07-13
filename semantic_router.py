@@ -16,6 +16,9 @@ import re
 import time
 
 from app_config import ROOMS
+from astronomy_controls import looks_like_astronomy_query
+from date_controls import looks_like_date_query
+from stock_quote_controls import looks_like_stock_query
 
 
 class RouteOutcome(str, Enum):
@@ -119,6 +122,7 @@ _LOCAL_UTILITY_PATTERNS = [
     re.compile(r"\btell\s+me\s+the\s+time\b"),
     re.compile(r"\bwhat(?:'s| is)\s+the\s+weather\b"),
     re.compile(r"\bweather\b"),
+    re.compile(r"\bforecast\b"),
 ]
 
 _CONTINUATION_PAT = re.compile(r"^(another one|another|one more|more|again|why|really|go on)$")
@@ -132,7 +136,12 @@ def _norm(s: str) -> str:
 
 
 def _looks_local_utility(t: str) -> bool:
-    return any(p.search(t) for p in _LOCAL_UTILITY_PATTERNS)
+    return (
+        looks_like_astronomy_query(t)
+        or looks_like_date_query(t)
+        or looks_like_stock_query(t)
+        or any(p.search(t) for p in _LOCAL_UTILITY_PATTERNS)
+    )
 
 
 def _looks_deviceish(t: str) -> bool:

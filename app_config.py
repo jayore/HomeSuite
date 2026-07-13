@@ -357,12 +357,77 @@ SOURCES: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# Used only when Home Assistant does not expose a local weather entity.
-# Set either coordinate to None to disable coordinate-based fallback.
+# Optional preferred Home Assistant weather entity. None auto-discovers the
+# first weather.* entity with a current temperature.
+WEATHER_ENTITY_ID = None
+
+# Used for Open-Meteo weather fallback and Astral sun/moon calculations. The
+# timezone is an IANA name; None falls back to the host's local timezone. Set
+# either coordinate to None to disable coordinate-based features.
 HOME_LOCATION = {
     "latitude": 34.4208,
     "longitude": -119.6982,
+    "timezone": "America/Los_Angeles",
 }
+
+# Local Skyfield criteria for "visible tonight" answers. The default catalog
+# contains the five commonly naked-eye planets; Uranus and Neptune remain
+# available for named rise/set and position questions. Visibility is potential
+# visibility only: local obstructions, light pollution, and clouds are unknown.
+PLANET_VISIBILITY_PLANETS = ("mercury", "venus", "mars", "jupiter", "saturn")
+PLANET_VISIBILITY_MIN_ALTITUDE_DEGREES = 10.0
+PLANET_VISIBILITY_MAX_SUN_ALTITUDE_DEGREES = -6.0
+PLANET_VISIBILITY_MAX_MAGNITUDE = 6.0
+PLANET_VISIBILITY_MIN_DURATION_MINUTES = 15
+
+# Read-only Alpaca stock quotes. The Basic Alpaca plan supports the IEX feed;
+# deployments with consolidated SIP access can override STOCK_QUOTE_DATA_FEED.
+STOCK_QUOTE_DATA_BASE_URL = "https://data.alpaca.markets"
+STOCK_QUOTE_TRADING_BASE_URL = "https://paper-api.alpaca.markets"
+STOCK_QUOTE_DATA_FEED = "iex"
+STOCK_QUOTE_TIMEOUT_SECONDS = 5.0
+STOCK_QUOTE_CACHE_SECONDS = 15.0
+STOCK_MARKET_CLOCK_CACHE_SECONDS = 30.0
+STOCK_QUOTE_MAX_SYMBOLS = 5
+STOCK_SYMBOL_ALIASES = {
+    "apple": "AAPL",
+    "microsoft": "MSFT",
+    "nvidia": "NVDA",
+    "tesla": "TSLA",
+    "amazon": "AMZN",
+    "google": "GOOGL",
+    "alphabet": "GOOGL",
+    "meta": "META",
+    "facebook": "META",
+    "jp morgan": "JPM",
+    "jpmorgan": "JPM",
+    "exxon": "XOM",
+    "exxon mobil": "XOM",
+    "united health": "UNH",
+    "unitedhealth": "UNH",
+    "game stop": "GME",
+    "gamestop": "GME",
+    "berkshire hathaway": "BRK.B",
+    "berkshire": "BRK.B",
+}
+STOCK_SYMBOL_LABELS = {
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "NVDA": "Nvidia",
+    "TSLA": "Tesla",
+    "AMZN": "Amazon",
+    "GOOGL": "Alphabet",
+    "META": "Meta",
+    "JPM": "JPMorgan",
+    "XOM": "Exxon Mobil",
+    "UNH": "UnitedHealth",
+    "GME": "GameStop",
+    "BRK.B": "Berkshire Hathaway",
+}
+# Deployment overrides extend the built-in spoken names and labels without
+# requiring a user to duplicate the common catalog above.
+STOCK_SYMBOL_ALIAS_OVERRIDES = {}
+STOCK_SYMBOL_LABEL_OVERRIDES = {}
 
 # Optional spoken shorthand for geocoded locations.
 LOCATION_ALIASES = {
@@ -375,6 +440,26 @@ LOCATION_ALIASES = {
 ENTITY_LABEL_OVERRIDES = {
     "media_player.living_room_apple_tv": "Apple TV",
 }
+
+# Entities omitted from assistant-wide summaries and whole-home bulk actions.
+# Explicit named commands can still target them. Exact IDs cover this reference
+# deployment's room proxy lights; patterns cover common virtual helper entities.
+ASSISTANT_BULK_EXCLUDED_ENTITY_IDS = [
+    "light.living_room_brightness",
+    "light.living_room_color",
+    "light.bedroom_brightness",
+    "light.bedroom_color",
+    "light.kitchen_brightness",
+    "light.office_brightness",
+    "light.office_color",
+]
+ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS = [
+    "light.*_flicker",
+    "light.*_underwater",
+    "light.*scene_trigger*",
+    "light.virtual_rgb_*",
+    "light.*_status_led",
+]
 
 
 # =============================
@@ -1345,6 +1430,12 @@ ALARM_SOUND_ENABLED = True
 
 # If enabled, speak "Your timer is done" / "Your pasta timer is done".
 ALARM_VOICE_ENABLED = True
+
+# Reminders share alarm persistence and output routing but default to a concise
+# spoken message instead of the full alarm sound. Enable the sound explicitly
+# when reminders should use ALARM_SOUND_FILE too.
+REMINDER_SOUND_ENABLED = False
+REMINDER_VOICE_ENABLED = True
 
 # Relative to repo root unless absolute. If missing, PiPhone skips the sound
 # and still speaks if ALARM_VOICE_ENABLED is True.

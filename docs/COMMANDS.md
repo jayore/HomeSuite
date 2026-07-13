@@ -14,7 +14,7 @@ Then type a phrase at the prompt. For a single reproducible check, run:
 pptest "what lights are on?"
 ```
 
-Use `pplive`, `ppchat`, voice, Telegram, HTTP, or other clients only when you are ready for commands to affect real devices.
+Use `pplive`, `ppchat`, voice, Telegram, HTTP, or other clients only when you are ready for commands to affect real devices. `pptest` parses alarm and timer requests but does not persist them or create scheduler jobs.
 
 ## First Checks
 
@@ -32,21 +32,47 @@ These routes go through Home Assistant entities, areas, scenes, scripts, and ser
 
 * `turn on the kitchen lights`
 * `turn off the downstairs lights`
+* `turn off all the lights`
 * `dim the living room to 40 percent`
 * `make the lamp blue`
 * `set the bedroom lights to warm white`
-* `turn on the porch lights at sunset`
 * `turn off the living room lights in 20 minutes`
 * `lock the front door`
 * `is the garage door open?`
+* `are any windows open?`
 * `what lights are on?`
+* `what is the bedroom humidity?`
+* `what's the front door battery?`
 * `run movie night`
+
+State questions use current Home Assistant state. Room-scoped questions depend on the room's `ha_area_id`; door, window, humidity, temperature, and battery answers depend on the corresponding Home Assistant `device_class`. Aggregate light summaries and whole-home light actions omit entities configured through `ASSISTANT_BULK_EXCLUDED_ENTITY_IDS` and `ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS`.
 
 Advanced light forms:
 
 * `set the lamp to 3000K`
 * `set the lamp to hex FF00AA`
 * `set the lamp to RGB 255 0 170`
+
+## Covers, Fans, Climate, And Vacuums
+
+These commands require a matching Home Assistant entity in the expected domain. Home Suite validates the resolved domain before calling a capability-specific service, and supported modes still depend on what the individual device reports.
+
+* `open the office blinds`
+* `close the garage door`
+* `set the office blinds to 50 percent`
+* `how open are the office blinds?`
+* `set the bedroom fan speed to 45 percent`
+* `set the bedroom fan to high`
+* `set the bedroom fan to sleep`
+* `increase the bedroom fan speed`
+* `what is the bedroom fan speed?`
+* `set the hallway thermostat to 72 degrees`
+* `set the hallway thermostat mode to cool`
+* `what is the hallway thermostat set to?`
+* `start the vacuum`
+* `pause the vacuum`
+* `send the vacuum home`
+* `what is the vacuum doing?`
 
 ## Rooms, Focus, And Defaults
 
@@ -103,17 +129,74 @@ Spotify commands require Spotify API credentials and a playback path your Sonos/
 * `play music in the kitchen`
 * `play KCLU` (when `PINNED_RADIO_STATIONS` contains `kclu`)
 
-## Time, Weather, And Repeat
+## Date, Time, Weather, Astronomy, And Repeat
 
 These are deterministic utility routes rather than AI answers:
 
 * `what time is it?`
 * `what time is it in Tokyo?`
+* `what's the date?`
+* `what day is it?`
+* `what date is it in Tokyo?`
 * `what's the weather?`
 * `what's the weather in Tokyo?`
+* `what's the weather tomorrow?`
+* `what's the weather in Tokyo tomorrow?`
+* `what's the forecast for Thursday?`
+* `what's the weather this week?`
+* `forecast for next week`
+* `seven-day forecast in Tokyo`
+* `when is sunrise?`
+* `what time is sunset tomorrow?`
+* `when is dawn Thursday?`
+* `when does the moon rise?`
+* `when is moonset tomorrow?`
+* `what's the moon phase?`
+* `what phase will the moon be Thursday?`
+* `when is the next full moon?`
+* `when is the next new moon?`
+* `is the sun up?`
+* `is the moon up right now?`
+* `when does Jupiter rise?`
+* `when does Saturn set tomorrow?`
+* `is Mars up right now?`
+* `where is Venus?`
+* `can I see Jupiter right now?`
+* `what's the best time to see Venus tonight?`
+* `what planets are visible tonight?`
 * `say that again`
 * `repeat that`
 * `what did you say?`
+
+Current date and time questions do not use the AI fallback. Without a named
+place they use the Home Suite host's local clock and timezone. A place named
+with `in ...` is geocoded and answered in that location's timezone.
+
+Astronomy questions use the coordinates and timezone in `HOME_LOCATION`.
+Astral answers Sun and Moon questions. Skyfield and its packaged JPL ephemeris
+answer rise, set, position, and potential naked-eye visibility questions for
+Mercury through Neptune without making a request at command time. Visibility
+answers assume clear skies and an unobstructed horizon. Sunrise and sunset can
+also be used for scheduling; lunar and planetary events are query-only.
+
+## Stock Quotes And Market Hours
+
+These read-only requests require Alpaca market-data credentials:
+
+* `what's Apple's stock price?`
+* `what is AAPL trading at?`
+* `how is Nvidia stock doing today?`
+* `stock quote for Apple and Microsoft`
+* `how did Apple close?`
+* `is the stock market open?`
+* `when does the stock market open?`
+* `when does the stock market close?`
+
+Ticker symbols work directly. Common company names are built in, and
+deployment-specific spoken names can be added with
+`STOCK_SYMBOL_ALIAS_OVERRIDES`. Home Suite quotes at most five symbols per
+request by default. The Alpaca Basic configuration uses IEX market data; it does
+not submit trades or inspect an account portfolio.
 
 ## YouTube Lounge
 
@@ -147,13 +230,30 @@ Home Suite prefers Home Assistant for broad status portability. Optional direct 
 Scheduled jobs feed back through the same command brain as live requests, so delayed actions use the same routing and safety checks.
 
 * `set a timer for 10 minutes`
+* `pause the timer`
+* `resume the pasta timer`
+* `add 5 minutes to the timer`
+* `take 2 minutes off the pasta timer`
+* `set an alarm for 7 AM`
 * `set an alarm for 7 tomorrow morning`
-* `wake me up with music at 7`
+* `wake me up with music at 7 AM`
+* `wake me up at 7 AM with my morning playlist`
 * `remind me to check the laundry in 45 minutes`
-* `turn on the porch lights at sunset`
+* `remind me tomorrow at 7 AM to call Mom`
+* `tomorrow at 7 AM turn on the porch lights`
 * `turn off the living room lights in 20 minutes`
+* `turn on the porch lights at sunset`
+* `tomorrow at sunrise open the bedroom blinds`
+* `turn on the porch lights 20 minutes before sunset`
 * `cancel my timer`
+* `cancel my reminder`
 * `what alarms are set?`
+* `what reminders are set?`
+
+Scheduling accepts relative durations, explicit clock times, tomorrow dayparts,
+sunrise/sunset with optional offsets, and spoken reminders. Timer changes require
+the word `timer`; bare `pause` and `resume` remain media commands. When several
+timers could match, Home Suite asks for a name or room instead of guessing.
 
 ## Announcements And Speech Testing
 

@@ -21,7 +21,11 @@ import logging
 from typing import Optional, Tuple
 
 from request_context import get_area_id_for_current_request
-from home_registry import find_room_by_alias, get_room
+from home_registry import (
+    find_room_by_alias,
+    get_room,
+    is_assistant_bulk_entity_allowed,
+)
 
 try:
     from app_config import TURN_ON_PHRASE_OVERRIDES, TURN_OFF_PHRASE_OVERRIDES
@@ -70,6 +74,115 @@ def _say_or_blank(maybe_say, text: str) -> str:
     return out
 
 
+# Only these Home Assistant domains expose ordinary turn_on/turn_off actions.
+# Capability-specific domains such as cover, lock, button, valve, and vacuum
+# must be handled by their own verbs instead of receiving a fabricated service
+# name derived from the entity domain.
+_BINARY_ACTION_SERVICES = {
+    "automation": {"on": "automation/turn_on", "off": "automation/turn_off"},
+    "camera": {"on": "camera/turn_on", "off": "camera/turn_off"},
+    "climate": {"on": "climate/turn_on", "off": "climate/turn_off"},
+    "fan": {"on": "fan/turn_on", "off": "fan/turn_off"},
+    "group": {"on": "group/turn_on", "off": "group/turn_off"},
+    "humidifier": {"on": "humidifier/turn_on", "off": "humidifier/turn_off"},
+    "input_boolean": {"on": "input_boolean/turn_on", "off": "input_boolean/turn_off"},
+    "light": {"on": "light/turn_on", "off": "light/turn_off"},
+    "media_player": {"on": "media_player/turn_on", "off": "media_player/turn_off"},
+    "remote": {"on": "remote/turn_on", "off": "remote/turn_off"},
+    "script": {"on": "script/turn_on", "off": "script/turn_off"},
+    "siren": {"on": "siren/turn_on", "off": "siren/turn_off"},
+    "switch": {"on": "switch/turn_on", "off": "switch/turn_off"},
+    "water_heater": {"on": "water_heater/turn_on", "off": "water_heater/turn_off"},
+}
+
+
+def _is_all_lights_target(raw: str) -> bool:
+    """Return True only for an explicit whole-home light quantifier."""
+    t = (raw or "").strip().lower()
+    t = re.sub(r"[^a-z0-9'\s]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return bool(
+        re.fullmatch(
+            r"(?:all|every)(?:\s+of)?(?:\s+the)?\s+lights?"
+            r"(?:\s+in\s+(?:the\s+)?(?:house|home))?",
+            t,
+        )
+        or re.fullmatch(
+            r"(?:the\s+)?(?:whole|entire)\s+(?:house|home)(?:'s)?\s+lights?",
+            t,
+        )
+    )
+
+
+def _verified_light_entity_ids(states_snapshot) -> list[str]:
+    """Return only real, currently known light entity IDs from an HA snapshot."""
+    out = []
+    seen = set()
+    for state in states_snapshot or []:
+        if not isinstance(state, dict):
+            continue
+        entity_id = str(state.get("entity_id") or "").strip()
+        if (
+            not entity_id.startswith("light.")
+            or entity_id in seen
+            or not is_assistant_bulk_entity_allowed(entity_id)
+        ):
+            continue
+        seen.add(entity_id)
+        out.append(entity_id)
+    return sorted(out)
+
+
+def _run_all_lights_action(
+    action: str,
+    *,
+    states_snapshot,
+    call_ha_service,
+    maybe_say,
+) -> str:
+    entity_ids = _verified_light_entity_ids(states_snapshot)
+    if not entity_ids:
+        return "I couldn't find any lights to control."
+    service = "light/turn_on" if action == "on" else "light/turn_off"
+    ok = _is_ok(call_ha_service(service, {"entity_id": entity_ids}))
+    if not ok:
+        return "I couldn't control all the lights."
+    return _say_or_blank(maybe_say, "Okay.")
+
+
+def _run_resolved_binary_action(
+    raw: str,
+    action: str,
+    *,
+    call_ha_service,
+    maybe_say,
+    resolve_device_entity,
+) -> Optional[str]:
+    resolved = resolve_device_entity(raw)
+    if not resolved:
+        if os.environ.get("PIPHONE_LIVE") != "1":
+            return f"CLAIM: on_off_controls — no match for '{raw}'"
+        return None
+
+    entity_id, domain = resolved[:2]
+    service = (_BINARY_ACTION_SERVICES.get(str(domain)) or {}).get(action)
+    if not service:
+        logging.warning(
+            "BINARY_ACTION_REJECT target=%r entity_id=%r domain=%r action=%r",
+            raw,
+            entity_id,
+            domain,
+            action,
+        )
+        return f"I can't turn {raw} {action}."
+
+    ok = _is_ok(call_ha_service(service, {"entity_id": entity_id}))
+    if not ok:
+        return None
+    verb = "Turning on" if action == "on" else "Turning off"
+    return _say_or_blank(maybe_say, f"{verb} {raw}.")
+
+
 def _extract_explicit_room_lights_target(raw: str) -> Optional[str]:
     """
     Return HA area_id for explicit room-wide light phrases like:
@@ -82,6 +195,7 @@ def _extract_explicit_room_lights_target(raw: str) -> Optional[str]:
     if not s:
         return None
 
+    s = re.sub(r"^(?:all(?:\s+of)?\s+the|all|every)\s+", "", s).strip()
     s = re.sub(r"^the\s+", "", s).strip()
 
     m = re.fullmatch(r"(.+?)\s+lights?", s)
@@ -109,6 +223,7 @@ def handle_on_off_controls(
     call_ha_service,
     maybe_say,
     resolve_device_entity,
+    states_snapshot=None,
 ) -> Optional[str]:
     """Claim and execute explicit binary device or room-area commands."""
     """
@@ -126,6 +241,14 @@ def handle_on_off_controls(
     if m_on:
         raw = m_on.group(1).strip()
 
+        if _is_all_lights_target(raw):
+            return _run_all_lights_action(
+                "on",
+                states_snapshot=states_snapshot,
+                call_ha_service=call_ha_service,
+                maybe_say=maybe_say,
+            )
+
         # Explicit room-wide lights via mapped HA area_id.
         explicit_area_id = _extract_explicit_room_lights_target(raw)
         if explicit_area_id:
@@ -145,18 +268,25 @@ def handle_on_off_controls(
             ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
             return _say_or_blank(maybe_say, "Okay.") if ok else None
 
-        resolved = resolve_device_entity(raw)
-        if not resolved:
-            if os.environ.get("PIPHONE_LIVE") != "1":
-                return f"CLAIM: on_off_controls — no match for '{raw}'"
-            return None
-        eid, domain = resolved
-        ok = _is_ok(call_ha_service(f"{domain}/turn_on", {"entity_id": eid}))
-        return _say_or_blank(maybe_say, f"Turning on {raw}.") if ok else None
+        return _run_resolved_binary_action(
+            raw,
+            "on",
+            call_ha_service=call_ha_service,
+            maybe_say=maybe_say,
+            resolve_device_entity=resolve_device_entity,
+        )
 
     m_off = re.search(r"\bturn off (?:the )?(.+)\b", t)
     if m_off:
         raw = m_off.group(1).strip()
+
+        if _is_all_lights_target(raw):
+            return _run_all_lights_action(
+                "off",
+                states_snapshot=states_snapshot,
+                call_ha_service=call_ha_service,
+                maybe_say=maybe_say,
+            )
 
         # Explicit room-wide lights via mapped HA area_id.
         explicit_area_id = _extract_explicit_room_lights_target(raw)
@@ -177,14 +307,13 @@ def handle_on_off_controls(
             ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
             return _say_or_blank(maybe_say, "Okay.") if ok else None
 
-        resolved = resolve_device_entity(raw)
-        if not resolved:
-            if os.environ.get("PIPHONE_LIVE") != "1":
-                return f"CLAIM: on_off_controls — no match for '{raw}'"
-            return None
-        eid, domain = resolved
-        ok = _is_ok(call_ha_service(f"{domain}/turn_off", {"entity_id": eid}))
-        return _say_or_blank(maybe_say, f"Turning off {raw}.") if ok else None
+        return _run_resolved_binary_action(
+            raw,
+            "off",
+            call_ha_service=call_ha_service,
+            maybe_say=maybe_say,
+            resolve_device_entity=resolve_device_entity,
+        )
 
     # --------------------------------------------------
     # Relaxed forms: "<thing> off" / "<thing> on"
@@ -196,6 +325,14 @@ def handle_on_off_controls(
     if m_bare_off and not re.search(r"\bturn\s+off\b", t):
         raw = m_bare_off.group(1).strip()
 
+        if _is_all_lights_target(raw):
+            return _run_all_lights_action(
+                "off",
+                states_snapshot=states_snapshot,
+                call_ha_service=call_ha_service,
+                maybe_say=maybe_say,
+            )
+
         # Explicit room-wide lights via mapped HA area_id.
         explicit_area_id = _extract_explicit_room_lights_target(raw)
         if explicit_area_id:
@@ -215,18 +352,25 @@ def handle_on_off_controls(
             ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
             return _say_or_blank(maybe_say, "Okay.") if ok else None
 
-        resolved = resolve_device_entity(raw)
-        if resolved:
-            eid, domain = resolved
-            ok = _is_ok(call_ha_service(f"{domain}/turn_off", {"entity_id": eid}))
-            return _say_or_blank(maybe_say, f"Turning off {raw}.") if ok else None
-        if os.environ.get("PIPHONE_LIVE") != "1":
-            return f"CLAIM: on_off_controls — no match for '{raw}'"
-        return None
+        return _run_resolved_binary_action(
+            raw,
+            "off",
+            call_ha_service=call_ha_service,
+            maybe_say=maybe_say,
+            resolve_device_entity=resolve_device_entity,
+        )
 
     m_bare_on = re.fullmatch(r"(?:the\s+)?(.+?)\s+on\b", t)
     if m_bare_on and not re.search(r"\bturn\s+on\b", t):
         raw = m_bare_on.group(1).strip()
+
+        if _is_all_lights_target(raw):
+            return _run_all_lights_action(
+                "on",
+                states_snapshot=states_snapshot,
+                call_ha_service=call_ha_service,
+                maybe_say=maybe_say,
+            )
 
         # Explicit room-wide lights via mapped HA area_id.
         explicit_area_id = _extract_explicit_room_lights_target(raw)
@@ -247,14 +391,13 @@ def handle_on_off_controls(
             ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
             return _say_or_blank(maybe_say, "Okay.") if ok else None
 
-        resolved = resolve_device_entity(raw)
-        if resolved:
-            eid, domain = resolved
-            ok = _is_ok(call_ha_service(f"{domain}/turn_on", {"entity_id": eid}))
-            return _say_or_blank(maybe_say, f"Turning on {raw}.") if ok else None
-        if os.environ.get("PIPHONE_LIVE") != "1":
-            return f"CLAIM: on_off_controls — no match for '{raw}'"
-        return None
+        return _run_resolved_binary_action(
+            raw,
+            "on",
+            call_ha_service=call_ha_service,
+            maybe_say=maybe_say,
+            resolve_device_entity=resolve_device_entity,
+        )
 
 
     return None

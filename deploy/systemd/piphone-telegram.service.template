@@ -1,0 +1,17 @@
+[Unit]
+Description=HomeSuite Telegram Bot
+After=network-online.target homesuite.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@HOMESUITE_USER@
+WorkingDirectory=@HOMESUITE_DIR@
+ExecStart=@HOMESUITE_DIR@/.venv/bin/python @HOMESUITE_DIR@/pptelegram.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+SyslogIdentifier=homesuite-telegram
+
+[Install]
+WantedBy=multi-user.target
