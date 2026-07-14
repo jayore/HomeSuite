@@ -158,6 +158,60 @@ class RestorativeDevicePhrasingTests(unittest.TestCase):
         )
 
 
+class AppleTVRoutingSafetyTests(unittest.TestCase):
+    @staticmethod
+    def _handle(text, call):
+        from apple_tv_controls import handle_apple_tv_controls
+
+        return handle_apple_tv_controls(
+            text,
+            states_snapshot=[
+                {
+                    "entity_id": "media_player.living_room_apple_tv",
+                    "attributes": {"media_position": 100, "media_duration": 1000},
+                }
+            ],
+            call_ha_service=call,
+            maybe_say=lambda response: response,
+            entity_id="media_player.living_room_apple_tv",
+            remote_entity_id="remote.living_room_apple_tv",
+            default_skip_seconds=10,
+        )
+
+    def test_restorative_device_phrases_are_never_claimed_as_seeks(self):
+        for phrase in (
+            "turn it back on",
+            "turn it back off",
+            "turn it back to red",
+        ):
+            with self.subTest(phrase=phrase):
+                call = mock.Mock(return_value=True)
+                self.assertIsNone(self._handle(phrase, call))
+                call.assert_not_called()
+
+    def test_explicit_back_duration_remains_a_relative_seek(self):
+        call = mock.Mock(return_value=True)
+
+        result = self._handle("back 10 seconds", call)
+
+        self.assertEqual(result, "Rewinding 10 seconds.")
+        call.assert_called_once_with(
+            "media_player/media_seek",
+            {"entity_id": "media_player.living_room_apple_tv", "seek_position": 90},
+        )
+
+    def test_back_to_beginning_remains_an_absolute_seek(self):
+        call = mock.Mock(return_value=True)
+
+        result = self._handle("turn it back to the beginning", call)
+
+        self.assertEqual(result, "Starting over.")
+        call.assert_called_once_with(
+            "media_player/media_seek",
+            {"entity_id": "media_player.living_room_apple_tv", "seek_position": 0},
+        )
+
+
 class AreaRegistryTests(unittest.TestCase):
     def test_area_lookup_prefers_fast_template_endpoint(self):
         import ha_client

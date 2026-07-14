@@ -4385,6 +4385,16 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
 
         return None
 
+    # Canonicalize restorative device wording before media handlers see the
+    # broad word "back". Genuine navigation phrases such as "back to the
+    # beginning" were already handled by the explicit transport routes above.
+    _restorative_text = _normalize_restorative_device_phrase(t)
+    if _restorative_text != t:
+        logging.info("RESTORATIVE_DEVICE_NORMALIZE: %r -> %r", t, _restorative_text)
+        t = _restorative_text
+        tl = t.lower().strip()
+        globals()["_LAST_STT_NORM_OUT"] = t
+
     # --- Apple TV controls ---
     apple_tv_resp = None
     if _request_tv_entity or _request_tv_remote:
@@ -4456,16 +4466,6 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     if spotcast_resp is not None:
         logging.info("CLAIM: spotcast_play")
         return spotcast_resp
-
-    # "Turn it back on" and "turn it back to red" are state-setting
-    # follow-ups. Media restoration/navigation phrases have already had their
-    # turn above, so canonicalize this wording for the existing device handlers.
-    _restorative_text = _normalize_restorative_device_phrase(t)
-    if _restorative_text != t:
-        logging.info("RESTORATIVE_DEVICE_NORMALIZE: %r -> %r", t, _restorative_text)
-        t = _restorative_text
-        tl = t.lower().strip()
-        globals()["_LAST_STT_NORM_OUT"] = t
 
     # =====================================================================
     # MODULE LIGHT CONTROLS (preferred; legacy inline remains as fallback)

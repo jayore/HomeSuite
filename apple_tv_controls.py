@@ -203,6 +203,17 @@ def handle_apple_tv_controls(
                 pass
         return ""
 
+    # "Turn it back on/off/to red" uses "back" as restorative device-state
+    # language, not as a seek direction. Dispatch normally canonicalizes these
+    # phrases before this handler; keep this guard so a future ordering change
+    # cannot turn them into an accidental rewind. Absolute beginning/end seeks
+    # have already been handled above.
+    if re.fullmatch(
+        r"turn\s+.+?\s+back\s+(?:on|off|to\s+.+?)[\s.?!]*",
+        t,
+    ):
+        return None
+
     # -------------------------------------------------
     # Relative seeks: "rewind 5 seconds", "skip back 5 minutes", "skip forward 2 minutes"
     # -------------------------------------------------
