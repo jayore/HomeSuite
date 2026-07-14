@@ -44,12 +44,28 @@ Home Suite prefers Home Assistant for broad status portability. Optional direct 
 ## Alarms, Timers, And Scheduling
 
 Scheduled jobs execute through the same command brain as live requests, so delayed actions use the same plain-English routing and safety checks.
+Named alarms and timers can be queried individually. Timers can be paused,
+resumed, extended, shortened, or set to a new remaining duration. Plain alarms
+and timers that recently fired can also be snoozed. Pending jobs are not treated
+as snoozable, and attached music and device-action alarms are deliberately
+excluded from snoozing.
+
+Short follow-ups use typed dialogue state rather than a global text rewrite.
+Recent timers support forms such as `add five minutes to it`, `set it to twenty
+minutes`, `how much time is left?`, and `cancel it`. Referents are scoped to the
+request source/context bubble and revalidated against persisted state before an
+action runs. Timer creation establishes the timer referent immediately. Named
+Home Assistant state queries and successful device actions likewise establish
+a capability-aware device referent for follow-ups such as `turn it off`; the
+entity must still exist in the next live HA snapshot before Home Suite writes.
 
 ## Date, Time, Weather, And Astronomy
 
-Current date and time, current weather, daily forecasts, and local astronomy
+Current date and time, current weather, hourly and daily forecasts, and local astronomy
 questions use deterministic handlers rather than conversational guesses. Date
-and time can use the host clock or a geocoded named location. Home Suite can
+and time can use the host clock or a geocoded named location. Weather language
+includes tonight, weekend, next-hours, weekday, multi-day, and direct rain or
+umbrella questions. Home Suite can
 also answer sunrise, sunset, civil dawn and dusk, moonrise, moonset, lunar
 phase, the next full or new moon date, whether the sun or moon is above the
 horizon, planet rise and set times, current planetary positions, and which
@@ -62,6 +78,10 @@ Planet visibility is an observing estimate, not a claim about actual sky
 conditions. It applies configurable darkness, altitude, magnitude, and minimum
 duration thresholds, then clearly assumes clear skies and an unobstructed local
 horizon.
+
+Forecast data does not currently include severe-weather alerts. Those require a
+separate authoritative alert integration rather than inference from ordinary
+hourly or daily conditions.
 
 Sunrise and sunset can anchor scheduled Home Assistant actions. Lunar events
 are query-only in the current release.

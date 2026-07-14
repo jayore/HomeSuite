@@ -3200,8 +3200,8 @@ def get_chatgpt_response(text: str) -> str:
     print("Getting AI response")
 
     try:
-        interaction_flow.conversation_history.append({"role": "user", "content": text})
-        interaction_flow.trim_history()
+        interaction_flow.append_history_message("user", text)
+        history = interaction_flow.get_history_snapshot()
 
         assistant_text = ""
         web_search_used = False
@@ -3215,7 +3215,7 @@ def get_chatgpt_response(text: str) -> str:
                         _pref_str("CHATGPT_WEB_SEARCH_MODEL", _chatgpt_model())
                         or _chatgpt_model()
                     ),
-                    input=list(interaction_flow.conversation_history),
+                    input=history,
                     instructions=(
                         "The device's current local date is "
                         f"{datetime.now().strftime('%B %d, %Y').replace(' 0', ' ')}. "
@@ -3242,15 +3242,14 @@ def get_chatgpt_response(text: str) -> str:
         if not assistant_text:
             response = OPENAI_CLIENT.chat.completions.create(
                 model=_chatgpt_model(),
-                messages=interaction_flow.conversation_history,
+                messages=history,
             )
             assistant_text = (response.choices[0].message.content or "").strip()
             logging.info("CHATGPT_CHAT_COMPLETIONS_DONE fallback=%s", web_search_enabled)
 
         print(f"AI response: {assistant_text}")
 
-        interaction_flow.conversation_history.append({"role": "assistant", "content": assistant_text})
-        interaction_flow.trim_history()
+        interaction_flow.append_history_message("assistant", assistant_text)
         capture_from_chatgpt_turn(
             text,
             assistant_text,
@@ -3585,8 +3584,18 @@ def _speak_text_for_trigger(text: str, trigger: str) -> bool:
 
 def process_audio(audio_file: str, *, trigger: str = "ptt"):
     global is_processing
+    previous_request_ctx = None
+    request_ctx = None
+    request_ctx_installed = False
 
     try:
+        trigger_name = str(trigger or "").strip().lower()
+        request_ctx = build_request_context(
+            source_id="default_piphone",
+            origin=trigger_name or "ptt",
+        )
+        previous_request_ctx = replace_current_request_context(request_ctx)
+        request_ctx_installed = True
         _trace_audio_event("process_audio_enter", trigger=trigger, audio_file=audio_file)
         logging.info("PROCESS_AUDIO_BEGIN trigger=%r audio_file=%r", trigger, audio_file)
         touch_session()
@@ -3599,7 +3608,6 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
 
         _perf('PIPE_BEFORE_STT')
 
-        trigger_name = str(trigger or "").strip().lower()
         stt_mode_override = None
         if trigger_name == "wakeword":
             stt_mode_override = (
@@ -3710,7 +3718,6 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
 
         # Event log: record every voiced command with outcome
         try:
-            _log_ctx = build_request_context(source_id="handset", origin=trigger)
             _log_result = types.SimpleNamespace(
                 handled=(action_result != ActionResult.NONE),
                 action_occurred=bool(command_dispatch._ACTION_OCCURRED),
@@ -3718,7 +3725,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
                         else "chatgpt" if action_result == ActionResult.CHATGPT
                         else None),
             )
-            log_command_event(text, _log_ctx, _log_result, int((time.monotonic() - _t0_cmd) * 1000))
+            log_command_event(text, request_ctx, _log_result, int((time.monotonic() - _t0_cmd) * 1000))
         except Exception:
             pass
 
@@ -3798,6 +3805,9 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         with lock:
             is_processing = False
         return
+    finally:
+        if request_ctx_installed:
+            set_current_request_context(previous_request_ctx)
 
 def process_audio_async(audio_file: str):
     # Deprecated: main() owns the off-hook session loop; run synchronously.

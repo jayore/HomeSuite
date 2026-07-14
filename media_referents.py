@@ -1,10 +1,11 @@
 """Remember media references and resolve follow-up commands such as 'play it'.
 
-The module stores bounded, process-local music and video referents extracted
-from earlier interactions. Follow-up text is rewritten only when its media
-domain and confidence agree with a recent referent; otherwise the original text
-is returned for normal routing. This state supplements request context but does
-not perform media playback itself.
+The module stores bounded, context-bubble-scoped music and video referents
+extracted from earlier interactions. Follow-up text is rewritten only when its
+media domain and confidence agree with a recent referent; otherwise the original
+text is returned for normal routing. Storage uses ``dialogue_state``; this
+module retains media-specific extraction and command generation and never
+performs playback itself.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import logging
 import re
 import time
 from typing import Any, Optional
+from dialogue_state import forget_referent, remember_referent, resolve_referent
 from media_intents import (
     loggable_media_intent,
     music_intent_to_command,
@@ -50,11 +52,6 @@ _PRONOUN_COMMAND_RE = re.compile(
     r"(?P<suffix>\s+(?:in|on)\s+.+)?\s*[.?!]*\s*$",
     re.IGNORECASE,
 )
-
-_REFERENTS: dict[str, Optional[dict[str, Any]]] = {
-    "music": None,
-    "video": None,
-}
 
 _SYSTEM_PROMPT = (
     "Extract media referents from the user's question and the assistant's answer. "
@@ -117,6 +114,28 @@ def _normalize_video(item: Any) -> Optional[dict[str, Any]]:
     return normalize_video_intent(item, source="chatgpt", include_type=True, include_ts=True)
 
 
+def _store_media_referent(media_type: str, ref: dict[str, Any]) -> bool:
+    title = str(ref.get("title") or "").strip()
+    if not title:
+        return False
+    artist = str(ref.get("artist") or "").strip()
+    key = f"{ref.get('kind') or media_type}:{title}"
+    if artist:
+        key += f":{artist}"
+    return bool(
+        remember_referent(
+            media_type,
+            key,
+            label=title,
+            capabilities={"play_media"},
+            data=ref,
+            confidence=float(ref.get("confidence") or 0.0),
+            ttl_seconds=_ttl_seconds(),
+            source=str(ref.get("source") or "chatgpt"),
+        )
+    )
+
+
 def _expects_music(user_text: str, assistant_text: str) -> bool:
     return bool(_MUSIC_WORD_RE.search(f"{user_text or ''}\n{assistant_text or ''}"))
 
@@ -126,15 +145,16 @@ def _expects_video(user_text: str, assistant_text: str) -> bool:
 
 
 def _clear_referent(media_type: str, reason: str) -> None:
-    old = _REFERENTS.get(media_type)
-    if old:
+    entry = resolve_referent(kinds={media_type}, max_age_seconds=_ttl_seconds())
+    old = (entry or {}).get("data") or {}
+    if entry:
         logging.info(
             "MEDIA_REFERENT_CLEAR type=%s title=%r reason=%s",
             media_type,
             old.get("title"),
             reason,
         )
-    _REFERENTS[media_type] = None
+    forget_referent(media_type)
 
 
 def _clean_candidate_title(value: str) -> str:
@@ -158,7 +178,8 @@ def remember_music(*, kind: str, title: str, artist: Optional[str] = None, confi
     )
     if not ref:
         return False
-    _REFERENTS["music"] = ref
+    if not _store_media_referent("music", ref):
+        return False
     logging.info("MEDIA_REFERENT_REMEMBER music=%r", loggable_media_intent(ref))
     return True
 
@@ -167,7 +188,8 @@ def remember_video(*, kind: str, title: str, confidence: float = 1.0) -> bool:
     ref = _normalize_video({"kind": kind, "title": title, "confidence": confidence})
     if not ref:
         return False
-    _REFERENTS["video"] = ref
+    if not _store_media_referent("video", ref):
+        return False
     logging.info("MEDIA_REFERENT_REMEMBER video=%r", loggable_media_intent(ref))
     return True
 
@@ -254,12 +276,10 @@ def capture_from_chatgpt_turn(
         data = json.loads(raw)
         music = _normalize_music(data.get("music"))
         video = _normalize_video(data.get("video"))
-        if music:
-            _REFERENTS["music"] = music
+        if music and _store_media_referent("music", music):
             stored_types.add("music")
             logging.info("MEDIA_REFERENT_EXTRACT music=%r", loggable_media_intent(music))
-        if video:
-            _REFERENTS["video"] = video
+        if video and _store_media_referent("video", video):
             stored_types.add("video")
             logging.info("MEDIA_REFERENT_EXTRACT video=%r", loggable_media_intent(video))
     except Exception as e:
@@ -272,23 +292,16 @@ def capture_from_chatgpt_turn(
 
 
 def _latest(media_type: Optional[str] = None) -> Optional[dict[str, Any]]:
-    now = time.time()
-    ttl = max(1.0, _ttl_seconds())
-    candidates = []
-    for key, ref in list(_REFERENTS.items()):
-        if media_type and key != media_type:
-            continue
-        if not ref:
-            continue
-        ts = float(ref.get("ts") or 0)
-        if now - ts > ttl:
-            _REFERENTS[key] = None
-            logging.info("MEDIA_REFERENT_EXPIRED type=%s title=%r", key, ref.get("title"))
-            continue
-        candidates.append(ref)
-    if not candidates:
+    kinds = {media_type} if media_type else {"music", "video"}
+    entry = resolve_referent(
+        kinds=kinds,
+        max_age_seconds=max(1.0, _ttl_seconds()),
+    )
+    if not entry:
         return None
-    return sorted(candidates, key=lambda r: float(r.get("ts") or 0), reverse=True)[0]
+    ref = dict(entry.get("data") or {})
+    ref["ts"] = float(entry.get("ts") or ref.get("ts") or time.time())
+    return ref
 
 
 def rewrite_media_pronoun_command(text: str) -> Optional[str]:

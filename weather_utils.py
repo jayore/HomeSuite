@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from collections import Counter
 import logging
+import math
 import re
 import time
 from typing import Optional, Sequence
@@ -116,11 +118,15 @@ class WeatherQuery:
     """A deterministic weather intent independent of any provider."""
 
     location: Optional[str] = None
-    mode: str = "current"  # current, day, or range
+    mode: str = "current"  # current, day, range, or hourly
     day_offset: Optional[int] = None
     weekday: Optional[int] = None
     next_weekday: bool = False
     days: int = 1
+    hours: int = 6
+    period: Optional[str] = None  # tonight, weekend, or next_weekend
+    focus: str = "summary"  # summary or precipitation
+    phenomenon: str = "precipitation"  # rain, snow, or precipitation
 
 
 @dataclass(frozen=True)
@@ -133,10 +139,19 @@ class DailyForecast:
 
 
 @dataclass(frozen=True)
+class HourlyForecast:
+    forecast_time: datetime
+    condition: Optional[str] = None
+    temperature_f: Optional[float] = None
+    precipitation_probability: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class OpenMeteoReport:
     current_temperature_f: Optional[float]
     current_condition: Optional[str]
     daily: tuple[DailyForecast, ...]
+    hourly: tuple[HourlyForecast, ...]
     timezone: Optional[str]
 
 
@@ -170,12 +185,16 @@ def _extract_weather_location(text: str) -> Optional[str]:
         rf"\b(?:for\s+)?(?:this\s+week|(?:the\s+)?next\s+"
         rf"(?:week|(?:{_COUNT_PATTERN})\s+days?))\b",
         rf"\b(?:for\s+)?(?:{_COUNT_PATTERN})\s*[- ]day\s+forecast\b",
+        r"\b(?:for\s+)?(?:this|next)\s+weekend\b",
+        rf"\b(?:for\s+)?(?:the\s+)?next\s+(?:{_COUNT_PATTERN})\s+hours?\b",
     )
     for pattern in range_patterns:
         location = re.sub(pattern, " ", location)
 
     location = re.sub(r"\b(?:for|on)\s+(?:today|tomorrow)\b", " ", location)
-    location = re.sub(r"\b(?:today|tomorrow)\b", " ", location)
+    location = re.sub(r"\b(?:today|tomorrow|tonight)\b", " ", location)
+    location = re.sub(r"\b(?:this|next)\s+weekend\b", " ", location)
+    location = re.sub(r"\b(?:hourly\s+forecast|later\s+today)\b", " ", location)
     location = re.sub(
         rf"\b(?:for|on)\s+(?:next\s+)?(?:{_WEEKDAY_PATTERN})\b",
         " ",
@@ -194,17 +213,85 @@ def _extract_weather_location(text: str) -> Optional[str]:
     return location or None
 
 
+def _parse_hour_count(value: Optional[str], default: int = 6) -> int:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return default
+    try:
+        count = int(raw)
+    except ValueError:
+        count = _NUMBER_WORDS.get(raw, default)
+    return max(1, min(24, count))
+
+
 def parse_weather_query(text: str) -> Optional[WeatherQuery]:
-    """Parse supported current, day, weekday, and multi-day weather phrases."""
+    """Parse current, hourly, calendar-day, range, and precipitation requests."""
     normalized = re.sub(r"[^a-z0-9'\s-]+", " ", (text or "").lower())
     normalized = re.sub(r"\s+", " ", normalized).strip()
-    if not re.search(r"\b(?:weather|forecast)\b", normalized):
+
+    precipitation_question = bool(
+        re.search(
+            r"\b(?:will|is)\s+it\s+(?:going\s+to\s+)?(?:rain|snow)\b|"
+            r"\b(?:chance|chances|risk)\s+of\s+(?:rain|snow|precipitation)\b|"
+            r"\bdo\s+i\s+need\s+(?:an\s+)?umbrella\b",
+            normalized,
+        )
+    )
+    if not re.search(r"\b(?:weather|forecast)\b", normalized) and not precipitation_question:
         return None
 
     location = _extract_weather_location(normalized)
+    focus = "precipitation" if precipitation_question else "summary"
+    if re.search(r"\bsnow\b", normalized):
+        phenomenon = "snow"
+    elif re.search(r"\brain\b|\bumbrella\b", normalized):
+        phenomenon = "rain"
+    else:
+        phenomenon = "precipitation"
+
+    hourly_match = re.search(
+        rf"\b(?:the\s+)?next\s+(?P<count>{_COUNT_PATTERN})\s+hours?\b",
+        normalized,
+    )
+    if hourly_match or re.search(r"\bhourly\s+(?:weather|forecast)\b", normalized):
+        return WeatherQuery(
+            location=location,
+            mode="hourly",
+            hours=_parse_hour_count(hourly_match.group("count") if hourly_match else None),
+            focus=focus,
+            phenomenon=phenomenon,
+        )
+
+    if re.search(r"\btonight\b|\blater\s+today\b", normalized):
+        return WeatherQuery(
+            location=location,
+            mode="hourly",
+            hours=12,
+            period="tonight",
+            focus=focus,
+            phenomenon=phenomenon,
+        )
+
+    weekend_match = re.search(r"\b(?P<which>this|next)?\s*weekend\b", normalized)
+    if weekend_match:
+        period = "next_weekend" if weekend_match.group("which") == "next" else "weekend"
+        return WeatherQuery(
+            location=location,
+            mode="range",
+            days=2,
+            period=period,
+            focus=focus,
+            phenomenon=phenomenon,
+        )
 
     if re.search(r"\b(?:this|(?:the\s+)?next)\s+week\b", normalized):
-        return WeatherQuery(location=location, mode="range", days=7)
+        return WeatherQuery(
+            location=location,
+            mode="range",
+            days=7,
+            focus=focus,
+            phenomenon=phenomenon,
+        )
 
     range_match = re.search(
         rf"\b(?P<count>{_COUNT_PATTERN})\s*[- ]day\s+forecast\b",
@@ -224,13 +311,37 @@ def parse_weather_query(text: str) -> Optional[WeatherQuery]:
     if range_match:
         days = _parse_count(range_match.group("count"))
         if days > 1:
-            return WeatherQuery(location=location, mode="range", days=days)
-        return WeatherQuery(location=location, mode="day", day_offset=0)
+            return WeatherQuery(
+                location=location,
+                mode="range",
+                days=days,
+                focus=focus,
+                phenomenon=phenomenon,
+            )
+        return WeatherQuery(
+            location=location,
+            mode="day",
+            day_offset=0,
+            focus=focus,
+            phenomenon=phenomenon,
+        )
 
     if re.search(r"\btomorrow\b", normalized):
-        return WeatherQuery(location=location, mode="day", day_offset=1)
+        return WeatherQuery(
+            location=location,
+            mode="day",
+            day_offset=1,
+            focus=focus,
+            phenomenon=phenomenon,
+        )
     if re.search(r"\btoday\b", normalized):
-        return WeatherQuery(location=location, mode="day", day_offset=0)
+        return WeatherQuery(
+            location=location,
+            mode="day",
+            day_offset=0,
+            focus=focus,
+            phenomenon=phenomenon,
+        )
 
     weekday_match = re.search(
         rf"\b(?P<next>next\s+)?(?P<weekday>{_WEEKDAY_PATTERN})\b",
@@ -242,13 +353,34 @@ def parse_weather_query(text: str) -> Optional[WeatherQuery]:
             mode="day",
             weekday=_WEEKDAYS[weekday_match.group("weekday")],
             next_weekday=bool(weekday_match.group("next")),
+            focus=focus,
+            phenomenon=phenomenon,
         )
 
     # A bare forecast asks for today's high/low. A bare weather request keeps
     # the established current-conditions behavior.
     if re.search(r"\bforecast\b", normalized):
-        return WeatherQuery(location=location, mode="day", day_offset=0)
+        return WeatherQuery(
+            location=location,
+            mode="day",
+            day_offset=0,
+            focus=focus,
+            phenomenon=phenomenon,
+        )
+    if precipitation_question:
+        return WeatherQuery(
+            location=location,
+            mode="day",
+            day_offset=0,
+            focus=focus,
+            phenomenon=phenomenon,
+        )
     return WeatherQuery(location=location, mode="current")
+
+
+def looks_like_weather_query(text: str) -> bool:
+    """Return whether text belongs to the deterministic weather surface."""
+    return parse_weather_query(text) is not None
 
 
 def _now_for_timezone(timezone_name: Optional[str], now: Optional[datetime]) -> datetime:
@@ -276,6 +408,14 @@ def weather_query_dates(
 ) -> list[date]:
     """Resolve a parsed query to calendar dates in the target timezone."""
     today = _now_for_timezone(timezone_name, now).date()
+    if query.period in {"weekend", "next_weekend"}:
+        if today.weekday() == 6 and query.period == "weekend":
+            return [today]
+        days_until_saturday = (5 - today.weekday()) % 7
+        if query.period == "next_weekend":
+            days_until_saturday += 7
+        saturday = today + timedelta(days=days_until_saturday)
+        return [saturday, saturday + timedelta(days=1)]
     if query.mode == "range":
         return [today + timedelta(days=i) for i in range(max(1, query.days))]
     if query.weekday is not None:
@@ -292,7 +432,11 @@ def forecast_days_needed(
     timezone_name: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> int:
-    today = _now_for_timezone(timezone_name, now).date()
+    now_local = _now_for_timezone(timezone_name, now)
+    today = now_local.date()
+    if query.mode == "hourly" and query.period != "tonight":
+        hours_to_cover = max(1, int(query.hours or 6))
+        return max(1, min(16, int(math.ceil((now_local.hour + hours_to_cover + 1) / 24.0))))
     targets = weather_query_dates(query, timezone_name=timezone_name, now=now)
     furthest = max((target - today).days for target in targets)
     return max(1, min(16, furthest + 1))
@@ -472,6 +616,26 @@ def _parse_forecast_date(value) -> Optional[date]:
         return None
 
 
+def _parse_forecast_datetime(
+    value,
+    *,
+    timezone_name: Optional[str] = None,
+) -> Optional[datetime]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None and timezone_name:
+        try:
+            parsed = parsed.replace(tzinfo=ZoneInfo(timezone_name))
+        except Exception:
+            pass
+    return parsed
+
+
 def _normalize_daily_rows(rows: Sequence[dict], temperature_unit: Optional[str]) -> list[DailyForecast]:
     forecasts = []
     for row in rows or []:
@@ -492,6 +656,33 @@ def _normalize_daily_rows(rows: Sequence[dict], temperature_unit: Optional[str])
     return forecasts
 
 
+def _normalize_hourly_rows(
+    rows: Sequence[dict],
+    temperature_unit: Optional[str],
+    *,
+    timezone_name: Optional[str] = None,
+) -> list[HourlyForecast]:
+    forecasts = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        forecast_time = _parse_forecast_datetime(
+            row.get("datetime") or row.get("time"),
+            timezone_name=timezone_name,
+        )
+        if not forecast_time:
+            continue
+        forecasts.append(
+            HourlyForecast(
+                forecast_time=forecast_time,
+                condition=_human_condition(row.get("condition")),
+                temperature_f=_to_fahrenheit(row.get("temperature"), temperature_unit),
+                precipitation_probability=_int_or_none(row.get("precipitation_probability")),
+            )
+        )
+    return forecasts
+
+
 def _ha_daily_forecasts(
     states: Optional[Sequence[dict]] = None,
 ) -> Optional[list[DailyForecast]]:
@@ -505,7 +696,7 @@ def _ha_daily_forecasts(
         return None
     attrs = chosen.get("attributes") or {}
     unit = attrs.get("temperature_unit") or attrs.get("unit_of_measurement") or "°F"
-    cache_key = (entity_id, str(unit))
+    cache_key = (entity_id, str(unit), "daily")
     cached = _cache_get(_HA_FORECAST_CACHE, cache_key)
     if cached is not None:
         return list(cached)
@@ -522,8 +713,43 @@ def _ha_daily_forecasts(
     return forecasts
 
 
+def _ha_hourly_forecasts(
+    states: Optional[Sequence[dict]] = None,
+) -> Optional[list[HourlyForecast]]:
+    """Fetch normalized hourly forecasts from Home Assistant."""
+    chosen = _configured_weather_entity(states if states is not None else ha_get_states())
+    if not chosen or not ha_client:
+        return None
+
+    entity_id = str(chosen.get("entity_id") or "").strip()
+    if not entity_id:
+        return None
+    attrs = chosen.get("attributes") or {}
+    unit = attrs.get("temperature_unit") or attrs.get("unit_of_measurement") or "°F"
+    timezone_name = attrs.get("timezone") or None
+    cache_key = (entity_id, str(unit), "hourly")
+    cached = _cache_get(_HA_FORECAST_CACHE, cache_key)
+    if cached is not None:
+        return list(cached)
+
+    try:
+        rows = ha_client.ha_get_weather_forecasts(entity_id, forecast_type="hourly")
+    except Exception:
+        logging.exception("Home Assistant hourly forecast request failed")
+        return None
+    forecasts = _normalize_hourly_rows(
+        rows or [],
+        unit,
+        timezone_name=timezone_name,
+    )
+    if not forecasts:
+        return None
+    _cache_set(_HA_FORECAST_CACHE, cache_key, tuple(forecasts))
+    return forecasts
+
+
 def _open_meteo_report(lat: float, lon: float, *, forecast_days: int = 7) -> Optional[OpenMeteoReport]:
-    """Fetch current conditions and normalized daily forecasts from Open-Meteo."""
+    """Fetch current, hourly, and daily forecasts from Open-Meteo."""
     days = max(1, min(16, int(forecast_days or 1)))
     cache_key = (round(float(lat), 4), round(float(lon), 4), days)
     cached = _cache_get(_OPEN_METEO_CACHE, cache_key)
@@ -538,6 +764,7 @@ def _open_meteo_report(lat: float, lon: float, *, forecast_days: int = 7) -> Opt
             "weather_code,temperature_2m_max,temperature_2m_min,"
             "precipitation_probability_max,precipitation_sum"
         ),
+        "hourly": "temperature_2m,weather_code,precipitation_probability",
         "forecast_days": days,
         "timezone": "auto",
         "temperature_unit": "fahrenheit",
@@ -555,6 +782,8 @@ def _open_meteo_report(lat: float, lon: float, *, forecast_days: int = 7) -> Opt
         data = response.json() or {}
         current = data.get("current") or {}
         daily = data.get("daily") or {}
+        hourly = data.get("hourly") or {}
+        timezone_name = data.get("timezone") or None
 
         dates = daily.get("time") or []
         codes = daily.get("weather_code") or []
@@ -582,12 +811,43 @@ def _open_meteo_report(lat: float, lon: float, *, forecast_days: int = 7) -> Opt
                 )
             )
 
+        hourly_times = hourly.get("time") or []
+        hourly_codes = hourly.get("weather_code") or []
+        hourly_temperatures = hourly.get("temperature_2m") or []
+        hourly_probabilities = hourly.get("precipitation_probability") or []
+        hourly_forecasts = []
+        for index, raw_time in enumerate(hourly_times):
+            forecast_time = _parse_forecast_datetime(
+                raw_time,
+                timezone_name=timezone_name,
+            )
+            if not forecast_time:
+                continue
+            code = _int_or_none(hourly_codes[index]) if index < len(hourly_codes) else None
+            hourly_forecasts.append(
+                HourlyForecast(
+                    forecast_time=forecast_time,
+                    condition=_WMO_CONDITIONS.get(code) if code is not None else None,
+                    temperature_f=(
+                        _float_or_none(hourly_temperatures[index])
+                        if index < len(hourly_temperatures)
+                        else None
+                    ),
+                    precipitation_probability=(
+                        _int_or_none(hourly_probabilities[index])
+                        if index < len(hourly_probabilities)
+                        else None
+                    ),
+                )
+            )
+
         current_code = _int_or_none(current.get("weather_code"))
         report = OpenMeteoReport(
             current_temperature_f=_float_or_none(current.get("temperature_2m")),
             current_condition=_WMO_CONDITIONS.get(current_code) if current_code is not None else None,
             daily=tuple(forecasts),
-            timezone=data.get("timezone") or None,
+            hourly=tuple(hourly_forecasts),
+            timezone=timezone_name,
         )
         return _cache_set(_OPEN_METEO_CACHE, cache_key, report)
     except Exception:
@@ -626,13 +886,19 @@ def _day_label(target: date, today: date) -> str:
     return target.strftime("%A")
 
 
-def _daily_spoken_part(forecast: DailyForecast, label: str, *, include_precip: bool) -> Optional[str]:
+def _daily_spoken_part(
+    forecast: DailyForecast,
+    label: str,
+    *,
+    include_precip: bool,
+    include_high: bool = True,
+) -> Optional[str]:
     details = []
     if forecast.condition:
         details.append(forecast.condition)
     high = _temperature_text(forecast.high_f)
     low = _temperature_text(forecast.low_f)
-    if high is not None:
+    if include_high and high is not None:
         details.append(f"high {high}")
     if low is not None:
         details.append(f"low {low}")
@@ -642,6 +908,171 @@ def _daily_spoken_part(forecast: DailyForecast, label: str, *, include_precip: b
     if not details:
         return None
     return f"{label}: " + ", ".join(details)
+
+
+def _condition_matches_phenomenon(condition: Optional[str], phenomenon: str) -> bool:
+    condition = str(condition or "").lower()
+    if phenomenon == "snow":
+        return "snow" in condition
+    if phenomenon == "rain":
+        return any(word in condition for word in ("rain", "drizzle", "shower", "thunderstorm"))
+    return any(
+        word in condition
+        for word in ("rain", "drizzle", "shower", "thunderstorm", "snow", "sleet")
+    )
+
+
+def _single_precipitation_response(
+    forecast: DailyForecast,
+    *,
+    label: str,
+    phenomenon: str,
+) -> Optional[str]:
+    probability = forecast.precipitation_probability
+    matches = _condition_matches_phenomenon(forecast.condition, phenomenon)
+    noun = phenomenon if phenomenon in {"rain", "snow"} else "precipitation"
+
+    if probability is not None:
+        if probability >= 50 or matches:
+            lead = "Yes" if matches or probability >= 60 else "Likely"
+        elif probability >= 20:
+            lead = "Possibly"
+        else:
+            lead = "Probably not"
+        return f"{lead}. {label} has a {probability} percent chance of {noun}."
+
+    if forecast.condition:
+        if matches:
+            return f"Yes. The forecast for {label.lower()} calls for {forecast.condition}."
+        return f"Probably not. The forecast for {label.lower()} is {forecast.condition}."
+    return None
+
+
+def _range_precipitation_response(
+    forecasts: Sequence[DailyForecast],
+    *,
+    today: date,
+    phenomenon: str,
+    period: Optional[str],
+) -> Optional[str]:
+    noun = phenomenon if phenomenon in {"rain", "snow"} else "precipitation"
+    parts = []
+    for forecast in forecasts:
+        label = _day_label(forecast.forecast_date, today)
+        probability = forecast.precipitation_probability
+        if probability is not None:
+            parts.append(f"{label} has a {probability} percent chance of {noun}")
+        elif forecast.condition:
+            parts.append(f"{label} is forecast to be {forecast.condition}")
+    if not parts:
+        return None
+    prefix = "This weekend" if period == "weekend" else "Next weekend" if period == "next_weekend" else "Forecast"
+    return f"{prefix}. " + "; ".join(parts) + "."
+
+
+def _hour_in_timezone(
+    forecast: HourlyForecast,
+    timezone_name: Optional[str],
+    now_local: datetime,
+) -> datetime:
+    value = forecast.forecast_time
+    if timezone_name and value.tzinfo is not None:
+        try:
+            return value.astimezone(ZoneInfo(timezone_name))
+        except Exception:
+            pass
+    if value.tzinfo is not None and now_local.tzinfo is not None:
+        return value.astimezone(now_local.tzinfo)
+    if value.tzinfo is None and now_local.tzinfo is not None:
+        return value.replace(tzinfo=now_local.tzinfo)
+    return value
+
+
+def _clock_label(value: datetime) -> str:
+    try:
+        return value.strftime("%-I %p")
+    except Exception:
+        return value.strftime("%I %p").lstrip("0")
+
+
+def format_hourly_response(
+    query: WeatherQuery,
+    forecasts: Sequence[HourlyForecast],
+    *,
+    timezone_name: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> Optional[str]:
+    """Format hourly rows for next-hours and tonight requests."""
+    now_local = _now_for_timezone(timezone_name, now)
+    localized = [
+        (row, _hour_in_timezone(row, timezone_name, now_local))
+        for row in forecasts or []
+    ]
+
+    if query.period == "tonight":
+        start = now_local.replace(hour=18, minute=0, second=0, microsecond=0)
+        if now_local >= start:
+            start = now_local
+        end = (now_local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        selected = [(row, when) for row, when in localized if start <= when < end]
+    else:
+        future = [(row, when) for row, when in localized if when >= now_local]
+        selected = future[: max(1, int(query.hours or 6))]
+
+    if not selected:
+        return None
+
+    probabilities = [
+        row.precipitation_probability
+        for row, _ in selected
+        if row.precipitation_probability is not None
+    ]
+    max_probability = max(probabilities) if probabilities else None
+    conditions = [row.condition for row, _ in selected if row.condition]
+    common_condition = Counter(conditions).most_common(1)[0][0] if conditions else None
+
+    if query.focus == "precipitation":
+        synthetic = DailyForecast(
+            forecast_date=now_local.date(),
+            condition=common_condition,
+            precipitation_probability=max_probability,
+        )
+        label = "Tonight" if query.period == "tonight" else f"The next {len(selected)} hours"
+        return _single_precipitation_response(
+            synthetic,
+            label=label,
+            phenomenon=query.phenomenon,
+        )
+
+    if query.period == "tonight":
+        details = []
+        if common_condition:
+            details.append(common_condition)
+        temperatures = [row.temperature_f for row, _ in selected if row.temperature_f is not None]
+        if temperatures:
+            details.append(f"low {int(round(min(temperatures)))}")
+        if max_probability is not None and max_probability > 0:
+            details.append(f"up to a {max_probability} percent chance of precipitation")
+        return "Tonight: " + ", ".join(details) + "." if details else None
+
+    step = max(1, int(math.ceil(len(selected) / 4.0)))
+    samples = selected[::step][:4]
+    parts = []
+    for row, when in samples:
+        details = []
+        if row.temperature_f is not None:
+            details.append(f"{int(round(row.temperature_f))} degrees")
+        if row.condition:
+            details.append(row.condition)
+        if details:
+            parts.append(f"{_clock_label(when)}: " + ", ".join(details))
+    if not parts:
+        return None
+    prefix = f"Next {len(selected)} hour" + ("" if len(selected) == 1 else "s")
+    suffix = ""
+    if max_probability is not None and max_probability >= 20:
+        suffix = f" Rain chance peaks at {max_probability} percent."
+    return f"{prefix}. " + "; ".join(parts) + "." + suffix
 
 
 def format_forecast_response(
@@ -659,6 +1090,29 @@ def format_forecast_response(
     selected = [by_date[target] for target in target_dates if target in by_date]
     if not selected or (not allow_partial and len(selected) != len(target_dates)):
         return None
+
+    if query.focus == "precipitation":
+        if len(selected) == 1:
+            return _single_precipitation_response(
+                selected[0],
+                label=_day_label(selected[0].forecast_date, today),
+                phenomenon=query.phenomenon,
+            )
+        return _range_precipitation_response(
+            selected,
+            today=today,
+            phenomenon=query.phenomenon,
+            period=query.period,
+        )
+
+    if query.mode == "hourly" and query.period == "tonight":
+        part = _daily_spoken_part(
+            selected[0],
+            "Tonight",
+            include_precip=True,
+            include_high=False,
+        )
+        return f"{part}." if part else None
 
     if query.mode == "day":
         forecast = selected[0]
@@ -692,5 +1146,11 @@ def format_forecast_response(
         9: "Nine",
         10: "Ten",
     }
-    count = count_words.get(len(parts), str(len(parts)))
-    return f"{count}-day forecast. " + "; ".join(parts) + "."
+    if query.period == "weekend":
+        prefix = "This weekend"
+    elif query.period == "next_weekend":
+        prefix = "Next weekend"
+    else:
+        count = count_words.get(len(parts), str(len(parts)))
+        prefix = f"{count}-day forecast"
+    return prefix + ". " + "; ".join(parts) + "."

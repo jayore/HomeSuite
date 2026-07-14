@@ -493,6 +493,12 @@ CHATGPT_MODEL = "gpt-5.4-mini"
 CHATGPT_WEB_SEARCH_ENABLED = True
 CHATGPT_WEB_SEARCH_MODEL = CHATGPT_MODEL
 
+# Structured follow-up state such as a recent timer, light, location, or media
+# item. The state is process-local, source/context-bubble scoped, and handlers
+# still revalidate stable IDs before acting. Individual domains may preserve a
+# longer or shorter established TTL when they remember an object.
+DIALOGUE_REFERENT_TTL_SECONDS = 2 * 60
+
 # Extract short-lived media breadcrumbs from ChatGPT answers so deterministic
 # Plex/Spotify handlers can resolve follow-ups like "play it" or "watch that".
 # The extractor stores searchable names/kinds only, never model-invented IDs.
@@ -1449,6 +1455,13 @@ ALARM_SONOS_SOUND_TO_VOICE_DELAY_SEC = 3.0
 #   "5 second timer set on the living room speaker."
 # Default False keeps timer/alarm confirmations short.
 ALARM_CONFIRM_INCLUDE_OUTPUT_TARGET = False
+
+# Bare "snooze" uses this delay. Only plain alarms and timers can be snoozed;
+# attached music/device actions fail closed because replaying them may have side effects.
+ALARM_DEFAULT_SNOOZE_MINUTES = 10
+
+# How long a completed alarm or timer remains eligible for a follow-up snooze.
+ALARM_SNOOZE_RECENT_WINDOW_SECONDS = 15 * 60
 
 # Max seconds to allow an attached alarm/timer command to run.
 ALARM_ATTACHED_COMMAND_TIMEOUT_SEC = 30.0

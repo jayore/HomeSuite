@@ -270,6 +270,12 @@ Mobile sources may carry or remember room focus. Once Home Suite resolves the
 request room, brightness, color, volume, media, alarms, TV, and announcements
 consult the same room configuration.
 
+Structured conversational continuity is scoped the same way. Sources use their
+own ID by default; sources sharing `device_group` also share a context bubble.
+Set an optional `continuity_group` when dialogue continuity should be shared
+independently of room-focus grouping. The local PTT and wakeword paths both use
+`default_piphone`, so they intentionally share follow-up context.
+
 ## Applying Changes
 
 After editing `deployment_config.py` (or tracked `app_config.py` in a private

@@ -23,6 +23,7 @@ from ha_client import ha_get_entities_for_area, ha_get_light_entities_for_area
 
 # resolve_device_entity: phrase -> (entity_id, domain) or (entity_id, domain, via...)
 ResolveFn = Callable[[str], Optional[Tuple[Any, ...]]]
+RememberEntityFn = Callable[[str, str], Any]
 
 def _norm(s: str) -> str:
     s = (s or "").strip().lower()
@@ -161,7 +162,30 @@ def _resolve_phrase(resolve_device_entity: ResolveFn, phrase: str) -> Optional[T
             return (eid, dom)
     return None
 
-def _answer_is_on_off(t: str, *, states_snapshot: Optional[list], resolve_device_entity: ResolveFn) -> Optional[str]:
+
+def _remember_resolved_entity(
+    remember_entity: Optional[RememberEntityFn],
+    entity_id: str,
+    domain: str,
+) -> None:
+    if remember_entity is None:
+        return
+    try:
+        remember_entity(entity_id, domain)
+    except Exception:
+        logging.exception(
+            "STATE_QUERY_REFERENT_REMEMBER_FAIL entity_id=%r domain=%r",
+            entity_id,
+            domain,
+        )
+
+def _answer_is_on_off(
+    t: str,
+    *,
+    states_snapshot: Optional[list],
+    resolve_device_entity: ResolveFn,
+    remember_entity: Optional[RememberEntityFn] = None,
+) -> Optional[str]:
     # "is side lamp on" / "are the patio lights off"
     #
     # Important:
@@ -182,10 +206,11 @@ def _answer_is_on_off(t: str, *, states_snapshot: Optional[list], resolve_device
     rr = _resolve_phrase(resolve_device_entity, thing)
     if not rr:
         return "I couldn't find that device."
-    eid, _dom = rr
+    eid, dom = rr
     st = _get_state_str(states_snapshot, eid)
     if st not in ("on", "off"):
         return "I couldn't read that device right now."
+    _remember_resolved_entity(remember_entity, eid, dom)
 
     # lights/switches use on/off; others best-effort
     is_on = (st == "on")
@@ -194,7 +219,13 @@ def _answer_is_on_off(t: str, *, states_snapshot: Optional[list], resolve_device
     else:
         return ("Yes." if not is_on else "No.")
 
-def _answer_is_locked(t: str, *, states_snapshot: Optional[list], resolve_device_entity: ResolveFn) -> Optional[str]:
+def _answer_is_locked(
+    t: str,
+    *,
+    states_snapshot: Optional[list],
+    resolve_device_entity: ResolveFn,
+    remember_entity: Optional[RememberEntityFn] = None,
+) -> Optional[str]:
     # "is the front door locked"
     m = re.match(r"^(is|are)\s+(.+?)\s+(locked|unlocked)$", t)
     if not m:
@@ -213,6 +244,7 @@ def _answer_is_locked(t: str, *, states_snapshot: Optional[list], resolve_device
 
     if st not in ("locked", "unlocked"):
         return "I couldn't read that lock right now."
+    _remember_resolved_entity(remember_entity, eid, dom)
 
     # HA lock domain typically: locked/unlocked
     if want == "locked":
@@ -365,6 +397,7 @@ def _answer_is_open_closed(
     *,
     states_snapshot: Optional[list],
     resolve_device_entity: ResolveFn,
+    remember_entity: Optional[RememberEntityFn] = None,
 ) -> Optional[str]:
     match = re.match(r"^(?:is|are)\s+(.+?)\s+(open|closed)$", t)
     if not match:
@@ -375,7 +408,7 @@ def _answer_is_open_closed(
     resolved = _resolve_phrase(resolve_device_entity, thing)
     if not resolved:
         return "I couldn't find that door, window, or cover."
-    entity_id, _domain = resolved
+    entity_id, domain = resolved
     state = _get_state_obj(states_snapshot, entity_id)
     if not state:
         return "I couldn't read that opening right now."
@@ -383,6 +416,7 @@ def _answer_is_open_closed(
     if actual_open is None:
         name = _friendly_name(states_snapshot, entity_id)
         return f"I found {name}, but it doesn't report whether it's open."
+    _remember_resolved_entity(remember_entity, entity_id, domain)
     return "Yes." if actual_open == want_open else "No."
 
 
@@ -572,6 +606,7 @@ def _answer_volume(
     states_snapshot: Optional[list],
     sonos_players: Optional[dict],
     default_sonos_room: Optional[str],
+    remember_entity: Optional[RememberEntityFn] = None,
 ) -> Optional[str]:
     # Match: "what's the volume", "what is the volume", "volume", optionally "... in kitchen"
     if not re.search(r"\bvolume\b", t) and not re.search(r"\bhow\s+loud\b", t):
@@ -673,6 +708,8 @@ def _answer_volume(
     if pct is None:
         return "I couldn't read the volume right now."
 
+    _remember_resolved_entity(remember_entity, eid, "media_player")
+
     if muted is True:
         return f"It's muted at about {pct} percent."
     return f"It's at about {pct} percent."
@@ -685,6 +722,7 @@ def handle_state_query_controls(
     maybe_say=None,
     sonos_players: Optional[dict] = None,
     default_sonos_room: Optional[str] = None,
+    remember_entity: Optional[RememberEntityFn] = None,
 ) -> Optional[str]:
     """Return a state answer when claimed, otherwise ``None`` for dispatch."""
     t = _norm(text)
@@ -710,12 +748,22 @@ def handle_state_query_controls(
         return out
 
     # Named entity state queries.
-    out = _answer_is_on_off(t, states_snapshot=states_snapshot, resolve_device_entity=resolve_device_entity)
+    out = _answer_is_on_off(
+        t,
+        states_snapshot=states_snapshot,
+        resolve_device_entity=resolve_device_entity,
+        remember_entity=remember_entity,
+    )
     if out is not None:
         logging.info("CLAIM: state_query_controls kind=onoff text=%r -> %r", text, out)
         return out
 
-    out = _answer_is_locked(t, states_snapshot=states_snapshot, resolve_device_entity=resolve_device_entity)
+    out = _answer_is_locked(
+        t,
+        states_snapshot=states_snapshot,
+        resolve_device_entity=resolve_device_entity,
+        remember_entity=remember_entity,
+    )
     if out is not None:
         logging.info("CLAIM: state_query_controls kind=lock text=%r -> %r", text, out)
         return out
@@ -724,6 +772,7 @@ def handle_state_query_controls(
         t,
         states_snapshot=states_snapshot,
         resolve_device_entity=resolve_device_entity,
+        remember_entity=remember_entity,
     )
     if out is not None:
         logging.info("CLAIM: state_query_controls kind=open_closed text=%r -> %r", text, out)
@@ -740,6 +789,7 @@ def handle_state_query_controls(
         states_snapshot=states_snapshot,
         sonos_players=sonos_players,
         default_sonos_room=default_sonos_room,
+        remember_entity=remember_entity,
     )
     if out is not None:
         logging.info("CLAIM: state_query_controls kind=volume text=%r -> %r", text, out)

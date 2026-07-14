@@ -5,6 +5,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +15,7 @@ if str(ROOT) not in sys.path:
 import ha_client
 import weather_utils
 from semantic_router import RouteOutcome, route_utterance
-from weather_utils import DailyForecast, WeatherQuery
+from weather_utils import DailyForecast, HourlyForecast, WeatherQuery
 
 
 class WeatherQueryParserTests(unittest.TestCase):
@@ -56,6 +57,39 @@ class WeatherQueryParserTests(unittest.TestCase):
 
         self.assertEqual(query.mode, "day")
         self.assertEqual(query.day_offset, 0)
+
+    def test_tonight_and_hourly_requests_are_distinct(self):
+        tonight = weather_utils.parse_weather_query("weather in Tokyo tonight")
+        hourly = weather_utils.parse_weather_query("forecast for the next 8 hours")
+
+        self.assertEqual(tonight.mode, "hourly")
+        self.assertEqual(tonight.period, "tonight")
+        self.assertEqual(tonight.location, "tokyo")
+        self.assertEqual(hourly.mode, "hourly")
+        self.assertEqual(hourly.hours, 8)
+
+    def test_weekend_dates_start_on_saturday(self):
+        query = weather_utils.parse_weather_query("weather this weekend")
+        next_query = weather_utils.parse_weather_query("weather next weekend")
+        monday = datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc)
+
+        self.assertEqual(
+            weather_utils.weather_query_dates(query, timezone_name="UTC", now=monday),
+            [date(2026, 7, 18), date(2026, 7, 19)],
+        )
+        self.assertEqual(
+            weather_utils.weather_query_dates(next_query, timezone_name="UTC", now=monday),
+            [date(2026, 7, 25), date(2026, 7, 26)],
+        )
+
+    def test_precipitation_question_does_not_require_weather_keyword(self):
+        query = weather_utils.parse_weather_query("will it rain tomorrow in Tokyo")
+
+        self.assertEqual(query.mode, "day")
+        self.assertEqual(query.day_offset, 1)
+        self.assertEqual(query.focus, "precipitation")
+        self.assertEqual(query.phenomenon, "rain")
+        self.assertEqual(query.location, "tokyo")
 
     def test_target_dates_use_destination_timezone(self):
         query = WeatherQuery(mode="day", day_offset=1)
@@ -131,6 +165,28 @@ class WeatherProviderTests(unittest.TestCase):
         self.assertEqual(report.daily[2].condition, "light rain")
         self.assertEqual(report.daily[2].precipitation_probability, 60)
         self.assertEqual(get.call_args.kwargs["params"]["forecast_days"], 3)
+
+    def test_open_meteo_normalizes_hourly_rows(self):
+        response = mock.Mock(status_code=200)
+        response.json.return_value = {
+            "timezone": "America/Los_Angeles",
+            "current": {},
+            "daily": {},
+            "hourly": {
+                "time": ["2026-07-13T18:00", "2026-07-13T19:00"],
+                "weather_code": [1, 61],
+                "temperature_2m": [72, 69],
+                "precipitation_probability": [10, 60],
+            },
+        }
+
+        with mock.patch.object(weather_utils.requests, "get", return_value=response):
+            report = weather_utils._open_meteo_report(34.4, -119.7, forecast_days=1)
+
+        self.assertEqual(len(report.hourly), 2)
+        self.assertEqual(report.hourly[1].condition, "light rain")
+        self.assertEqual(report.hourly[1].precipitation_probability, 60)
+        self.assertEqual(str(report.hourly[0].forecast_time.tzinfo), "America/Los_Angeles")
 
     def test_open_meteo_report_is_cached(self):
         response = mock.Mock(status_code=200)
@@ -228,6 +284,100 @@ class WeatherFormatterTests(unittest.TestCase):
         self.assertIn("Tuesday: rain", response)
         self.assertNotIn("10 percent", response)
         self.assertIn("60 percent chance of precipitation", response)
+
+    def test_precipitation_question_gets_a_direct_answer(self):
+        query = WeatherQuery(
+            mode="day",
+            day_offset=1,
+            focus="precipitation",
+            phenomenon="rain",
+        )
+        rows = [DailyForecast(date(2026, 7, 13), "light rain", 70, 55, 65)]
+
+        response = weather_utils.format_forecast_response(
+            query,
+            rows,
+            timezone_name="UTC",
+            now=self.NOW,
+        )
+
+        self.assertEqual(response, "Yes. Tomorrow has a 65 percent chance of rain.")
+
+    def test_tonight_hourly_response_uses_evening_low_and_rain_peak(self):
+        query = WeatherQuery(mode="hourly", hours=12, period="tonight")
+        rows = [
+            HourlyForecast(
+                datetime(2026, 7, 12, 18, 0, tzinfo=timezone.utc),
+                "clear",
+                70,
+                5,
+            ),
+            HourlyForecast(
+                datetime(2026, 7, 12, 21, 0, tzinfo=timezone.utc),
+                "clear",
+                62,
+                20,
+            ),
+        ]
+
+        response = weather_utils.format_hourly_response(
+            query,
+            rows,
+            timezone_name="UTC",
+            now=self.NOW,
+        )
+
+        self.assertEqual(
+            response,
+            "Tonight: clear, low 62, up to a 20 percent chance of precipitation.",
+        )
+
+    def test_hourly_response_samples_without_becoming_chatty(self):
+        query = WeatherQuery(mode="hourly", hours=4)
+        rows = [
+            HourlyForecast(
+                datetime(2026, 7, 12, hour, 0, tzinfo=timezone.utc),
+                "sunny",
+                70 + hour,
+                0,
+            )
+            for hour in range(12, 16)
+        ]
+
+        response = weather_utils.format_hourly_response(
+            query,
+            rows,
+            timezone_name="UTC",
+            now=self.NOW,
+        )
+
+        self.assertTrue(response.startswith("Next 4 hours."))
+        self.assertIn("12 PM: 82 degrees, sunny", response)
+        self.assertIn("3 PM: 85 degrees, sunny", response)
+
+    def test_hourly_utc_rows_use_local_clock_when_provider_omits_timezone(self):
+        query = WeatherQuery(mode="hourly", hours=2)
+        pacific = ZoneInfo("America/Los_Angeles")
+        now = datetime(2026, 7, 13, 15, 30, tzinfo=pacific)
+        rows = [
+            HourlyForecast(
+                datetime(2026, 7, 13, 23, 0, tzinfo=timezone.utc),
+                "clear",
+                75,
+                0,
+            ),
+            HourlyForecast(
+                datetime(2026, 7, 14, 0, 0, tzinfo=timezone.utc),
+                "clear",
+                72,
+                0,
+            ),
+        ]
+
+        response = weather_utils.format_hourly_response(query, rows, now=now)
+
+        self.assertIn("4 PM: 75 degrees, clear", response)
+        self.assertIn("5 PM: 72 degrees, clear", response)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,8 @@ These routes go through Home Assistant entities, areas, scenes, scripts, and ser
 * `set the bedroom lights to warm white`
 * `turn off the living room lights in 20 minutes`
 * `lock the front door`
+* `is the stair light on?` followed by `turn it off`
+* `is the front door locked?` followed by `unlock it`
 * `is the garage door open?`
 * `are any windows open?`
 * `what lights are on?`
@@ -45,7 +47,16 @@ These routes go through Home Assistant entities, areas, scenes, scripts, and ser
 * `what's the front door battery?`
 * `run movie night`
 
-State questions use current Home Assistant state. Room-scoped questions depend on the room's `ha_area_id`; door, window, humidity, temperature, and battery answers depend on the corresponding Home Assistant `device_class`. Aggregate light summaries and whole-home light actions omit entities configured through `ASSISTANT_BULK_EXCLUDED_ENTITY_IDS` and `ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS`.
+State questions use current Home Assistant state. A successful named-device
+question establishes short-lived device focus, so a compatible follow-up such
+as `turn it off`, `toggle it`, or `unlock it` can use the same verified entity.
+Home Suite rechecks that entity against the latest state snapshot before an
+action. Aggregate questions do not create a singular target. Room-scoped
+questions depend on the room's `ha_area_id`; door, window, humidity,
+temperature, and battery answers depend on the corresponding Home Assistant
+`device_class`. Aggregate light summaries and whole-home light actions omit
+entities configured through `ASSISTANT_BULK_EXCLUDED_ENTITY_IDS` and
+`ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS`.
 
 Advanced light forms:
 
@@ -142,6 +153,12 @@ These are deterministic utility routes rather than AI answers:
 * `what's the weather in Tokyo?`
 * `what's the weather tomorrow?`
 * `what's the weather in Tokyo tomorrow?`
+* `what's the weather tonight?`
+* `what's the weather in Tokyo tonight?`
+* `what's the weather this weekend?`
+* `will it rain tomorrow?`
+* `do I need an umbrella Thursday?`
+* `hourly forecast for the next 6 hours`
 * `what's the forecast for Thursday?`
 * `what's the weather this week?`
 * `forecast for next week`
@@ -171,6 +188,12 @@ These are deterministic utility routes rather than AI answers:
 Current date and time questions do not use the AI fallback. Without a named
 place they use the Home Suite host's local clock and timezone. A place named
 with `in ...` is geocoded and answered in that location's timezone.
+
+Weather questions prefer Home Assistant and fall back to Open-Meteo when home
+coordinates are configured. Tonight and next-hours questions use hourly data;
+weekend and weekday questions use daily forecasts. Rain and umbrella questions
+receive a direct precipitation answer. Severe-weather alerts are not currently
+supported because they require a separate authoritative alert feed.
 
 Astronomy questions use the coordinates and timezone in `HOME_LOCATION`.
 Astral answers Sun and Moon questions. Skyfield and its packaged JPL ephemeris
@@ -230,12 +253,21 @@ Home Suite prefers Home Assistant for broad status portability. Optional direct 
 Scheduled jobs feed back through the same command brain as live requests, so delayed actions use the same routing and safety checks.
 
 * `set a timer for 10 minutes`
+* `set an audit timer for 10 minutes`
 * `pause the timer`
 * `resume the pasta timer`
 * `add 5 minutes to the timer`
 * `take 2 minutes off the pasta timer`
+* `set the pasta timer to 15 minutes`
+* `how much time is left on my pasta timer?`
+* `okay, add 5 minutes to it`
+* `set it to 20 minutes`
+* `how much time is left?`
+* `cancel it`
 * `set an alarm for 7 AM`
 * `set an alarm for 7 tomorrow morning`
+* `what time is my work alarm?`
+* `snooze the work alarm for 5 minutes`
 * `wake me up with music at 7 AM`
 * `wake me up at 7 AM with my morning playlist`
 * `remind me to check the laundry in 45 minutes`
@@ -254,6 +286,23 @@ Scheduling accepts relative durations, explicit clock times, tomorrow dayparts,
 sunrise/sunset with optional offsets, and spoken reminders. Timer changes require
 the word `timer`; bare `pause` and `resume` remain media commands. When several
 timers could match, Home Suite asks for a name or room instead of guessing.
+Direct `set ... timer to ...` requests replace the remaining duration rather
+than creating another timer. Bare `snooze` uses `ALARM_DEFAULT_SNOOZE_MINUTES`.
+Snoozing only applies to plain alarms and timers that fired within
+`ALARM_SNOOZE_RECENT_WINDOW_SECONDS`. Pending timers can be extended or assigned
+a new remaining duration instead. Alarms with attached music or device actions
+fail closed so Home Suite cannot accidentally replay them.
+
+Short follow-ups use source-scoped structured dialogue state. Home Suite stores
+the stable ID of an unambiguously selected timer, alarm, light, location, or
+media item and resolves only referents compatible with the new command. Thus
+`add 5 minutes to it` can resolve a timer while `play it` can resolve media.
+Creation and successful named actions also update focus, so `set a timer for 5
+minutes` can be followed immediately by `add 1 minute to it` without first
+querying the timer.
+Explicit names always take precedence, expired or missing context is not
+guessed, and unrelated request sources do not share pronouns unless their
+`SOURCES` entries intentionally share a continuity group.
 
 ## Announcements And Speech Testing
 

@@ -19,6 +19,7 @@ from app_config import ROOMS
 from astronomy_controls import looks_like_astronomy_query
 from date_controls import looks_like_date_query
 from stock_quote_controls import looks_like_stock_query
+from weather_utils import looks_like_weather_query
 
 
 class RouteOutcome(str, Enum):
@@ -48,18 +49,44 @@ _DEVICEISH_PATTERNS = [
     re.compile(r"\b(brightness|volume|color|kelvin)\b"),
     re.compile(r"\b(rgb|#?[0-9a-f]{6}|\d{4,5}\s*k)\b"),
     re.compile(r"\b(skip|rewind|fast forward|forward)\b"),
-    re.compile(r"\bwhat(?:'s| is)\s+the\s+temperature\b"),
-    re.compile(r"\bwhats\s+the\s+temperature\b"),
-    re.compile(r"\bhow\s+(hot|cold)\b"),
-    re.compile(r"\btemperature\b"),
-]
-
-_DEVICEISH_PATTERNS = [
-    re.compile(r"\b(turn|switch)\s+(on|off)\b"),
-    re.compile(r"\bset\s+.+\b"),
-    re.compile(r"\b(brightness|volume|color|kelvin)\b"),
-    re.compile(r"\b(rgb|#?[0-9a-f]{6}|\d{4,5}\s*k)\b"),
-    re.compile(r"\b(skip|rewind|fast forward|forward)\b"),
+    re.compile(r"^(?:please\s+)?(?:pause|resume|ungroup)$"),
+    re.compile(r"^(?:please\s+)?(?:next|previous)\s+(?:track|video|episode)$"),
+    re.compile(r"^(?:please\s+)?(?:play|watch)\b"),
+    re.compile(r"^(?:please\s+)?(?:say|announce|run)\b"),
+    re.compile(r"^(?:please\s+)?(?:lock|unlock)\b"),
+    re.compile(r"^(?:please\s+)?(?:open|close)\b.*\b(?:door|doors|blinds|shades|cover|covers|curtains|garage|gate)\b"),
+    re.compile(r"^(?:please\s+)?(?:start|pause|stop|send|dock|locate)\b.*\bvacuum\b"),
+    re.compile(r"^(?:please\s+)?(?:increase|decrease|raise|lower)\b.*\b(?:fan|thermostat|temperature|speed)\b"),
+    re.compile(r"^(?:please\s+)?(?:dim|brighten)\b"),
+    re.compile(r"^(?:please\s+)?make\b.*\b(?:light|lights|lamp|lamps|it)\b"),
+    re.compile(r"^(?:please\s+)?(?:mute|unmute|group|switch)\b.*\b(?:tv|sonos|speaker|room|kitchen|bedroom|office|living)\b"),
+    re.compile(r"^(?:please\s+)?save\s+this\s+(?:song|track)$"),
+    re.compile(r"^(?:i(?:'m| am)\s+in|where am i|clear my room focus)\b"),
+    re.compile(r"\b(?:alarm|alarms|timer|timers|reminder|reminders|snooze)\b"),
+    re.compile(
+        r"^(?:(?:ok|okay|alright|sure|right|got it)\s*,?\s*)?"
+        r"(?:(?:add|put|subtract|remove|take)\b.*\b(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)\b.*"
+        r"\b(?:it|that|this)(?: one)?|"
+        r"(?:set|change|reset)\s+(?:it|that|this)(?: one)?\s+(?:to|for)\s+.*"
+        r"\b(?:seconds?|secs?|minutes?|mins?|hours?|hrs?))$"
+    ),
+    re.compile(
+        r"^(?:(?:ok|okay|alright|sure|right|got it)\s*,?\s*)?"
+        r"(?:how much time(?:\s+is)?\s+(?:left|remaining)(?:\s+on\s+(?:it|that|this)(?: one)?)?|"
+        r"how long(?:\s+does\s+(?:it|that|this)(?: one)?\s+have)?\s+left|"
+        r"(?:cancel|delete)\s+(?:it|that|this)(?: one)?)$"
+    ),
+    re.compile(r"^(?:please\s+)?(?:wake me up|remind me)\b"),
+    re.compile(r"\b(?:sunrise|sunset)\b"),
+    re.compile(r"^(?:say that again|repeat that|what did you say)$"),
+    re.compile(r"\b(?:service status|homelab|nas|drives?|internet|camera alerts?|torrents?|downloads?|downloading|media request status)\b"),
+    re.compile(r"^is anything down\??$"),
+    re.compile(r"\b(?:youtube|daily reel|digest)\b"),
+    re.compile(r"\bwhat(?:'s| is)\s+playing\b"),
+    re.compile(r"\bwhat\s+is\s+it\s+about\b"),
+    re.compile(r"\bwhat\s+lights?\s+are\s+on\b"),
+    re.compile(r"\bhow\s+open\s+are\b.*\b(?:blinds|shades|cover|covers|curtains)\b"),
+    re.compile(r"\b(?:battery|fan speed|vacuum doing)\b"),
     re.compile(r"\bwhat(?:'s| is)\s+the\s+temperature\b"),
     re.compile(r"\bwhats\s+the\s+temperature\b"),
     re.compile(r"\bhow\s+(hot|cold)\b"),
@@ -131,7 +158,7 @@ _CONTINUATION_PAT = re.compile(r"^(another one|another|one more|more|again|why|r
 def _norm(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"[.!,]+$", "", s).strip()
+    s = re.sub(r"[.!,?]+$", "", s).strip()
     return s
 
 
@@ -140,6 +167,7 @@ def _looks_local_utility(t: str) -> bool:
         looks_like_astronomy_query(t)
         or looks_like_date_query(t)
         or looks_like_stock_query(t)
+        or looks_like_weather_query(t)
         or any(p.search(t) for p in _LOCAL_UTILITY_PATTERNS)
     )
 

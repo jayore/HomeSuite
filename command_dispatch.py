@@ -30,11 +30,13 @@ from typing import Optional, Dict, Any, Tuple, List
 from weather_utils import (
     WeatherQuery,
     _ha_daily_forecasts,
+    _ha_hourly_forecasts,
     _ha_local_weather,
     _open_meteo_report,
     _open_meteo_weather,
     forecast_days_needed,
     format_forecast_response,
+    format_hourly_response,
     geocode_location,
     parse_weather_query,
 )
@@ -106,6 +108,14 @@ from request_context import (
     get_current_source_id,
     get_room_default_for_request,
 )
+from dialogue_state import (
+    forget_referent,
+    remember_referent,
+    resolve_referent,
+    reset_dialogue_state,
+    restore_scope as restore_dialogue_scope,
+    snapshot_scope as snapshot_dialogue_scope,
+)
 from home_registry import (
     get_brightness_light_phrase_overrides,
     get_default_room_id,
@@ -132,7 +142,12 @@ from local_say_controls import handle_local_say_controls
 from media_referents import rewrite_media_pronoun_command
 from brightness_controls import handle_brightness_controls
 from color_controls import handle_color_controls
-from on_off_controls import handle_on_off_controls, handle_toggle_controls
+from on_off_controls import (
+    handle_on_off_controls,
+    handle_toggle_controls,
+    supports_binary_action,
+    supports_toggle_action,
+)
 from room_lights_controls import handle_room_lights_controls
 from youtube_controls import handle_youtube_controls
 from lock_controls import handle_lock_controls
@@ -487,7 +502,68 @@ def _strip_for_tts(s: str) -> str:
     return re.sub(r"\s+", " ", str(s).strip())
 
 
-def _remember_light(eid: str):
+def _device_referent_capabilities(domain: str) -> set[str]:
+    capabilities = {"device_target"}
+    if supports_binary_action(domain):
+        capabilities.add("binary_control")
+    if supports_toggle_action(domain):
+        capabilities.add("toggle_control")
+    if domain == "light":
+        capabilities.update({"light_target", "brightness_control", "color_control"})
+    elif domain == "lock":
+        capabilities.add("lock_control")
+    elif domain == "cover":
+        capabilities.add("cover_control")
+    elif domain == "media_player":
+        capabilities.update({"media_target", "volume_control"})
+    return capabilities
+
+
+def _remember_device_referent(
+    entity_id: str,
+    domain: Optional[str] = None,
+    *,
+    source: str = "deterministic",
+) -> None:
+    eid = str(entity_id or "").strip()
+    if "." not in eid:
+        return
+    actual_domain = eid.split(".", 1)[0].strip().lower()
+    requested_domain = str(domain or actual_domain).strip().lower()
+    if requested_domain != actual_domain:
+        logging.warning(
+            "DEVICE_REFERENT_DOMAIN_MISMATCH entity_id=%r requested=%r actual=%r",
+            eid,
+            requested_domain,
+            actual_domain,
+        )
+    remember_referent(
+        "device",
+        eid,
+        label=eid.split(".", 1)[-1].replace("_", " "),
+        capabilities=_device_referent_capabilities(actual_domain),
+        data={"entity_id": eid, "domain": actual_domain},
+        source=source,
+    )
+
+
+def _remember_resolved_entity(
+    entity_id: str,
+    domain: str,
+    *,
+    source: str = "deterministic",
+) -> None:
+    eid = str(entity_id or "").strip()
+    if "." not in eid:
+        return
+    actual_domain = eid.partition(".")[0].strip().lower()
+    if actual_domain == "light":
+        _remember_light(eid, source=source)
+        return
+    _remember_device_referent(eid, domain, source=source)
+
+
+def _remember_light(eid: str, *, source: str = "deterministic"):
     global last_light_entity_id, last_light_updated_ts
     global _last_light_group, _last_light_group_cmd_id, _last_light_group_ts
     now = _now_ts()
@@ -504,26 +580,55 @@ def _remember_light(eid: str):
             _last_light_group.append(eid)
     _last_light_group_ts = now
 
+    remember_referent(
+        "light",
+        eid,
+        label=eid.split(".", 1)[-1].replace("_", " "),
+        capabilities={"light_target"},
+        data={"entity_id": eid},
+        ttl_seconds=CONTEXT_TTL_SECONDS,
+        source=source,
+    )
+    remember_referent(
+        "light_group",
+        ",".join(_last_light_group),
+        label="recent lights",
+        capabilities={"light_group_target"},
+        data={
+            "entity_ids": list(_last_light_group),
+            "command_id": _current_cmd_id,
+        },
+        ttl_seconds=CONTEXT_TTL_SECONDS,
+        source=source,
+    )
+    _remember_device_referent(eid, "light", source=source)
+
 def _get_recent_light() -> Optional[str]:
-    if not last_light_entity_id:
-        return None
-    if (_now_ts() - last_light_updated_ts) > CONTEXT_TTL_SECONDS:
-        return None
-    return last_light_entity_id
+    ref = resolve_referent(
+        kinds={"light"},
+        capability="light_target",
+        max_age_seconds=CONTEXT_TTL_SECONDS,
+    )
+    return str(ref.get("key")) if ref else None
 
 def _get_recent_lights() -> list:
     """Return the light group from the most recently COMPLETED command.
     Returns empty list if called during the command that set the lights
     (i.e. cmd_id already incremented past the group's cmd_id)."""
-    if not _last_light_group:
+    ref = resolve_referent(
+        kinds={"light_group"},
+        capability="light_group_target",
+        max_age_seconds=CONTEXT_TTL_SECONDS,
+    )
+    if not ref:
         return []
-    if (_now_ts() - _last_light_group_ts) > CONTEXT_TTL_SECONDS:
-        return []
+    data = ref.get("data") or {}
+    entity_ids = list(data.get("entity_ids") or [])
     # Only return the group if it came from a *previous* command —
     # at expansion time the current command hasn't set any lights yet.
-    if _last_light_group_cmd_id == _current_cmd_id:
+    if data.get("command_id") == _current_cmd_id:
         return []
-    return list(_last_light_group)
+    return entity_ids
 
 def _maybe_normalize_for_device_pipeline(text: str) -> str:
     if not _looks_like_device_command(text):
@@ -1049,6 +1154,78 @@ def _resolve_device_entity_trace(phrase: str, states_snapshot):
         pass
     return r
 
+
+_SINGULAR_DEVICE_PRONOUNS = {
+    "it",
+    "that",
+    "this",
+    "that one",
+    "this one",
+    "that device",
+    "this device",
+}
+
+
+def _resolve_device_entity_with_context(
+    phrase: str,
+    states_snapshot,
+    *,
+    capability: str,
+):
+    """Resolve explicit text normally or a pronoun through typed dialogue state."""
+    normalized = re.sub(r"[^a-z0-9\s]+", " ", str(phrase or "").lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if normalized not in _SINGULAR_DEVICE_PRONOUNS:
+        return _resolve_device_entity_trace(phrase, states_snapshot)
+
+    ref = resolve_referent(
+        kinds={"device"},
+        capability=capability,
+    )
+    if not ref:
+        logging.info(
+            "DEVICE_REFERENT_MISS pronoun=%r capability=%s",
+            phrase,
+            capability,
+        )
+        return None
+
+    data = ref.get("data") or {}
+    entity_id = str(data.get("entity_id") or ref.get("key") or "").strip()
+    stored_domain = str(data.get("domain") or "").strip().lower()
+    actual_domain = entity_id.partition(".")[0].strip().lower()
+    state_exists = any(
+        isinstance(state, dict) and state.get("entity_id") == entity_id
+        for state in (states_snapshot or [])
+    )
+    capabilities = _device_referent_capabilities(actual_domain)
+    if (
+        "." not in entity_id
+        or not state_exists
+        or (stored_domain and stored_domain != actual_domain)
+        or capability not in capabilities
+    ):
+        logging.warning(
+            "DEVICE_REFERENT_INVALID key=%r stored_domain=%r actual_domain=%r "
+            "capability=%r state_exists=%s",
+            entity_id,
+            stored_domain,
+            actual_domain,
+            capability,
+            state_exists,
+        )
+        forget_referent("device", key=str(ref.get("key") or ""))
+        return None
+
+    logging.info(
+        "DEVICE_REFERENT_RESOLVE pronoun=%r capability=%s entity_id=%s domain=%s",
+        phrase,
+        capability,
+        entity_id,
+        actual_domain,
+    )
+    return (entity_id, actual_domain)
+
 # =========================
 # TIME + WEATHER
 # =========================
@@ -1069,15 +1246,24 @@ def _remember_location(location: str) -> None:
         return
     _last_location_query = cleaned
     _last_location_query_ts = _now_ts()
+    remember_referent(
+        "location",
+        cleaned,
+        label=cleaned,
+        capabilities={"location"},
+        data={"location": cleaned},
+        ttl_seconds=CONTEXT_TTL_SECONDS,
+    )
 
 
 def _recall_location() -> Optional[str]:
     """Return the last queried location if still within TTL, else None."""
-    if not _last_location_query:
-        return None
-    if (_now_ts() - _last_location_query_ts) > CONTEXT_TTL_SECONDS:
-        return None
-    return _last_location_query
+    ref = resolve_referent(
+        kinds={"location"},
+        capability="location",
+        max_age_seconds=CONTEXT_TTL_SECONDS,
+    )
+    return str(ref.get("key")) if ref else None
 
 
 _LOCATION_PRONOUN_RE = re.compile(r"\b(?:there|over there|in there)\b", re.IGNORECASE)
@@ -1188,6 +1374,74 @@ def handle_weather_query(
             return f"I couldn't get the weather for {location}."
         _remember_location(location)
         return f"{_strip_for_tts(geo['display'])}. {response}"
+
+    if query.mode == "hourly":
+        if location:
+            geo = geocode_location(location)
+            if not geo:
+                return f"I couldn't find {location}."
+            timezone_name = geo.get("timezone")
+            report = _open_meteo_report(
+                geo["lat"],
+                geo["lon"],
+                forecast_days=forecast_days_needed(query, timezone_name=timezone_name),
+            )
+            response = (
+                format_hourly_response(
+                    query,
+                    report.hourly,
+                    timezone_name=(report.timezone or timezone_name),
+                )
+                if report
+                else None
+            )
+            if not response and report and query.period == "tonight":
+                response = format_forecast_response(
+                    query,
+                    report.daily,
+                    timezone_name=(report.timezone or timezone_name),
+                )
+            if not response:
+                return f"I couldn't get the hourly forecast for {location}."
+            _remember_location(location)
+            return f"{_strip_for_tts(geo['display'])}. {response}"
+
+        hourly = _ha_hourly_forecasts(states_snapshot) or []
+        response = format_hourly_response(query, hourly)
+        if response:
+            return response
+
+        coordinates = _home_weather_coordinates()
+        report = None
+        if coordinates:
+            report = _open_meteo_report(
+                *coordinates,
+                forecast_days=forecast_days_needed(query),
+            )
+            response = (
+                format_hourly_response(
+                    query,
+                    report.hourly,
+                    timezone_name=report.timezone,
+                )
+                if report
+                else None
+            )
+            if response:
+                return response
+
+        if query.period == "tonight":
+            daily = _ha_daily_forecasts(states_snapshot) or []
+            response = format_forecast_response(query, daily)
+            if not response and report:
+                response = format_forecast_response(
+                    query,
+                    report.daily,
+                    timezone_name=report.timezone,
+                )
+            if response:
+                return response
+        return "I couldn't get the hourly forecast right now."
 
     if location:
         geo = geocode_location(location)
@@ -2292,6 +2546,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         old_last_light_entity_id = globals().get("last_light_entity_id", None)
         old_last_light_updated_ts = globals().get("last_light_updated_ts", 0)
         old_last_norm = globals().get("_LAST_STT_NORM_OUT", None)
+        old_dialogue_scope = snapshot_dialogue_scope()
 
         old_transport_focus = None
         try:
@@ -2356,6 +2611,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
 
             globals()["last_light_entity_id"] = old_last_light_entity_id
             globals()["last_light_updated_ts"] = old_last_light_updated_ts
+            restore_dialogue_scope(old_dialogue_scope)
 
             if old_last_norm is None:
                 try:
@@ -2693,8 +2949,17 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
-            resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            resolve_device_entity=lambda phrase: _resolve_device_entity_with_context(
+                phrase,
+                _states_snapshot,
+                capability="binary_control",
+            ),
             states_snapshot=_states_snapshot,
+            remember_entity=lambda eid, domain: _remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
         )
         if onoff_resp is not None:
             logging.info("CLAIM: on_off_controls")
@@ -2705,7 +2970,16 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
-            resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            resolve_device_entity=lambda phrase: _resolve_device_entity_with_context(
+                phrase,
+                _states_snapshot,
+                capability="toggle_control",
+            ),
+            remember_entity=lambda eid, domain: _remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
         )
         if toggle_resp is not None:
             logging.info("CLAIM: toggle_controls")
@@ -2716,7 +2990,16 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
-            resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            resolve_device_entity=lambda phrase: _resolve_device_entity_with_context(
+                phrase,
+                _states_snapshot,
+                capability="lock_control",
+            ),
+            remember_entity=lambda eid, domain: _remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
         )
         if lock_resp is not None:
             logging.info("CLAIM: lock_controls")
@@ -3297,6 +3580,11 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             maybe_say=_maybe_say,
             sonos_players=SONOS_PLAYERS,
             default_sonos_room=_request_sonos_room,
+            remember_entity=lambda eid, domain: _remember_resolved_entity(
+                eid,
+                domain,
+                source="state_query",
+            ),
         )
 
         try:
@@ -4176,8 +4464,17 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
-            resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            resolve_device_entity=lambda phrase: _resolve_device_entity_with_context(
+                phrase,
+                _states_snapshot,
+                capability="binary_control",
+            ),
             states_snapshot=_states_snapshot,
+            remember_entity=lambda eid, domain: _remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
         )
         if onoff_resp is not None:
             logging.info("CLAIM: on_off_controls")
@@ -4188,7 +4485,16 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
-            resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            resolve_device_entity=lambda phrase: _resolve_device_entity_with_context(
+                phrase,
+                _states_snapshot,
+                capability="toggle_control",
+            ),
+            remember_entity=lambda eid, domain: _remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
         )
         if toggle_resp is not None:
             logging.info("CLAIM: toggle_controls")
@@ -4199,7 +4505,16 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             tl=tl,
             call_ha_service=call_ha_service,
             maybe_say=_maybe_say,
-            resolve_device_entity=lambda phrase: _resolve_device_entity_trace(phrase, _states_snapshot),
+            resolve_device_entity=lambda phrase: _resolve_device_entity_with_context(
+                phrase,
+                _states_snapshot,
+                capability="lock_control",
+            ),
+            remember_entity=lambda eid, domain: _remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
         )
         if lock_resp is not None:
             logging.info("CLAIM: lock_controls")
@@ -4260,3 +4575,4 @@ def reset_dispatch_state():
     _last_location_query = None
     _last_location_query_ts = 0.0
     _ACTION_OCCURRED = False
+    reset_dialogue_state()

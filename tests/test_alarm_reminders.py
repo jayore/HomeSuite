@@ -56,6 +56,12 @@ class ReminderParserTests(unittest.TestCase):
         self.assertEqual(parsed["music_command"], "play music")
         self.assertRegex(parsed["phrase"].lower(), r"^(?:tomorrow )?at 7(?::00)? am$")
 
+    def test_an_article_does_not_leak_into_timer_label(self):
+        parsed = self._parse("set an audit timer for 10 minutes")
+
+        self.assertEqual(parsed["kind"], "timer")
+        self.assertEqual(parsed["label"], "audit")
+
 
 class ReminderLifecycleTests(unittest.TestCase):
     def test_reminder_fires_as_spoken_reminder(self):

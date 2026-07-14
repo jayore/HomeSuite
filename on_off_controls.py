@@ -96,6 +96,24 @@ _BINARY_ACTION_SERVICES = {
 }
 
 
+def supports_binary_action(domain: str) -> bool:
+    """Return whether ``domain`` exposes ordinary turn-on/off semantics."""
+    return str(domain or "").strip().lower() in _BINARY_ACTION_SERVICES
+
+
+def _remember_entity_safely(remember_entity, entity_id: str, domain: str) -> None:
+    if remember_entity is None:
+        return
+    try:
+        remember_entity(entity_id, domain)
+    except Exception:
+        logging.exception(
+            "DEVICE_REFERENT_REMEMBER_FAIL entity_id=%r domain=%r",
+            entity_id,
+            domain,
+        )
+
+
 def _is_all_lights_target(raw: str) -> bool:
     """Return True only for an explicit whole-home light quantifier."""
     t = (raw or "").strip().lower()
@@ -157,6 +175,7 @@ def _run_resolved_binary_action(
     call_ha_service,
     maybe_say,
     resolve_device_entity,
+    remember_entity=None,
 ) -> Optional[str]:
     resolved = resolve_device_entity(raw)
     if not resolved:
@@ -179,6 +198,9 @@ def _run_resolved_binary_action(
     ok = _is_ok(call_ha_service(service, {"entity_id": entity_id}))
     if not ok:
         return None
+    _remember_entity_safely(remember_entity, entity_id, domain)
+    if _norm_target(raw) in {"it", "that", "this", "that one", "this one"}:
+        return _say_or_blank(maybe_say, f"Turning {raw} {action}.")
     verb = "Turning on" if action == "on" else "Turning off"
     return _say_or_blank(maybe_say, f"{verb} {raw}.")
 
@@ -224,6 +246,7 @@ def handle_on_off_controls(
     maybe_say,
     resolve_device_entity,
     states_snapshot=None,
+    remember_entity=None,
 ) -> Optional[str]:
     """Claim and execute explicit binary device or room-area commands."""
     """
@@ -236,6 +259,12 @@ def handle_on_off_controls(
     Values can be "scene.*" or "script.*".
     """
     t = (tl or "").strip().lower()
+
+    # Normalize the equally common postposed form before ordinary routing:
+    # "turn the stair light off" / "turn it on".
+    postposed = re.fullmatch(r"turn\s+(?:the\s+)?(.+?)\s+(on|off)", t)
+    if postposed:
+        t = f"turn {postposed.group(2)} {postposed.group(1).strip()}"
 
     m_on = re.search(r"\bturn on (?:the )?(.+)\b", t)
     if m_on:
@@ -274,6 +303,7 @@ def handle_on_off_controls(
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
+            remember_entity=remember_entity,
         )
 
     m_off = re.search(r"\bturn off (?:the )?(.+)\b", t)
@@ -313,6 +343,7 @@ def handle_on_off_controls(
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
+            remember_entity=remember_entity,
         )
 
     # --------------------------------------------------
@@ -358,6 +389,7 @@ def handle_on_off_controls(
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
+            remember_entity=remember_entity,
         )
 
     m_bare_on = re.fullmatch(r"(?:the\s+)?(.+?)\s+on\b", t)
@@ -397,6 +429,7 @@ def handle_on_off_controls(
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
+            remember_entity=remember_entity,
         )
 
 
@@ -413,12 +446,18 @@ _TOGGLEABLE_DOMAINS = {
 }
 
 
+def supports_toggle_action(domain: str) -> bool:
+    """Return whether ``domain`` exposes Home Assistant toggle semantics."""
+    return str(domain or "").strip().lower() in _TOGGLEABLE_DOMAINS
+
+
 def handle_toggle_controls(
     *,
     tl: str,
     call_ha_service,
     maybe_say,
     resolve_device_entity,
+    remember_entity=None,
 ) -> Optional[str]:
     """Toggle one verified target when Home Assistant exposes toggle semantics."""
     """
@@ -463,4 +502,6 @@ def handle_toggle_controls(
         return None
 
     ok = _is_ok(call_ha_service(f"{domain}/toggle", {"entity_id": eid}))
+    if ok:
+        _remember_entity_safely(remember_entity, eid, domain)
     return _say_or_blank(maybe_say, f"Toggling {raw}.") if ok else None

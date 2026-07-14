@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass
 
 from app_config import INTERACTION_CANCEL_PHRASES
+from dialogue_state import current_scope_id
 
 
 @dataclass
@@ -373,20 +375,52 @@ _BASE_SYSTEM_MESSAGE = {
 }
 
 conversation_history: list = [_BASE_SYSTEM_MESSAGE.copy()]
+_HISTORY_LOCK = threading.RLock()
+_HISTORIES_BY_SCOPE: dict[str, list] = {"process": conversation_history}
 
 
-def trim_history() -> None:
-    global conversation_history
-    if len(conversation_history) <= 1 + MAX_HISTORY_MESSAGES:
+def _history_for_scope(scope_id: str | None = None) -> list:
+    scope = str(scope_id or current_scope_id()).strip() or "process"
+    with _HISTORY_LOCK:
+        history = _HISTORIES_BY_SCOPE.get(scope)
+        if history is None:
+            history = [_BASE_SYSTEM_MESSAGE.copy()]
+            _HISTORIES_BY_SCOPE[scope] = history
+        return history
+
+
+def get_history_snapshot(scope_id: str | None = None) -> list:
+    with _HISTORY_LOCK:
+        return [dict(message) for message in _history_for_scope(scope_id)]
+
+
+def append_history_message(role: str, content: str, scope_id: str | None = None) -> None:
+    if not role or not content:
         return
-    system = conversation_history[0]
-    tail = conversation_history[-MAX_HISTORY_MESSAGES:]
-    conversation_history = [system] + tail
+    with _HISTORY_LOCK:
+        _history_for_scope(scope_id).append({"role": role, "content": content})
+        trim_history(scope_id)
 
 
-def reset_history() -> None:
-    global conversation_history
-    conversation_history = [_BASE_SYSTEM_MESSAGE.copy()]
+def trim_history(scope_id: str | None = None) -> None:
+    with _HISTORY_LOCK:
+        history = _history_for_scope(scope_id)
+        if len(history) <= 1 + MAX_HISTORY_MESSAGES:
+            return
+        system = history[0]
+        tail = history[-MAX_HISTORY_MESSAGES:]
+        history[:] = [system] + tail
+
+
+def reset_history(scope_id: str | None = None, *, all_scopes: bool = False) -> None:
+    with _HISTORY_LOCK:
+        if all_scopes:
+            _HISTORIES_BY_SCOPE.clear()
+            conversation_history[:] = [_BASE_SYSTEM_MESSAGE.copy()]
+            _HISTORIES_BY_SCOPE["process"] = conversation_history
+            return
+        history = _history_for_scope(scope_id)
+        history[:] = [_BASE_SYSTEM_MESSAGE.copy()]
 
 
 def inject_into_history(
@@ -419,9 +453,11 @@ def inject_into_history(
     # "Setting side lamp to blue." which doesn't need to be in AI context.
     if not force and len(history_assistant_text.split()) < 6:
         return
-    conversation_history.append({"role": "user", "content": user_text})
-    conversation_history.append({"role": "assistant", "content": history_assistant_text})
-    trim_history()
+    with _HISTORY_LOCK:
+        history = _history_for_scope()
+        history.append({"role": "user", "content": user_text})
+        history.append({"role": "assistant", "content": history_assistant_text})
+        trim_history()
     logging.info(
         "HISTORY_INJECT%s: user=%r assistant=%r",
         "_FORCED" if force else "",

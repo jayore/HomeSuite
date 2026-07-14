@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Optional
 
@@ -10,12 +11,26 @@ def _norm_target(raw: str) -> str:
     return t
 
 
+def _remember_entity_safely(remember_entity, entity_id: str, domain: str) -> None:
+    if remember_entity is None:
+        return
+    try:
+        remember_entity(entity_id, domain)
+    except Exception:
+        logging.exception(
+            "LOCK_REFERENT_REMEMBER_FAIL entity_id=%r domain=%r",
+            entity_id,
+            domain,
+        )
+
+
 def handle_lock_controls(
     *,
     tl: str,
     call_ha_service,
     maybe_say,
     resolve_device_entity,
+    remember_entity=None,
 ) -> Optional[str]:
     """
     Handles:
@@ -48,6 +63,8 @@ def handle_lock_controls(
             return None
 
         ok = call_ha_service("lock/unlock", {"entity_id": eid})
+        if ok:
+            _remember_entity_safely(remember_entity, eid, domain)
         return maybe_say(f"Unlocking {raw}.") if ok else None
 
     m_lock = re.search(r"\block\b(?:\s+(?:the\s+)?)?(.+)$", t)
@@ -66,6 +83,8 @@ def handle_lock_controls(
             return None
 
         ok = call_ha_service("lock/lock", {"entity_id": eid})
+        if ok:
+            _remember_entity_safely(remember_entity, eid, domain)
         return maybe_say(f"Locking {raw}.") if ok else None
 
     return None

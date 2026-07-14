@@ -219,13 +219,14 @@ class AssistantBulkFilterTests(unittest.TestCase):
 
 
 class StateQueryContractTests(unittest.TestCase):
-    def _handle(self, text, states, resolver=None):
+    def _handle(self, text, states, resolver=None, remember_entity=None):
         from state_query_controls import handle_state_query_controls
 
         return handle_state_query_controls(
             text,
             states_snapshot=states,
             resolve_device_entity=resolver or (lambda _phrase: None),
+            remember_entity=remember_entity,
         )
 
     def test_shared_matcher_covers_documented_and_sensor_queries(self):
@@ -324,6 +325,33 @@ class StateQueryContractTests(unittest.TestCase):
 
         self.assertEqual(result, "I couldn't read that device right now.")
 
+    def test_named_state_query_publishes_only_a_verified_entity(self):
+        states = [{"entity_id": "light.stair", "state": "on"}]
+        remember = mock.Mock()
+
+        result = self._handle(
+            "is the stair light on?",
+            states,
+            lambda _phrase: ("light.stair", "light"),
+            remember,
+        )
+
+        self.assertEqual(result, "Yes.")
+        remember.assert_called_once_with("light.stair", "light")
+
+    def test_unreadable_state_does_not_publish_a_referent(self):
+        states = [{"entity_id": "light.stair", "state": "unavailable"}]
+        remember = mock.Mock()
+
+        self._handle(
+            "is the stair light on?",
+            states,
+            lambda _phrase: ("light.stair", "light"),
+            remember,
+        )
+
+        remember.assert_not_called()
+
     def test_room_humidity_uses_area_membership(self):
         import state_query_controls
 
@@ -399,6 +427,77 @@ class StateQueryContractTests(unittest.TestCase):
         result = self._handle("what's the front door battery?", states)
 
         self.assertEqual(result, "Front Door Battery is at 82 percent.")
+
+
+class DeviceReferentContinuityTests(unittest.TestCase):
+    def setUp(self):
+        import dialogue_state
+
+        dialogue_state.reset_dialogue_state(all_scopes=True)
+
+    def tearDown(self):
+        import dialogue_state
+
+        dialogue_state.reset_dialogue_state(all_scopes=True)
+
+    def test_state_query_then_turn_it_off_uses_the_verified_entity_id(self):
+        import command_dispatch
+        from on_off_controls import handle_on_off_controls
+        from state_query_controls import handle_state_query_controls
+
+        states = [{"entity_id": "light.stair", "state": "on"}]
+        call = mock.Mock(return_value=True)
+        query = handle_state_query_controls(
+            "is the stair light on?",
+            states_snapshot=states,
+            resolve_device_entity=lambda _phrase: ("light.stair", "light"),
+            remember_entity=lambda eid, domain: command_dispatch._remember_resolved_entity(
+                eid,
+                domain,
+                source="state_query",
+            ),
+        )
+        action = handle_on_off_controls(
+            tl="turn it off",
+            call_ha_service=call,
+            maybe_say=lambda text: text,
+            resolve_device_entity=lambda phrase: command_dispatch._resolve_device_entity_with_context(
+                phrase,
+                states,
+                capability="binary_control",
+            ),
+            states_snapshot=states,
+        )
+
+        self.assertEqual(query, "Yes.")
+        self.assertEqual(action, "Turning it off.")
+        call.assert_called_once_with("light/turn_off", {"entity_id": "light.stair"})
+
+    def test_missing_live_entity_invalidates_referent_without_a_write(self):
+        import command_dispatch
+        from on_off_controls import handle_on_off_controls
+
+        command_dispatch._remember_resolved_entity(
+            "light.stair",
+            "light",
+            source="test",
+        )
+        call = mock.Mock(return_value=True)
+        with mock.patch.dict(os.environ, {"PIPHONE_LIVE": "1"}, clear=False):
+            action = handle_on_off_controls(
+                tl="turn it off",
+                call_ha_service=call,
+                maybe_say=lambda text: text,
+                resolve_device_entity=lambda phrase: command_dispatch._resolve_device_entity_with_context(
+                    phrase,
+                    [],
+                    capability="binary_control",
+                ),
+                states_snapshot=[],
+            )
+
+        self.assertIsNone(action)
+        call.assert_not_called()
 
 
 class AlarmDryRunTests(unittest.TestCase):

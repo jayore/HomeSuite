@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 
 from request_context import get_active_room_for_request_defaults
+from dialogue_state import forget_referent, remember_referent, resolve_referent
 from home_registry import get_default_room_id, resolve_room_id
 from spoken_text import normalize_for_tts, tokenize_for_gtts
 
@@ -67,6 +68,64 @@ def _prefs(name: str, default):
         return getattr(app_config, name, default)
     except Exception:
         return default
+
+
+def _scheduled_referent_capabilities(kind: str) -> set[str]:
+    common = {"cancel_schedule", "due_query"}
+    if kind in {"alarm", "timer"}:
+        common.add("snooze_schedule")
+    if kind == "timer":
+        return common | {
+            "adjust_duration",
+            "remaining_query",
+            "pause_schedule",
+            "resume_schedule",
+        }
+    return common
+
+
+def _remember_scheduled_referent(alarm: dict, *, source: str = "deterministic") -> None:
+    kind = str(alarm.get("kind") or "").strip().lower()
+    alarm_id = str(alarm.get("id") or "").strip()
+    if kind not in {"alarm", "timer", "reminder"} or not alarm_id:
+        return
+    remember_referent(
+        kind,
+        alarm_id,
+        label=_display_alarm_name(alarm),
+        capabilities=_scheduled_referent_capabilities(kind),
+        data={"kind": kind},
+        ttl_seconds=float(_prefs("DIALOGUE_REFERENT_TTL_SECONDS", 2 * 60)),
+        source=source,
+    )
+
+
+def _resolve_scheduled_referent(
+    capability: str,
+    *,
+    kinds: Optional[set[str]] = None,
+    statuses: Optional[set[str]] = None,
+) -> Optional[dict]:
+    kinds = kinds or {"alarm", "timer", "reminder"}
+    ref = resolve_referent(kinds=kinds, capability=capability)
+    if not ref:
+        return None
+
+    key = str(ref.get("key") or "").strip()
+    row = next(
+        (
+            item for item in _load_alarms()
+            if isinstance(item, dict)
+            and str(item.get("id") or "") == key
+            and str(item.get("kind") or "").lower() in kinds
+        ),
+        None,
+    )
+    if row and (not statuses or str(row.get("status") or "").lower() in statuses):
+        return dict(row)
+
+    forget_referent(str(ref.get("kind") or ""), key=key)
+    return None
 
 
 def _ensure_state_dir() -> None:
@@ -466,7 +525,7 @@ def _parse_create_alarm(
     # set a timer for 5 minutes
     # timer for 5 minutes
     m = re.match(
-        r"^(?:set\s+)?(?:a|an)?\s*(?:(?P<label>[a-z0-9][a-z0-9\s\-]*?)\s+)?timer\s+for\s+(?P<when>.+)$",
+        r"^(?:set\s+)?(?:(?:an|a)\s+)?(?:(?P<label>[a-z0-9][a-z0-9\s\-]*?)\s+)?timer\s+for\s+(?P<when>.+)$",
         t,
     )
     if m:
@@ -893,6 +952,18 @@ def _schedule_alarm_fire(alarm_id: str, run_at: float, *, metadata: Optional[dic
         run_at,
         metadata=metadata or {"kind": "alarm", "alarm_id": alarm_id},
     )
+
+
+def _alarm_schedule_metadata(alarm: dict) -> dict:
+    return {
+        "kind": "alarm",
+        "alarm_id": alarm.get("id"),
+        "alarm_kind": alarm.get("kind"),
+        "label": alarm.get("label"),
+        "output": alarm.get("output"),
+        "action_command": alarm.get("action_command"),
+        "music_command": alarm.get("music_command"),
+    }
 
 
 
@@ -1331,6 +1402,7 @@ def _list_alarms_response(kind: Optional[str] = None) -> str:
     rows = sorted(rows, key=lambda r: _room_sort_key(r, preferred_room))
 
     if len(rows) == 1:
+        _remember_scheduled_referent(rows[0], source="list")
         item = _format_alarm_summary(rows[0])
 
         if kind == "timer":
@@ -1367,13 +1439,73 @@ def _list_alarms_response(kind: Optional[str] = None) -> str:
     return f"{intro} {spoken}."
 
 
+def _specific_alarm_query_response(text: str, *, kind: str) -> Optional[str]:
+    """Answer a label, room, or clock-specific alarm/timer/reminder query."""
+    cleaned = _strip_cancel_query_words(text)
+    explicit_tokens = _tokens(cleaned)
+    if not explicit_tokens:
+        return None
+
+    explicit_room = _extract_room_phrase_from_text(text)
+    preferred_room = _default_alarm_scope_room()
+    matches = _find_alarm_matches(
+        text,
+        kind_hint=kind,
+        explicit_room=explicit_room,
+        preferred_room=preferred_room,
+    )
+    if not matches:
+        noun = "timer" if kind == "timer" else "alarm" if kind == "alarm" else "reminder"
+        return f"You don't have a matching {noun} set."
+
+    if len(matches) > 1:
+        query = _strip_cancel_query_words(text)
+        top = _score_alarm_match(
+            matches[0],
+            query,
+            kind_hint=kind,
+            explicit_room=explicit_room,
+            preferred_room=preferred_room,
+        )
+        second = _score_alarm_match(
+            matches[1],
+            query,
+            kind_hint=kind,
+            explicit_room=explicit_room,
+            preferred_room=preferred_room,
+        )
+        if top < 50 or top - second < 20:
+            examples = "; ".join(_format_alarm_summary(row) for row in matches[:3])
+            return f"I found multiple matching {kind}s: {examples}. Say which one you mean."
+
+    alarm = matches[0]
+    _remember_scheduled_referent(alarm, source="query")
+    name = _display_alarm_name(alarm)
+    if kind == "timer":
+        remaining = _timer_remaining_seconds(alarm)
+        return f"The {name} has {_format_remaining_seconds_for_list(remaining)} remaining."
+
+    phrase = _format_due_phrase(float(alarm.get("run_at") or 0.0))
+    return f"The {name} is set {phrase}."
+
+
 def _strip_cancel_query_words(text: str) -> str:
     t = _norm(text)
 
     # Remove common command/query scaffolding.
     t = re.sub(r"^(please\s+)?(cancel|clear|delete|remove|stop)\s+", "", t).strip()
-    t = re.sub(r"^(please\s+)?(what'?s|what is|what are|how much|how long|when is|when are)\s+", "", t).strip()
-    t = re.sub(r"\b(time\s+is\s+left|time\s+left|left|remaining|set|scheduled|do i have|are set|is set)\b", " ", t)
+    t = re.sub(
+        r"^(please\s+)?(what'?s|what is|what are|what time is|what time are|"
+        r"how much|how many|how long|when is|when are|which|what)\s+",
+        "",
+        t,
+    ).strip()
+    t = re.sub(
+        r"\b(time\s+is\s+left|time\s+left|time\s+remaining|left|remaining|until|"
+        r"set|scheduled|do i have|are set|is set)\b",
+        " ",
+        t,
+    )
     t = re.sub(r"\b(my|the|a|an|for|on|of)\b", " ", t)
     t = re.sub(r"\s+", " ", t).strip()
     return t
@@ -1382,9 +1514,10 @@ def _strip_cancel_query_words(text: str) -> str:
 def _tokens(s: str) -> set:
     stop = {
         "timer", "timers", "alarm", "alarms", "reminder", "reminders",
-        "remind", "me", "to", "wake", "up",
+        "remind", "me", "to",
         "cancel", "clear", "delete", "remove", "stop",
         "my", "the", "a", "an", "please", "set", "scheduled",
+        "time", "left", "remaining", "until", "much", "many", "long",
         "oclock", "oclock",
     }
     s = _norm(s)
@@ -1402,14 +1535,10 @@ def _score_alarm_match(
 ) -> int:
     score = 0
 
-    alarm_kind = str(alarm.get("kind") or "").lower()
     label = str(alarm.get("label") or "").strip().lower()
     name = _display_alarm_name(alarm).lower()
     q = _norm(query)
     alarm_room = _alarm_associated_room(alarm)
-
-    if kind_hint and alarm_kind == kind_hint:
-        score += 20
 
     if explicit_room and alarm_room == _norm(explicit_room):
         score += 120
@@ -1735,6 +1864,22 @@ def _parse_timer_edit_request(text: str) -> Optional[Dict[str, Any]]:
             r"(?:please\s+)?reduce\s+(?:(?:my|the|a|an)\s+)?"
             rf"(?P<target>.*?)\s*timers?\s+by\s+{duration}",
         ),
+        (
+            "set",
+            r"(?:please\s+)?change\s+(?:the\s+)?time\s+(?:left|remaining)\s+on\s+"
+            r"(?:(?:my|the|a|an)\s+)?"
+            rf"(?P<target>.*?)\s*timers?\s+to\s+{duration}",
+        ),
+        (
+            "set",
+            r"(?:please\s+)?(?:set|change)\s+(?:(?:my|the|a|an)\s+)?"
+            rf"(?P<target>.*?)\s*timers?\s+to\s+{duration}",
+        ),
+        (
+            "set",
+            r"(?:please\s+)?reset\s+(?:(?:my|the|a|an)\s+)?"
+            rf"(?P<target>.*?)\s*timers?\s+(?:to|for)\s+{duration}",
+        ),
     )
     for action, pattern in patterns:
         match = re.fullmatch(pattern, t)
@@ -1805,16 +1950,25 @@ def _timer_remaining_seconds(timer: dict, *, now_ts: Optional[float] = None) -> 
         return 0.0
 
 
-def _handle_timer_edit_request(text: str) -> Optional[str]:
-    request = _parse_timer_edit_request(text)
+def _handle_timer_edit_request(
+    text: str,
+    *,
+    request_override: Optional[Dict[str, Any]] = None,
+    timer_override: Optional[dict] = None,
+) -> Optional[str]:
+    request = request_override or _parse_timer_edit_request(text)
     if request is None:
         return None
     if request.get("invalid_duration"):
         return "I heard the timer adjustment, but I couldn't understand how much time to change."
 
-    timer, error = _choose_timer_for_edit(text, str(request.get("target") or ""))
-    if timer is None:
-        return error or "I couldn't find that timer."
+    if timer_override is None:
+        timer, error = _choose_timer_for_edit(text, str(request.get("target") or ""))
+        if timer is None:
+            return error or "I couldn't find that timer."
+    else:
+        timer = dict(timer_override)
+    _remember_scheduled_referent(timer, source="timer_edit")
 
     action = str(request.get("action") or "")
     status = str(timer.get("status") or "").lower()
@@ -1883,7 +2037,10 @@ def _handle_timer_edit_request(text: str) -> Optional[str]:
     delta = float(request.get("seconds") or 0.0)
     if delta <= 0:
         return "I heard the timer adjustment, but I couldn't understand how much time to change."
-    new_remaining = remaining + delta if action == "add" else remaining - delta
+    if action == "set":
+        new_remaining = delta
+    else:
+        new_remaining = remaining + delta if action == "add" else remaining - delta
     if new_remaining <= 0:
         return "That adjustment would leave no time on the timer, so I left it unchanged."
 
@@ -1911,6 +2068,15 @@ def _handle_timer_edit_request(text: str) -> Optional[str]:
             updates["remaining_seconds"] = new_remaining
         _update_alarm(alarm_id, **updates)
 
+    if action == "set":
+        logging.info(
+            "TIMER_EDIT action=set alarm_id=%s remaining=%.3f status=%s",
+            alarm_id,
+            new_remaining,
+            status,
+        )
+        return f"The {name} now has {_format_remaining_seconds_for_list(new_remaining)} remaining."
+
     verb = "Added" if action == "add" else "Removed"
     logging.info(
         "TIMER_EDIT action=%s alarm_id=%s delta=%.3f remaining=%.3f status=%s",
@@ -1926,6 +2092,329 @@ def _handle_timer_edit_request(text: str) -> Optional[str]:
     )
 
 
+def _strip_followup_prefix(text: str) -> str:
+    t = _norm(text)
+    return re.sub(
+        r"^(?:(?:ok|okay|alright|sure|right|got it)(?:\s*,\s*|\s+))+",
+        "",
+        t,
+    ).strip()
+
+
+def _parse_scheduled_referent_followup(text: str) -> Optional[Dict[str, Any]]:
+    """Parse narrow follow-ups whose object must come from dialogue state."""
+    t = _strip_followup_prefix(text)
+    pointer = r"(?:it|that|this)(?:\s+one)?"
+    duration = rf"(?P<num>{_TIMER_EDIT_NUM_RE})\s+(?P<unit>{_TIMER_EDIT_UNIT_RE})"
+
+    patterns = (
+        (
+            "add",
+            rf"(?:please\s+)?(?:add|put)\s+{duration}\s+(?:to|on|onto)\s+{pointer}",
+        ),
+        (
+            "subtract",
+            rf"(?:please\s+)?(?:subtract|remove)\s+{duration}\s+from\s+{pointer}",
+        ),
+        (
+            "subtract",
+            rf"(?:please\s+)?take\s+{duration}\s+off\s+{pointer}",
+        ),
+        (
+            "set",
+            rf"(?:please\s+)?(?:set|change|reset)\s+{pointer}\s+(?:to|for)\s+{duration}",
+        ),
+    )
+    for action, pattern in patterns:
+        match = re.fullmatch(pattern, t)
+        if not match:
+            continue
+        seconds = _timer_edit_duration_seconds(match.group("num"), match.group("unit"))
+        return {
+            "intent": "timer_edit",
+            "action": action,
+            "target": "",
+            "seconds": seconds,
+            "invalid_duration": seconds is None,
+        }
+
+    if re.fullmatch(
+        rf"(?:please\s+)?(?:how much time(?:\s+is)?\s+(?:left|remaining)"
+        rf"(?:\s+on\s+{pointer})?|how long(?:\s+does\s+{pointer}\s+have)?\s+left)",
+        t,
+    ):
+        return {"intent": "timer_query"}
+
+    if re.fullmatch(rf"(?:please\s+)?(?:cancel|delete)\s+{pointer}", t):
+        return {"intent": "cancel_schedule"}
+
+    return None
+
+
+def _handle_scheduled_referent_followup(text: str) -> Optional[str]:
+    request = _parse_scheduled_referent_followup(text)
+    if request is None:
+        return None
+
+    intent = str(request.get("intent") or "")
+    active_statuses = {"pending", "scheduled", "paused"}
+    if intent == "timer_edit":
+        timer = _resolve_scheduled_referent(
+            "adjust_duration",
+            kinds={"timer"},
+            statuses=active_statuses,
+        )
+        if timer is None:
+            return "I don't have a recent timer to apply that to. Say which timer you mean."
+        return _handle_timer_edit_request(
+            text,
+            request_override=request,
+            timer_override=timer,
+        )
+
+    if intent == "timer_query":
+        timer = _resolve_scheduled_referent(
+            "remaining_query",
+            kinds={"timer"},
+            statuses=active_statuses,
+        )
+        if timer is None:
+            return "I don't have a recent timer to check. Say which timer you mean."
+        _remember_scheduled_referent(timer, source="referent_query")
+        name = _display_alarm_name(timer)
+        remaining = _timer_remaining_seconds(timer)
+        return f"The {name} has {_format_remaining_seconds_for_list(remaining)} remaining."
+
+    if intent == "cancel_schedule":
+        alarm = _resolve_scheduled_referent(
+            "cancel_schedule",
+            statuses=active_statuses,
+        )
+        if alarm is None:
+            # Generic schedule_controls has its own bounded "cancel it" memory.
+            return None
+        name = _cancel_display_alarm_name(alarm)
+        kind = str(alarm.get("kind") or "")
+        alarm_id = str(alarm.get("id") or "")
+        if _cancel_alarm_row(alarm):
+            forget_referent(kind, key=alarm_id)
+            return f"Canceled the {name}."
+        return "I couldn't cancel that."
+
+    return None
+
+
+def _parse_snooze_request(text: str) -> Optional[Dict[str, Any]]:
+    t = _norm(text)
+    if not re.match(r"^(?:please\s+)?snooze\b", t):
+        return None
+
+    rest = re.sub(r"^(?:please\s+)?snooze\b", "", t).strip()
+    duration_match = re.search(
+        rf"(?:\s+|^)(?:for\s+)?(?P<num>{_TIMER_EDIT_NUM_RE})\s+"
+        rf"(?P<unit>{_TIMER_EDIT_UNIT_RE})$",
+        rest,
+    )
+    if duration_match:
+        seconds = _timer_edit_duration_seconds(
+            duration_match.group("num"),
+            duration_match.group("unit"),
+        )
+        rest = rest[: duration_match.start()].strip()
+    else:
+        seconds = float(_prefs("ALARM_DEFAULT_SNOOZE_MINUTES", 10)) * 60.0
+
+    if not seconds or seconds <= 0:
+        return {"invalid_duration": True}
+
+    kind_hint = None
+    if re.search(r"\btimers?\b", rest):
+        kind_hint = "timer"
+    elif re.search(r"\balarms?\b", rest):
+        kind_hint = "alarm"
+
+    target = re.sub(r"\b(?:timers?|alarms?)\b", " ", rest)
+    target = re.sub(r"^(?:my|the|a|an)\s+", "", target).strip()
+    target = re.sub(r"\s+", " ", target)
+    if target in {"it", "that", "this", "that one", "this one"}:
+        target = ""
+    return {
+        "kind": kind_hint,
+        "target": target,
+        "seconds": float(seconds),
+    }
+
+
+def _recent_snoozable_alarms(kind_hint: Optional[str]) -> list[dict]:
+    now_ts = time.time()
+    window = max(0.0, float(_prefs("ALARM_SNOOZE_RECENT_WINDOW_SECONDS", 15 * 60)))
+    rows = []
+    for row in _load_alarms():
+        if not isinstance(row, dict):
+            continue
+        kind = str(row.get("kind") or "").lower()
+        if kind not in {"alarm", "timer"} or (kind_hint and kind != kind_hint):
+            continue
+        status = str(row.get("status") or "").lower()
+        if status in {"fired", "fired_with_attachment_error"}:
+            try:
+                event_ts = float(row.get("completed_at") or row.get("fired_at"))
+            except (TypeError, ValueError):
+                continue
+            if now_ts - event_ts > window:
+                continue
+        else:
+            continue
+        copy = dict(row)
+        copy["_snooze_event_ts"] = event_ts
+        copy["_run_at_float"] = event_ts
+        rows.append(copy)
+    rows.sort(key=lambda row: float(row.get("_snooze_event_ts") or 0.0), reverse=True)
+    return rows
+
+
+def _choose_alarm_for_snooze(
+    text: str,
+    *,
+    kind_hint: Optional[str],
+    target: str,
+) -> Tuple[Optional[dict], Optional[str]]:
+    explicit_room = _extract_room_phrase_from_text(text)
+    preferred_room = _default_alarm_scope_room()
+
+    recent = _recent_snoozable_alarms(kind_hint)
+    active = _active_alarms(kind=kind_hint)
+
+    def _rank(rows: list[dict]) -> list[tuple[int, dict]]:
+        scored = []
+        for row in rows:
+            score = _score_alarm_match(
+                row,
+                target,
+                kind_hint=kind_hint,
+                explicit_room=explicit_room,
+                preferred_room=preferred_room,
+            )
+            if score >= 50:
+                scored.append((score, row))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return scored
+
+    def _not_yet_fired_message(kind: Optional[str]) -> str:
+        if kind == "timer":
+            return (
+                "That timer hasn't gone off yet. You can add time to it or change "
+                "the time remaining instead."
+            )
+        if kind == "alarm":
+            return "That alarm hasn't gone off yet, so there's nothing to snooze."
+        return "That alarm or timer hasn't gone off yet, so there's nothing to snooze."
+
+    if target or explicit_room:
+        recent_matches = _rank(recent)
+        if len(recent_matches) > 1 and recent_matches[0][0] - recent_matches[1][0] < 20:
+            examples = "; ".join(
+                _format_alarm_summary(row) for _, row in recent_matches[:3]
+            )
+            return None, f"I found multiple matches: {examples}. Say which one you mean."
+        if recent_matches:
+            return recent_matches[0][1], None
+
+        active_matches = _rank(active)
+        if active_matches:
+            matched = active_matches[0][1]
+            _remember_scheduled_referent(matched, source="snooze_rejected_pending")
+            matched_kind = str(matched.get("kind") or kind_hint or "").lower()
+            return None, _not_yet_fired_message(matched_kind)
+        return None, "You don't have a matching alarm or timer that went off recently."
+
+    if recent:
+        if len(recent) == 1:
+            return recent[0], None
+        return None, "More than one alarm or timer just finished. Say which one you mean."
+    if active:
+        if len(active) == 1:
+            _remember_scheduled_referent(active[0], source="snooze_rejected_pending")
+        active_kinds = {str(row.get("kind") or "").lower() for row in active}
+        matched_kind = kind_hint or (next(iter(active_kinds)) if len(active_kinds) == 1 else None)
+        return None, _not_yet_fired_message(matched_kind)
+    return None, "You don't have an alarm or timer that went off recently."
+
+
+def _handle_snooze_request(text: str) -> Optional[str]:
+    request = _parse_snooze_request(text)
+    if request is None:
+        return None
+    if request.get("invalid_duration"):
+        return "I heard the snooze request, but I couldn't understand the duration."
+
+    alarm, error = _choose_alarm_for_snooze(
+        text,
+        kind_hint=request.get("kind"),
+        target=str(request.get("target") or ""),
+    )
+    if alarm is None:
+        return error or "I couldn't find an alarm or timer to snooze."
+    if alarm.get("music_command") or alarm.get("action_command"):
+        return "I can't safely snooze alarms with attached music or device actions yet."
+
+    seconds = float(request.get("seconds") or 0.0)
+    now_ts = time.time()
+    run_at = now_ts + seconds
+    status = str(alarm.get("status") or "").lower()
+    alarm_id = str(alarm.get("id") or "").strip()
+    if not alarm_id:
+        return "I couldn't find the saved alarm or timer to snooze."
+
+    job = None
+    if _should_persist_alarm():
+        try:
+            import scheduler
+
+            job_id = str(alarm.get("scheduler_job_id") or "").strip()
+            if status == "paused" and job_id:
+                job = scheduler.resume_job(job_id, run_at)
+            elif status in {"pending", "scheduled"} and job_id:
+                job = scheduler.reschedule_job(job_id, run_at)
+            else:
+                job = _schedule_alarm_fire(
+                    alarm_id,
+                    run_at,
+                    metadata=_alarm_schedule_metadata(alarm),
+                )
+        except Exception:
+            logging.exception("ALARM_SNOOZE_SCHEDULE_FAIL id=%s", alarm_id)
+            job = None
+        if not job:
+            return "I couldn't snooze that alarm or timer."
+
+        try:
+            snooze_count = int(alarm.get("snooze_count") or 0) + 1
+        except (TypeError, ValueError):
+            snooze_count = 1
+        _update_alarm(
+            alarm_id,
+            status="pending",
+            run_at=run_at,
+            phrase=_format_due_phrase(run_at),
+            scheduler_job_id=job.get("id") or alarm.get("scheduler_job_id"),
+            snoozed_at=now_ts,
+            snooze_count=snooze_count,
+            paused_at=None,
+            remaining_seconds=None,
+            completed_at=None,
+            error=None,
+        )
+
+    name = _cancel_display_alarm_name(alarm)
+    duration = _format_remaining_seconds_for_list(seconds)
+    logging.info("ALARM_SNOOZE id=%s seconds=%.3f status=%s", alarm_id, seconds, status)
+    updated = dict(alarm)
+    updated.update({"status": "pending", "run_at": run_at})
+    _remember_scheduled_referent(updated, source="snooze")
+    return f"Snoozed the {name} for {duration}."
+
+
 def _looks_like_alarm_list_request(t: str) -> Optional[str]:
     t = _norm(t)
     if not t:
@@ -1938,7 +2427,7 @@ def _looks_like_alarm_list_request(t: str) -> Optional[str]:
         r"\b("
         r"list|show|tell me|what'?s|what is|what are|which|"
         r"what do i have|which do i have|do i have|"
-        r"when is|when are|how much time|how long"
+        r"when is|when are|what time is|what time are|how much time|how many .* left|how long"
         r")\b",
         t,
     ):
@@ -2033,6 +2522,16 @@ def handle_alarm_controls(
     if m_fire:
         return _fire_alarm(m_fire.group(1))
 
+    followup_response = _handle_scheduled_referent_followup(t)
+    if followup_response is not None:
+        logging.info("CLAIM: alarm_controls referent_followup text=%r", tl)
+        return followup_response
+
+    snooze_response = _handle_snooze_request(t)
+    if snooze_response is not None:
+        logging.info("CLAIM: alarm_controls snooze text=%r", tl)
+        return snooze_response
+
     timer_edit_response = _handle_timer_edit_request(t)
     if timer_edit_response is not None:
         logging.info("CLAIM: alarm_controls timer_edit text=%r", tl)
@@ -2041,6 +2540,10 @@ def handle_alarm_controls(
     list_kind = _looks_like_alarm_list_request(t)
     if list_kind:
         logging.info("CLAIM: alarm_controls list kind=%s text=%r", list_kind, tl)
+        if list_kind != "all":
+            specific = _specific_alarm_query_response(t, kind=list_kind)
+            if specific is not None:
+                return specific
         return _list_alarms_response(kind=None if list_kind == "all" else list_kind)
 
     cancel_req, cancel_kind, cancel_all = _looks_like_alarm_cancel_request(t)
@@ -2090,15 +2593,7 @@ def handle_alarm_controls(
             job = _schedule_alarm_fire(
                 alarm_id,
                 float(alarm["run_at"]),
-                metadata={
-                    "kind": "alarm",
-                    "alarm_id": alarm_id,
-                    "alarm_kind": alarm.get("kind"),
-                    "label": alarm.get("label"),
-                    "output": alarm.get("output"),
-                    "action_command": alarm.get("action_command"),
-                    "music_command": alarm.get("music_command"),
-                },
+                metadata=_alarm_schedule_metadata(alarm),
             )
             if isinstance(job, dict) and job.get("id"):
                 _update_alarm(alarm_id, scheduler_job_id=job.get("id"))
@@ -2107,6 +2602,8 @@ def handle_alarm_controls(
             return "I couldn't save that alarm."
     else:
         logging.info("ALARM_DRY_RUN alarm=%r", alarm)
+
+    _remember_scheduled_referent(alarm, source="create")
 
     kind = alarm["kind"]
     label = str(alarm.get("label") or "").strip()
