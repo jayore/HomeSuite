@@ -43,8 +43,21 @@ class InteractionCancelMatcherTests(unittest.TestCase):
 
 class InteractionCancelTextFlowTests(unittest.TestCase):
     def test_cancel_is_silent_and_bypasses_routing(self):
+        import confirmation_controls
+        from dialogue_state import remember_referent, resolve_referent, reset_dialogue_state
         from interaction_flow import handle_text_interaction
 
+        reset_dialogue_state(all_scopes=True)
+        remember_referent(
+            "calendar_draft",
+            "draft-1",
+            capabilities={"pending_interaction"},
+        )
+        confirmation_controls.request_command_confirmation(
+            policy="test_policy",
+            command="do something",
+            prompt="Continue?",
+        )
         runtime = mock.Mock()
         runtime._ACTION_OCCURRED = True
 
@@ -54,8 +67,11 @@ class InteractionCancelTextFlowTests(unittest.TestCase):
         self.assertFalse(result.action_occurred)
         self.assertEqual(result.response_text, "")
         self.assertEqual(result.source, "cancelled")
+        self.assertIsNone(resolve_referent(kinds={"calendar_draft"}))
+        self.assertIsNone(confirmation_controls.pending_confirmation())
         runtime.process_device_commands.assert_not_called()
         runtime.get_chatgpt_response.assert_not_called()
+        reset_dialogue_state(all_scopes=True)
 
 
 class InteractionCancelVoiceFlowTests(unittest.TestCase):

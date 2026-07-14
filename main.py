@@ -3649,6 +3649,13 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         if interaction_flow.is_interaction_cancel(text):
             command_dispatch._ACTION_OCCURRED = False
             try:
+                from confirmation_controls import cancel_pending_confirmation
+                from dialogue_state import forget_referents
+                cancel_pending_confirmation()
+                forget_referents(capability="pending_interaction")
+            except Exception:
+                logging.exception("INTERACTION_CANCEL_STATE_CLEAR_FAIL")
+            try:
                 clear_text_confirm_context()
             except Exception:
                 pass

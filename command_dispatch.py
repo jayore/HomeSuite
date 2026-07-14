@@ -159,7 +159,14 @@ from state_query_controls import handle_state_query_controls, looks_like_state_q
 from alarm_controls import handle_alarm_controls, set_command_executor as set_alarm_command_executor
 from schedule_controls import handle_schedule_controls
 from temporary_actions import handle_temporary_action
-from calendar_controls import handle_calendar_controls
+from calendar_controls import handle_calendar_controls, execute_calendar_confirmation
+from confirmation_controls import (
+    cancel_pending_confirmation,
+    handle_confirmation_controls,
+    reset_confirmation_state,
+)
+from temporal_safety import guard_unconsumed_temporal_action
+from pending_controls import handle_pending_controls
 from runtime_mode import allow_real_effects
 from solar_utils import resolve_solar_event
 from astronomy_controls import handle_astronomy_query, parse_astronomy_query
@@ -2191,6 +2198,28 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     t = (text or "").strip()
     tl = t.lower().strip()
 
+    # Approval replies are source-scoped and deterministic. Handle them before
+    # pronoun rewriting or any ordinary command/AI route; an unrelated utterance
+    # supersedes the pending approval and then continues through this pipeline.
+    try:
+        confirmation_resp = handle_confirmation_controls(
+            tl=tl,
+            execute_command=lambda command: process_device_commands(command),
+            typed_executors={
+                "calendar_create": lambda payload: execute_calendar_confirmation(
+                    payload,
+                    call_service=call_ha_service,
+                    mark_action=mark_action_occurred,
+                ),
+            },
+        )
+    except Exception:
+        logging.exception("confirmation_controls failed")
+        confirmation_resp = None
+    if confirmation_resp is not None:
+        logging.info("CLAIM: confirmation_controls")
+        return confirmation_resp
+
     try:
         _media_rewrite = rewrite_media_pronoun_command(t)
     except Exception:
@@ -2541,6 +2570,11 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             pass
         return "TV"
 
+    pending_response = handle_pending_controls(tl)
+    if pending_response is not None:
+        logging.info("CLAIM: pending_controls")
+        return pending_response
+
 
     #
     # Must run before generic schedule_controls because phrases like
@@ -2758,6 +2792,11 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     if schedule_resp is not None:
         logging.info("CLAIM: schedule_controls")
         return schedule_resp
+
+    temporal_safety_response = guard_unconsumed_temporal_action(tl)
+    if temporal_safety_response is not None:
+        logging.info("CLAIM: temporal_safety")
+        return temporal_safety_response
 
     # Stock quotes and market-clock questions are read-only. Claim them before
     # device handlers so language such as "market open" cannot become an HA
@@ -4689,4 +4728,6 @@ def reset_dispatch_state():
     _last_location_query = None
     _last_location_query_ts = 0.0
     _ACTION_OCCURRED = False
+    cancel_pending_confirmation()
     reset_dialogue_state()
+    reset_confirmation_state()

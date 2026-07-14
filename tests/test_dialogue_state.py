@@ -96,6 +96,29 @@ class DialogueStateTests(unittest.TestCase):
             "light.stair",
         )
 
+    def test_forget_referents_can_clear_only_pending_interactions(self):
+        import dialogue_state
+
+        dialogue_state.remember_referent(
+            "calendar_draft",
+            "draft-1",
+            capabilities={"calendar_create", "pending_interaction"},
+        )
+        dialogue_state.remember_referent(
+            "light",
+            "light.stair",
+            capabilities={"binary_action"},
+        )
+
+        removed = dialogue_state.forget_referents(capability="pending_interaction")
+
+        self.assertEqual(removed, 1)
+        self.assertIsNone(dialogue_state.resolve_referent(kinds={"calendar_draft"}))
+        self.assertEqual(
+            dialogue_state.resolve_referent(kinds={"light"})["key"],
+            "light.stair",
+        )
+
     def test_ai_history_uses_the_same_source_scope(self):
         import interaction_flow
         from request_context import RequestContext, set_current_request_context

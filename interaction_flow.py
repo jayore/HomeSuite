@@ -15,7 +15,7 @@ import threading
 from dataclasses import dataclass
 
 from app_config import INTERACTION_CANCEL_PHRASES
-from dialogue_state import current_scope_id
+from dialogue_state import current_scope_id, forget_referents
 
 
 @dataclass
@@ -280,6 +280,10 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
         pass
 
     if is_interaction_cancel(text):
+        from confirmation_controls import cancel_pending_confirmation
+
+        cancel_pending_confirmation()
+        forget_referents(capability="pending_interaction")
         logging.info("INTERACTION_CANCEL source=text text=%r", text)
         return InteractionResult(
             handled=True,

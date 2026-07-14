@@ -84,12 +84,24 @@ CALENDAR_WRITES_ENABLED = False
 CALENDAR_CONFIRM_WRITES = True
 CALENDAR_DEFAULT_EVENT_DURATION_MINUTES = 60
 
+# Named confirmation policies can protect any resolved command without giving
+# a bare "yes" global meaning. Defaults confirm temporary light changes over
+# six hours and general schedules over one day. Unlock confirmation is opt-in:
+COMMAND_CONFIRMATION_POLICY_OVERRIDES = {
+    # "unlock": {"enabled": True},
+    # "temporary_action_long": {"threshold_seconds": 3 * 60 * 60},
+}
+
 # Temporary light actions persist a conditional restore. These bounds are
 # shared by every Home Suite command source.
 TEMPORARY_ACTIONS_ENABLED = True
 TEMPORARY_ACTION_MAX_SECONDS = 24 * 60 * 60
 TEMPORARY_ACTION_OBSERVE_DELAY_SECONDS = 1.0
 TEMPORARY_ACTION_OBSERVE_TIMEOUT_SECONDS = 5.0
+
+# General scheduled commands are bounded independently of alarms, reminders,
+# calendar events, and temporary light changes.
+SCHEDULER_MAX_HORIZON_SECONDS = 30 * 24 * 60 * 60
 
 # Optional Skyfield criteria for potential naked-eye visibility. Named queries
 # for Uranus and Neptune still work even though they are not listed here.

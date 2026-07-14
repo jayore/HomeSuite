@@ -320,6 +320,46 @@ confirmation is enabled. Provider OAuth remains in Home Assistant. Home Suite
 calls `calendar.get_events` and `calendar.create_event` with its existing
 `HA_TOKEN` and stores no Google secret.
 
+## Command Confirmations
+
+Protected actions use typed, source-scoped confirmation state. An exact
+affirmative or negative reply is intercepted before ordinary device routing or
+AI fallback. An unrelated utterance supersedes the pending confirmation and
+continues as a fresh command. Confirmed deterministic commands are replayed
+through their normal handler with a one-use authorization, so the target,
+permissions, and live state are resolved again before any effect.
+
+Defaults live in `app_config.py`. Deployment config should override only the
+policies it needs:
+
+```python
+COMMAND_CONFIRMATION_TTL_SECONDS = 45
+COMMAND_CONFIRMATION_POLICY_OVERRIDES = {
+    # Opt into confirmation before unlocking a resolved lock entity.
+    "unlock": {"enabled": True},
+
+    # Change the default six-hour temporary-action threshold.
+    # "temporary_action_long": {"threshold_seconds": 3 * 60 * 60},
+}
+```
+
+The shipped policies confirm temporary light changes over six hours and
+general scheduled actions over one day. Calendar writes use this gate whenever
+`CALENDAR_CONFIRM_WRITES` is enabled. Unlock confirmation is available but off
+by default to avoid changing established behavior during an upgrade. Policies
+may also use `confirm_source_ids`, `skip_source_ids`, or `confirm_origins` to
+select where a prompt appears; absent filters apply to every source. These are
+prompt filters, not access control. Handlers opt in only after resolving a real
+compatible target. The
+policy layer does not globally regex-match arbitrary commands or let AI decide
+whether an action needs approval.
+
+`cancel`, `never mind`, and `nevermind` silently clear pending interaction
+state. A spoken `no` returns the policy's normal cancellation response.
+Confirmations belong to the exact request source even when ordinary follow-up
+referents share a configured continuity group; collecting drafts follow that
+source's configured context bubble.
+
 ## Temporary Light Actions
 
 Temporary commands support one resolved Home Assistant `light.*` entity. They
@@ -337,11 +377,22 @@ TEMPORARY_ACTIONS_ENABLED = True
 TEMPORARY_ACTION_MAX_SECONDS = 24 * 60 * 60
 TEMPORARY_ACTION_OBSERVE_DELAY_SECONDS = 1.0
 TEMPORARY_ACTION_OBSERVE_TIMEOUT_SECONDS = 5.0
+SCHEDULER_MAX_HORIZON_SECONDS = 30 * 24 * 60 * 60
 ```
 
 The observation window allows Home Assistant state to catch up with the write
 before the restore is armed. Whole-room, multi-entity, and non-light temporary
 requests fail explicitly; Home Suite does not invent an inverse command.
+Temporary changes longer than the `temporary_action_long` policy threshold
+require confirmation; requests beyond `TEMPORARY_ACTION_MAX_SECONDS` are
+rejected before a light write. General scheduled commands use the independent
+30-day horizon above and the `scheduled_action_long` confirmation policy.
+
+Temporary restorations are queryable and manageable through the command
+surface. An explicit restore-now command reapplies the saved baseline regardless
+of the current light signature. A keep-current command removes the pending
+restore without issuing a Home Assistant write. Automatic expiry remains
+conditional, so later manual or permanent changes still win by default.
 
 ## Stock Quotes
 

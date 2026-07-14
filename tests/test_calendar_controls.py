@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import app_config
 import calendar_controls
+import confirmation_controls
 from dialogue_state import reset_dialogue_state
 
 
@@ -127,12 +128,16 @@ class CalendarControlsTests(unittest.TestCase):
         )
         self.assertEqual(calls, [])
 
-        response = calendar_controls.handle_calendar_controls(
+        response = confirmation_controls.handle_confirmation_controls(
             tl="yes",
-            get_events=mock.Mock(),
-            call_service=lambda service, payload: calls.append((service, payload)) or True,
-            mark_action=mark_action,
-            now=self.now,
+            execute_command=mock.Mock(),
+            typed_executors={
+                "calendar_create": lambda payload: calendar_controls.execute_calendar_confirmation(
+                    payload,
+                    call_service=lambda service, body: calls.append((service, body)) or True,
+                    mark_action=mark_action,
+                )
+            },
         )
 
         self.assertEqual(response, "Added Dentist Appointment to Personal on Monday at 4:30 PM.")

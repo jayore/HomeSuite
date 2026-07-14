@@ -69,11 +69,20 @@ Temporary changes currently require one resolved `light.*` entity:
 * `set the stair light to red for 10 minutes`
 * `dim the desk lamp to 30 percent for 1 hour`
 * `turn off the porch light for 20 minutes`
+* `what temporary changes are active?`
+* `how long until the stair light restores?`
+* `is the stair light temporary?`
+* `restore the stair light now`
+* `keep the stair light as it is`
 
 Home Suite snapshots the light before changing it. When the duration expires,
 it restores that snapshot only if the light still matches the temporary state.
 A later manual or voice change therefore wins. Whole-room and multi-light
 temporary changes fail explicitly instead of guessing an inverse action.
+`restore ... now` is an explicit override: it reapplies the saved baseline even
+if the light changed again. `keep ... as it is` removes the pending restoration
+without changing the current light. The default maximum is 24 hours, and
+changes longer than six hours require a source-scoped confirmation.
 
 ## Covers, Fans, Climate, And Vacuums
 
@@ -299,10 +308,16 @@ Scheduled jobs feed back through the same command brain as live requests, so del
 * `turn on the porch lights at sunset`
 * `tomorrow at sunrise open the bedroom blinds`
 * `turn on the porch lights 20 minutes before sunset`
+* `in 2 days turn off the porch light`
 * `cancel my timer`
 * `cancel my reminder`
 * `what alarms are set?`
 * `what reminders are set?`
+* `what's scheduled?`
+* `list scheduled actions`
+* `cancel the last schedule`
+* `cancel all schedules`
+* `what's pending?`
 
 Scheduling accepts relative durations, explicit clock times, tomorrow dayparts,
 sunrise/sunset with optional offsets, and spoken reminders. Timer changes require
@@ -314,6 +329,13 @@ Snoozing only applies to plain alarms and timers that fired within
 `ALARM_SNOOZE_RECENT_WINDOW_SECONDS`. Pending timers can be extended or assigned
 a new remaining duration instead. Alarms with attached music or device actions
 fail closed so Home Suite cannot accidentally replay them.
+
+General scheduled actions accept relative days and weeks in addition to shorter
+durations. They default to a 30-day maximum and require confirmation when more
+than one day away. Month/year and otherwise unsupported timing language is
+recognized and rejected before any immediate device handler can act. `what's
+pending?` gives a concise combined count across timers, alarms, reminders,
+general schedules, and temporary restorations, plus the next due item.
 
 Short follow-ups use source-scoped structured dialogue state. Home Suite stores
 the stable ID of an unambiguously selected timer, alarm, light, location, or
@@ -347,6 +369,12 @@ date/time. Timed events default to
 `writable`; when confirmation is enabled, Home Suite does not write until the
 user accepts the complete event summary. `no`, `cancel`, or `never mind`
 discards the pending draft.
+
+Final calendar approval uses the same typed confirmation gate as other
+protected commands. Exact replies such as `yes`, `confirm`, `do it`, or `go
+ahead` approve only the pending action in that request source. `no` rejects it.
+Any unrelated utterance supersedes the confirmation and routes as a new
+command, so a later stray `yes` cannot authorize stale work.
 
 ## Announcements And Speech Testing
 
@@ -401,4 +429,6 @@ nevermind
 Home Suite performs no device action, sends nothing to ChatGPT, and plays
 neither a success nor an error tone. Wakeword mode rearms normally; an off-hook
 PTT session returns to its listening loop. Longer commands such as `cancel my
-timer` are not dismissals and continue to their normal handlers.
+timer` are not dismissals and continue to their normal handlers. A dismissal
+also clears any source-scoped calendar draft or command confirmation while
+leaving ordinary light, timer, media, and location follow-up context intact.

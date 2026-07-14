@@ -2,6 +2,12 @@ import logging
 import re
 from typing import Optional
 
+from confirmation_controls import (
+    consume_command_authorization,
+    policy_requires_confirmation,
+    request_command_confirmation,
+)
+
 
 def _norm_target(raw: str) -> str:
     t = (raw or "").strip().lower()
@@ -61,6 +67,16 @@ def handle_lock_controls(
         eid, domain = resolved
         if domain != "lock":
             return None
+
+        policy = "unlock"
+        if policy_requires_confirmation(policy) and not consume_command_authorization(policy, tl):
+            return request_command_confirmation(
+                policy=policy,
+                command=tl,
+                prompt=f"Are you sure you want to unlock the {raw}?",
+                cancel_response=f"Okay, I left the {raw} locked.",
+                metadata={"entity_id": eid},
+            )
 
         ok = call_ha_service("lock/unlock", {"entity_id": eid})
         if ok:

@@ -1185,6 +1185,11 @@ def _active_alarms(kind: Optional[str] = None) -> list:
     return out
 
 
+def list_active_alarms(kind: Optional[str] = None) -> list:
+    """Return active alarms, timers, and reminders for aggregate status views."""
+    return _active_alarms(kind)
+
+
 def _time_left_phrase(run_at: float) -> str:
     try:
         return _format_due_phrase(float(run_at))

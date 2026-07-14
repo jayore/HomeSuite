@@ -389,6 +389,27 @@ CALENDAR_DEFAULT_EVENT_DURATION_MINUTES = 60
 CALENDAR_DRAFT_TTL_SECONDS = 2 * 60
 CALENDAR_QUERY_MAX_EVENTS = 6
 
+# Source-scoped command approvals. Handlers opt into named policies only after
+# resolving a real target; an exact yes/no reply is then intercepted before AI
+# or ordinary command routing. Deployment config can change individual entries
+# through COMMAND_CONFIRMATION_POLICY_OVERRIDES without copying this whole map.
+COMMAND_CONFIRMATION_TTL_SECONDS = 45
+COMMAND_CONFIRMATION_POLICIES = {
+    "calendar_write": {"enabled": True},
+    "temporary_action_long": {
+        "enabled": True,
+        "threshold_seconds": 6 * 60 * 60,
+    },
+    "scheduled_action_long": {
+        "enabled": True,
+        "threshold_seconds": 24 * 60 * 60,
+    },
+    # Unlock confirmation is available but remains opt-in so upgrades do not
+    # unexpectedly change an established household interaction.
+    "unlock": {"enabled": False},
+}
+COMMAND_CONFIRMATION_POLICY_OVERRIDES = {}
+
 # Temporary actions currently support one resolved light at a time. The
 # original state is persisted and restored only if the light still matches the
 # temporary state, so a later manual or permanent command always wins.
@@ -1455,6 +1476,10 @@ SCHEDULER_COMMAND_BLOCKLIST = [
 # Fallback timeout for standalone scheduler.py subprocess execution.
 # Production homesuite.service normally uses in-process execution instead.
 SCHEDULER_COMMAND_TIMEOUT_SEC = 60.0
+
+# General scheduled actions farther away than this fail closed. Timers, alarms,
+# reminders, and calendar events have their own domain-specific contracts.
+SCHEDULER_MAX_HORIZON_SECONDS = 30 * 24 * 60 * 60
 
 # =============================
 # Alarms / Timers

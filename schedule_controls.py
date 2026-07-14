@@ -30,6 +30,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from confirmation_controls import (
+    consume_command_authorization,
+    policy_requires_confirmation,
+    request_command_confirmation,
+)
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -82,7 +88,9 @@ _TENS_WORDS = {
     "ninety": 90,
 }
 
-_REL_UNIT_RE = r"seconds?|secs?|minutes?|mins?|hours?|hrs?"
+_REL_UNIT_RE = (
+    r"seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?"
+)
 _NUM_RE = r"\d{1,4}|[a-z]+(?:[\s-]+[a-z]+)?"
 
 # Tokens accepted in spoken clock phrases:
@@ -164,6 +172,17 @@ def parse_duration_seconds(num_text: str, unit: str) -> Optional[float]:
         return float(n * 60)
     if unit_n.startswith(("hr", "hour")):
         return float(n * 3600)
+    if unit_n.startswith("day"):
+        return float(n * 24 * 3600)
+    if unit_n.startswith("week"):
+        return float(n * 7 * 24 * 3600)
+    if unit_n.startswith("month"):
+        # Calendar months are not fixed durations. Treat one as beyond the
+        # scheduler's default 30-day ceiling so it is recognized and rejected
+        # instead of accidentally becoming an immediate action.
+        return float(n * 31 * 24 * 3600)
+    if unit_n.startswith("year"):
+        return float(n * 365 * 24 * 3600)
     return None
 
 
@@ -204,6 +223,14 @@ def _build_relative(*, num_text: str, unit: str, command: str, now: datetime) ->
         phrase = f"in {n} minute" + ("" if n == 1 else "s")
     elif unit.startswith(("hr", "hour")):
         phrase = f"in {n} hour" + ("" if n == 1 else "s")
+    elif unit.startswith("day"):
+        phrase = f"in {n} day" + ("" if n == 1 else "s")
+    elif unit.startswith("week"):
+        phrase = f"in {n} week" + ("" if n == 1 else "s")
+    elif unit.startswith("month"):
+        phrase = f"in {n} month" + ("" if n == 1 else "s")
+    elif unit.startswith("year"):
+        phrase = f"in {n} year" + ("" if n == 1 else "s")
     else:
         return None
 
@@ -1039,6 +1066,24 @@ def _pending_jobs() -> List[Dict[str, Any]]:
     return pending
 
 
+def list_pending_jobs() -> List[Dict[str, Any]]:
+    """Return general scheduled-command jobs for aggregate status views."""
+    return _pending_jobs()
+
+
+def _span_phrase(seconds: float) -> str:
+    total = max(1, int(round(float(seconds))))
+    if total % 86400 == 0:
+        count, unit = total // 86400, "day"
+    elif total % 3600 == 0:
+        count, unit = total // 3600, "hour"
+    elif total % 60 == 0:
+        count, unit = total // 60, "minute"
+    else:
+        count, unit = total, "second"
+    return f"{count} {unit}" + ("" if count == 1 else "s")
+
+
 def _format_due_phrase(run_at: float, *, now_ts: Optional[float] = None) -> str:
     if now_ts is None:
         now_ts = time.time()
@@ -1220,6 +1265,24 @@ def handle_schedule_controls(
     command = _clean_command(parsed.command)
     logging.info("SCHED_INTENT command=%r when=%s phrase=%r", command, parsed.run_at, parsed.phrase)
 
+    try:
+        import app_config
+
+        max_horizon = float(
+            getattr(app_config, "SCHEDULER_MAX_HORIZON_SECONDS", 30 * 24 * 3600)
+        )
+    except Exception:
+        max_horizon = 30 * 24 * 3600.0
+    horizon_seconds = max(0.0, float(parsed.run_at) - time.time())
+    if horizon_seconds > max_horizon:
+        logging.info(
+            "SCHED_HORIZON_REJECT command=%r horizon=%.1f max=%.1f",
+            command,
+            horizon_seconds,
+            max_horizon,
+        )
+        return f"Scheduled actions can be up to {_span_phrase(max_horizon)} ahead."
+
     if validate_command is not None:
         try:
             result = validate_command(command)
@@ -1253,6 +1316,23 @@ def handle_schedule_controls(
         if "blocked" in (reason or "").lower():
             return "I can't schedule that action because it's blocked by your scheduler safety settings."
         return "I couldn't schedule that because I couldn't validate the command."
+
+    confirmation_policy = "scheduled_action_long"
+    if policy_requires_confirmation(
+        confirmation_policy,
+        value=horizon_seconds,
+    ) and not consume_command_authorization(confirmation_policy, tl):
+        return request_command_confirmation(
+            policy=confirmation_policy,
+            command=tl,
+            prompt=f"This will schedule {command} {parsed.phrase}. Should I continue?",
+            cancel_response="Okay, I didn't schedule it.",
+            metadata={
+                "command": command,
+                "run_at": float(parsed.run_at),
+                "horizon_seconds": horizon_seconds,
+            },
+        )
 
     # Validation can take several seconds on the Pi. For relative schedules,
     # honor the user's delay relative to *now after validation*, not the earlier

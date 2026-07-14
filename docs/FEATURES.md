@@ -50,6 +50,11 @@ and timers that recently fired can also be snoozed. Pending jobs are not treated
 as snoozable, and attached music and device-action alarms are deliberately
 excluded from snoozing.
 
+`what's pending?` summarizes timers, alarms, reminders, general scheduled
+commands, and temporary restorations without dumping every item. General
+schedules are bounded to 30 days by default; actions more than one day away use
+the shared confirmation gate.
+
 Short follow-ups use typed dialogue state rather than a global text rewrite.
 Recent timers support forms such as `add five minutes to it`, `set it to twenty
 minutes`, `how much time is left?`, and `cancel it`. Referents are scoped to the
@@ -65,6 +70,9 @@ write and persists a conditional restore. At expiry it restores only when the
 light still matches the temporary state; a later manual or permanent command
 wins. A newer temporary action on the same light supersedes the earlier timer
 while retaining the first verified baseline.
+Active temporary changes can be listed, queried by light, restored immediately,
+or converted into the current permanent state by discarding the restore.
+Long-but-allowed changes require confirmation before the first write.
 
 ## Calendars
 
@@ -79,6 +87,12 @@ resolved calendar, title, local date, time, and duration before issuing
 `calendar.create_event`; both the global write setting and the selected
 calendar's `writable` flag must allow it. Google authorization remains in Home
 Assistant, so Home Suite stores no additional Google credential.
+
+Calendar approval, long temporary changes, long schedules, and optionally lock
+unlocking share one typed confirmation layer. Confirmation state is scoped to
+the request source and expires quickly. Exact yes/no replies never reach AI,
+and an unrelated command supersedes the pending approval so stale confirmation
+cannot drift into a later interaction.
 
 ## Date, Time, Weather, Location, And Astronomy
 

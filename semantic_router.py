@@ -23,6 +23,8 @@ from location_controls import looks_like_location_query
 from stock_quote_controls import looks_like_stock_query
 from weather_utils import looks_like_weather_query
 from calendar_controls import looks_like_calendar_request
+from pending_controls import looks_like_pending_query
+from temporary_actions import looks_like_temporary_action_request
 
 
 class RouteOutcome(str, Enum):
@@ -66,6 +68,7 @@ _DEVICEISH_PATTERNS = [
     re.compile(r"^(?:please\s+)?save\s+this\s+(?:song|track)$"),
     re.compile(r"^(?:i(?:'m| am)\s+in|where am i|clear my room focus)\b"),
     re.compile(r"\b(?:alarm|alarms|timer|timers|reminder|reminders|snooze)\b"),
+    re.compile(r"\b(?:scheduled(?: actions?)?|schedules?)\b"),
     re.compile(
         r"^(?:(?:ok|okay|alright|sure|right|got it)\s*,?\s*)?"
         r"(?:(?:add|put|subtract|remove|take)\b.*\b(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)\b.*"
@@ -171,6 +174,8 @@ def _looks_local_utility(t: str) -> bool:
         or looks_like_stock_query(t)
         or looks_like_weather_query(t)
         or looks_like_calendar_request(t)
+        or looks_like_pending_query(t)
+        or looks_like_temporary_action_request(t)
         or any(p.search(t) for p in _LOCAL_UTILITY_PATTERNS)
     )
 

@@ -16,14 +16,14 @@ from datetime import date, datetime, time as clock_time, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from confirmation_controls import request_typed_confirmation
 from dialogue_state import forget_referent, remember_referent, resolve_referent
 from schedule_controls import _parse_small_number, _parse_spoken_clock, parse_duration_seconds
 
 
 _DRAFT_KIND = "calendar_draft"
 _DRAFT_CAPABILITY = "calendar_create"
-_YES_RE = re.compile(r"^(?:yes|yeah|yep|confirm|do it|add it|create it|sounds good|okay|ok)$")
-_NO_RE = re.compile(r"^(?:no|nope|cancel|never mind|nevermind|don't|do not)$")
+_DRAFT_CANCEL_RE = re.compile(r"^(?:no|nope|cancel|never mind|nevermind|don't|do not)$")
 _CREATE_RE = re.compile(r"^(?:please\s+)?(?:add|create|schedule|put)\b", re.IGNORECASE)
 _CALENDAR_WORD_RE = re.compile(r"\b(?:calendar|agenda|appointment|appointments|event|events)\b")
 
@@ -462,7 +462,7 @@ def _save_draft(data: dict) -> dict:
         _DRAFT_KIND,
         key,
         label=str(data.get("title") or "calendar event"),
-        capabilities=[_DRAFT_CAPABILITY],
+        capabilities=[_DRAFT_CAPABILITY, "pending_interaction"],
         data=data,
         ttl_seconds=_draft_ttl(),
         source="calendar_controls",
@@ -599,19 +599,87 @@ def _create_event(
     call_service: Callable[[str, dict], bool],
     mark_action: Callable[[], None],
 ) -> str:
+    payload = _confirmation_payload(data, target, tz)
+    response = execute_calendar_confirmation(
+        payload,
+        call_service=call_service,
+        mark_action=mark_action,
+    )
+    if response.startswith("Added "):
+        _forget_draft(data)
+    return response
+
+
+def _confirmation_payload(data: dict, target: CalendarTarget, tz: ZoneInfo) -> dict:
     start, end = _draft_datetimes(data, tz)
-    payload = {
+    return {
+        "calendar_key": target.key,
         "entity_id": target.entity_id,
-        "summary": data["title"],
+        "calendar_label": target.label,
+        "title": data["title"],
         "start_date_time": start.isoformat(),
         "end_date_time": end.isoformat(),
     }
-    if not call_service("calendar/create_event", payload):
+
+
+def execute_calendar_confirmation(
+    payload: dict,
+    *,
+    call_service: Callable[[str, dict], bool],
+    mark_action: Callable[[], None],
+) -> str:
+    """Revalidate and execute one previously confirmed calendar write."""
+    try:
+        import app_config
+
+        writes_enabled = bool(getattr(app_config, "CALENDAR_WRITES_ENABLED", False))
+    except Exception:
+        writes_enabled = False
+    if not writes_enabled:
+        return "Calendar event creation is disabled in HomeSuite's configuration."
+
+    targets = _config_targets()
+    target = targets.get(str(payload.get("calendar_key") or ""))
+    if (
+        not target
+        or not target.writable
+        or target.entity_id != str(payload.get("entity_id") or "")
+    ):
+        return "That calendar is not configured for event creation."
+
+    title = str(payload.get("title") or "").strip()
+    try:
+        start = datetime.fromisoformat(str(payload.get("start_date_time") or ""))
+        end = datetime.fromisoformat(str(payload.get("end_date_time") or ""))
+    except ValueError:
+        return "I couldn't verify that calendar event, so I left it unchanged."
+    if not title or end <= start:
+        return "I couldn't verify that calendar event, so I left it unchanged."
+
+    service_payload = {
+        "entity_id": target.entity_id,
+        "summary": title,
+        "start_date_time": start.isoformat(),
+        "end_date_time": end.isoformat(),
+    }
+    if not call_service("calendar/create_event", service_payload):
         return "I couldn't add that event to the calendar."
     mark_action()
-    _forget_draft(data)
     when = start.strftime("%A at %-I:%M %p").replace(":00 ", " ")
-    return f"Added {data['title']} to {target.label} on {when}."
+    return f"Added {title} to {target.label} on {when}."
+
+
+def _request_event_confirmation(data: dict, target: CalendarTarget, tz: ZoneInfo) -> str:
+    prompt = _confirmation(data, target, tz)
+    payload = _confirmation_payload(data, target, tz)
+    _forget_draft(data)
+    return request_typed_confirmation(
+        policy="calendar_write",
+        action_type="calendar_create",
+        payload=payload,
+        prompt=prompt,
+        cancel_response="Okay, I didn't add it.",
+    )
 
 
 def handle_calendar_controls(
@@ -630,33 +698,19 @@ def handle_calendar_controls(
     draft = _current_draft()
 
     if draft:
-        if _NO_RE.fullmatch(t):
+        if _DRAFT_CANCEL_RE.fullmatch(t):
             _forget_draft(draft)
             return "Okay, I didn't add it."
-        if draft.get("status") == "confirming" and _YES_RE.fullmatch(t):
-            target = targets.get(str(draft.get("calendar_key") or ""))
-            if not target or not target.writable:
-                _forget_draft(draft)
-                return "That calendar is not configured for event creation."
-            return _create_event(
-                draft,
-                target,
-                tz=tz,
-                call_service=call_service,
-                mark_action=mark_action,
-            )
         if draft.get("status") == "collecting" and _fill_draft_from_followup(draft, t, now=now):
             question = _draft_question(draft)
             if question:
                 _save_draft(draft)
                 return question
-            draft["status"] = "confirming"
-            _save_draft(draft)
             target = targets.get(str(draft.get("calendar_key") or ""))
             if not target:
                 _forget_draft(draft)
                 return "I don't have a default calendar configured."
-            return _confirmation(draft, target, tz)
+            return _request_event_confirmation(draft, target, tz)
 
     creation = _parse_creation(t, targets, now)
     if creation is not None:
@@ -679,9 +733,7 @@ def handle_calendar_controls(
             _save_draft(creation)
             return question
         if confirm_writes:
-            creation["status"] = "confirming"
-            _save_draft(creation)
-            return _confirmation(creation, target, tz)
+            return _request_event_confirmation(creation, target, tz)
         return _create_event(
             creation,
             target,

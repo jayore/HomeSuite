@@ -191,6 +191,39 @@ def forget_referent(
     )
 
 
+def forget_referents(
+    *,
+    capability: Optional[str] = None,
+    scope_id: Optional[str] = None,
+) -> int:
+    """Forget every referent matching a capability in one context bubble."""
+    scope_n = _scope(scope_id)
+    capability_n = _clean_token(capability)
+    removed = []
+    with _LOCK:
+        _purge_expired_locked(scope_n, time.time())
+        refs = _REFERENTS_BY_SCOPE.get(scope_n)
+        if not refs:
+            return 0
+        for kind, entry in list(refs.items()):
+            if capability_n and capability_n not in set(entry.get("capabilities") or ()):
+                continue
+            removed.append((kind, entry.get("key")))
+            refs.pop(kind, None)
+        if not refs:
+            _REFERENTS_BY_SCOPE.pop(scope_n, None)
+
+    for kind, key in removed:
+        logging.info(
+            "DIALOGUE_REFERENT_FORGET scope=%s kind=%s key=%s capability=%s",
+            scope_n,
+            kind,
+            key,
+            capability_n or "*",
+        )
+    return len(removed)
+
+
 def snapshot_scope(scope_id: Optional[str] = None) -> dict[str, dict[str, Any]]:
     scope_n = _scope(scope_id)
     with _LOCK:

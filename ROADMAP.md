@@ -12,12 +12,12 @@ Home Suite already includes:
 * one shared deterministic command brain used by PTT, wakeword, HTTP,
   WebSocket, Telegram, scheduled jobs, physical buttons, and test shells
 * source-scoped room focus and typed follow-up context for devices, media,
-  timers, alarms, and locations
+  timers, alarms, locations, and protected command confirmations
 * Home Assistant control across lights, switches, locks, covers, fans, climate,
   vacuums, scenes, scripts, rooms, and state queries
 * Plex, Spotify, Sonos, YouTube, announcements, and transport focus
-* alarms, timers, reminders, delayed actions, sunrise/sunset scheduling, and
-  conditional temporary light restoration
+* alarms, timers, reminders, bounded delayed actions, sunrise/sunset
+  scheduling, and queryable conditional temporary light restoration
 * deterministic date, time, weather, distance, astronomy, stock, calendar, and
   homelab queries, plus confirmed Home Assistant calendar event creation and
   conversational web-enabled AI fallback
@@ -71,11 +71,12 @@ text-storage, retention, and pruning controls before richer reporting is built.
 
 ### Sensitive-Action Policy
 
-Voice access to locks, garage doors, gates, and other security-sensitive
-entities needs a configurable policy. A future design should be source-aware so
-deployments can independently deny, confirm, or allow an action from wakeword,
-physical PTT, and authenticated network clients. It must fail closed when the
-source or target cannot be verified.
+Home Suite now has a reusable, source-scoped confirmation gate and an opt-in
+unlock policy. The remaining security work is a broader allow/confirm/deny
+matrix for locks, garage doors, gates, and authenticated network clients.
+Policies should eventually distinguish trusted source classes and user identity
+where one exists; shared microphones must never imply identity. Unverified
+sources and targets must continue to fail closed.
 
 ### Documentation Maintenance
 
