@@ -2,7 +2,7 @@
 
 This repository is a sanitized public snapshot generated from the private HomeSuite development repo.
 
-Source commit: `c9cfe0f` (`c9cfe0fb2e809cba5a41c704c3d2ca6e2c9318b9`)
+Source commit: `185b993` (`185b993a3ff0d43874851a9f07ff91c40c6beb1b`)
 
 Excluded from this public snapshot:
 
@@ -18,7 +18,6 @@ Excluded from this public snapshot:
 * `recording*.wav`
 * `scheduled_jobs.json`
 * `.scheduler.lock`
-* `ROADMAP.md`
 * `docs/AI_ARCHITECTURE_PLAN.md`
 * `docs/AI_HANDOFF_LOG.md`
 * `docs/AI_THREAD_GUIDE.md`

@@ -253,6 +253,7 @@ Documentation:
 * [Integrations](docs/INTEGRATIONS.md)
 * [Features](docs/FEATURES.md)
 * [Commands](docs/COMMANDS.md)
+* [Roadmap](ROADMAP.md)
 * [HTTP and WebSocket API](docs/API.md)
 * [PTT handset setup](docs/PTT.md)
 * [FAQ](docs/FAQ.md)
