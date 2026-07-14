@@ -337,6 +337,7 @@ AI can answer conversational questions and leave short-lived context breadcrumbs
 * `what is this movie about?`
 * `tell me more about that`
 * `how far is that by car?`
+* `how far is that to drive?`
 * `how long would that take?`
 
 ## External Interfaces

@@ -29,11 +29,47 @@ from homelab_clients import (
 MaybeSay = Callable[[str], str]
 
 
+_HOMELAB_RELEVANT_RE = re.compile(
+    r"\b(homelab|torrent|torrents|qbittorrent|download|downloads|downloading|"
+    r"overseerr|overseer|over\s+seer|seerr|seer|see\s+your|request|requests|"
+    r"radarr|sonarr|lidarr|speedtest|internet|camera|cameras|reolink|"
+    r"uptime\s*kuma|kuma|services?|service\s+status|anything\s+down|what'?s\s+down|"
+    r"what\s+(?:is|are)\s+down|broken|outages?|"
+    r"synology|nas|yore\s*nas|yorenas|diskstation|storage|drives|volumes?)\b"
+)
+_SINGULAR_DRIVE_STATUS_RE = re.compile(
+    r"\b(?:"
+    r"drive\s+(?:status|health|temperature|temp|warning|alert|space|usage)|"
+    r"(?:status|health|temperature|temp|warning|alert|space|usage)\s+"
+    r"(?:(?:of|for)\s+)?(?:(?:the|my)\s+)?drive|"
+    r"(?:is|are)\s+(?:(?:the|my)\s+)?drive\s+"
+    r"(?:healthy|failing|failed|hot|full)"
+    r")\b"
+)
+
+
 def _norm(text: str) -> str:
     s = (text or "").strip().lower()
     s = re.sub(r"[.!,?]+$", "", s).strip()
     s = re.sub(r"\s+", " ", s)
     return s
+
+
+def looks_like_homelab_query(text: str) -> bool:
+    """Return whether text explicitly belongs to the homelab command domain.
+
+    Singular ``drive`` is intentionally ambiguous: travel questions use it
+    constantly, so it only counts when paired with storage-status language.
+    Explicit NAS terms and plural ``drives`` retain their existing behavior.
+    """
+    t = _norm(text)
+    return bool(
+        t
+        and (
+            _HOMELAB_RELEVANT_RE.search(t)
+            or _SINGULAR_DRIVE_STATUS_RE.search(t)
+        )
+    )
 
 
 def _say(maybe_say: Optional[MaybeSay], text: str) -> str:
@@ -870,16 +906,7 @@ def handle_homelab_controls(
     if not t:
         return None
 
-    relevant = re.search(
-        r"\b(homelab|torrent|torrents|qbittorrent|download|downloads|downloading|"
-        r"overseerr|overseer|over\s+seer|seerr|seer|see\s+your|request|requests|"
-        r"radarr|sonarr|lidarr|speedtest|internet|camera|cameras|reolink|"
-        r"uptime\s*kuma|kuma|services?|service\s+status|anything\s+down|what'?s\s+down|"
-        r"what\s+(?:is|are)\s+down|broken|outages?|"
-        r"synology|nas|yore\s*nas|yorenas|diskstation|storage|drives?|volumes?)\b",
-        t,
-    )
-    if not relevant:
+    if not looks_like_homelab_query(t):
         return None
 
     try:

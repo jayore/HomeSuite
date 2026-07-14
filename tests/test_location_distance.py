@@ -107,6 +107,7 @@ class LocationParserTests(unittest.TestCase):
             "what's the driving distance to San Francisco?",
             "what route should I take to San Francisco?",
             "how long would that take?",
+            "how far is that to drive?",
         ):
             with self.subTest(text=text):
                 self.assertIsNone(parse_location_query(text))

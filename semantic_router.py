@@ -18,6 +18,7 @@ import time
 from app_config import ROOMS
 from astronomy_controls import looks_like_astronomy_query
 from date_controls import looks_like_date_query
+from homelab_controls import looks_like_homelab_query
 from location_controls import looks_like_location_query
 from stock_quote_controls import looks_like_stock_query
 from weather_utils import looks_like_weather_query
@@ -80,8 +81,6 @@ _DEVICEISH_PATTERNS = [
     re.compile(r"^(?:please\s+)?(?:wake me up|remind me)\b"),
     re.compile(r"\b(?:sunrise|sunset)\b"),
     re.compile(r"^(?:say that again|repeat that|what did you say)$"),
-    re.compile(r"\b(?:service status|homelab|nas|drives?|internet|camera alerts?|torrents?|downloads?|downloading|media request status)\b"),
-    re.compile(r"^is anything down\??$"),
     re.compile(r"\b(?:youtube|daily reel|digest)\b"),
     re.compile(r"\bwhat(?:'s| is)\s+playing\b"),
     re.compile(r"\bwhat\s+is\s+it\s+about\b"),
@@ -177,6 +176,8 @@ def _looks_local_utility(t: str) -> bool:
 def _looks_deviceish(t: str) -> bool:
     if not t:
         return False
+    if looks_like_homelab_query(t):
+        return True
     for p in _DEVICEISH_PATTERNS:
         if p.search(t):
             return True
