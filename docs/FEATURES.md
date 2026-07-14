@@ -59,6 +59,27 @@ Home Assistant state queries and successful device actions likewise establish
 a capability-aware device referent for follow-ups such as `turn it off`; the
 entity must still exist in the next live HA snapshot before Home Suite writes.
 
+One-light temporary actions support natural forms such as `set the stair light
+to red for ten minutes`. Home Suite snapshots the resolved light before the
+write and persists a conditional restore. At expiry it restores only when the
+light still matches the temporary state; a later manual or permanent command
+wins. A newer temporary action on the same light supersedes the earlier timer
+while retaining the first verified baseline.
+
+## Calendars
+
+Configured Home Assistant `calendar.*` entities support agendas for a day or
+week, the next event, and named appointment lookup. Read results are merged only
+from calendars explicitly included in the deployment agenda or named in the
+request.
+
+Timed event creation is guarded separately from reads. A source-scoped draft
+can collect the title first or the date and time first. Home Suite repeats the
+resolved calendar, title, local date, time, and duration before issuing
+`calendar.create_event`; both the global write setting and the selected
+calendar's `writable` flag must allow it. Google authorization remains in Home
+Assistant, so Home Suite stores no additional Google credential.
+
 ## Date, Time, Weather, Location, And Astronomy
 
 Current date and time, current weather, hourly and daily forecasts, and local astronomy

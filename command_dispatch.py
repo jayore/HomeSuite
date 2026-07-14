@@ -158,6 +158,9 @@ from ha_capability_controls import handle_ha_capability_controls
 from state_query_controls import handle_state_query_controls, looks_like_state_query
 from alarm_controls import handle_alarm_controls, set_command_executor as set_alarm_command_executor
 from schedule_controls import handle_schedule_controls
+from temporary_actions import handle_temporary_action
+from calendar_controls import handle_calendar_controls
+from runtime_mode import allow_real_effects
 from solar_utils import resolve_solar_event
 from astronomy_controls import handle_astronomy_query, parse_astronomy_query
 from stock_quote_controls import handle_stock_quote_query
@@ -220,6 +223,9 @@ ha_get_states = None
 
 # Set to ha_get_state (single-entity fetch) from ha_client after main.py configures HA.
 ha_get_state = None
+
+# Set to ha_get_calendar_events from ha_client after main.py configures HA.
+ha_get_calendar_events = None
 
 # Set to gpio_ptt.tts_generate_audio after gpio_ptt defines it.
 tts_generate_audio = None
@@ -2556,6 +2562,28 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         logging.info("CLAIM: alarm_controls")
         return alarm_resp
 
+    # Calendar reads and guarded event drafts must run before generic
+    # scheduling. "Schedule a dentist appointment" is a calendar write, while
+    # "turn off the lamp at 8" remains a scheduled HomeSuite command.
+    try:
+        calendar_resp = handle_calendar_controls(
+            tl=tl,
+            get_events=(
+                ha_get_calendar_events
+                if callable(ha_get_calendar_events)
+                else lambda *args, **kwargs: None
+            ),
+            call_service=call_ha_service,
+            mark_action=mark_action_occurred,
+        )
+    except Exception:
+        logging.exception("calendar_controls failed")
+        calendar_resp = None
+
+    if calendar_resp is not None:
+        logging.info("CLAIM: calendar_controls")
+        return calendar_resp
+
     # ------------------------------------------------------------------
     # Scheduling controls
     #
@@ -2571,7 +2599,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     # resolved service/entity preview so scheduler safety policy can block by
     # resolved action, not just by phrase.
     # ------------------------------------------------------------------
-    def _validate_scheduled_command_in_process(command: str):
+    def _preview_command_in_process(command: str):
         command = (command or "").strip()
         if not command:
             return False, "empty command", {}
@@ -2693,10 +2721,28 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
                 os.environ["PIPHONE_LIVE"] = old_env_live
 
     try:
+        temporary_resp = handle_temporary_action(
+            tl=tl,
+            preview_command=_preview_command_in_process,
+            get_state=ha_get_state,
+            call_service=call_ha_service,
+            mark_action=mark_action_occurred,
+            remember_light=lambda eid: _remember_light(eid, source="temporary_action"),
+            effects_are_live=allow_real_effects(),
+        )
+    except Exception:
+        logging.exception("temporary_actions failed")
+        temporary_resp = None
+
+    if temporary_resp is not None:
+        logging.info("CLAIM: temporary_actions")
+        return temporary_resp
+
+    try:
         schedule_resp = handle_schedule_controls(
             tl=tl,
             maybe_say=_maybe_say,
-            validate_command=_validate_scheduled_command_in_process,
+            validate_command=_preview_command_in_process,
             solar_resolver=lambda event, day_hint, now: resolve_solar_event(
                 event,
                 day_hint,

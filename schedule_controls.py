@@ -145,6 +145,28 @@ def _parse_small_number(s: str) -> Optional[int]:
     return None
 
 
+def parse_duration_seconds(num_text: str, unit: str) -> Optional[float]:
+    """Convert a small spoken duration into seconds.
+
+    This is shared by schedules and commands whose effect lasts for a bounded
+    period. Keeping the spoken-number rules here prevents each feature from
+    developing subtly different interpretations of phrases such as "twenty
+    minutes".
+    """
+    n = _parse_small_number(num_text)
+    if n is None or n <= 0:
+        return None
+
+    unit_n = (unit or "").strip().lower()
+    if unit_n.startswith(("sec", "second")):
+        return float(n)
+    if unit_n.startswith(("min", "minute")):
+        return float(n * 60)
+    if unit_n.startswith(("hr", "hour")):
+        return float(n * 3600)
+    return None
+
+
 def _clean_command(cmd: str) -> str:
     cmd = (cmd or "").strip()
     cmd = re.sub(r"^[,;:\-\s]+", "", cmd).strip()
@@ -167,7 +189,8 @@ def _is_probably_nested_schedule(cmd: str) -> bool:
 
 def _build_relative(*, num_text: str, unit: str, command: str, now: datetime) -> Optional[ParsedSchedule]:
     n = _parse_small_number(num_text)
-    if n is None or n <= 0:
+    delay_seconds = parse_duration_seconds(num_text, unit)
+    if n is None or delay_seconds is None:
         return None
 
     unit = (unit or "").lower()
@@ -176,13 +199,10 @@ def _build_relative(*, num_text: str, unit: str, command: str, now: datetime) ->
         return None
 
     if unit.startswith(("sec", "second")):
-        delay_seconds = float(n)
         phrase = f"in {n} second" + ("" if n == 1 else "s")
     elif unit.startswith(("min", "minute")):
-        delay_seconds = float(n * 60)
         phrase = f"in {n} minute" + ("" if n == 1 else "s")
     elif unit.startswith(("hr", "hour")):
-        delay_seconds = float(n * 3600)
         phrase = f"in {n} hour" + ("" if n == 1 else "s")
     else:
         return None

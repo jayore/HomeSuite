@@ -376,6 +376,27 @@ HOME_LOCATION = {
     "timezone": "America/Los_Angeles",
 }
 
+# Home Assistant calendar entities exposed by integrations such as Google
+# Calendar. Keys and aliases are spoken names. Reads may combine entries whose
+# ``include_in_agenda`` value is true; writes remain disabled until explicitly
+# enabled and are also gated per calendar by ``writable``.
+CALENDARS: Dict[str, Dict[str, Any]] = {}
+DEFAULT_CALENDAR = None
+CALENDAR_READS_ENABLED = True
+CALENDAR_WRITES_ENABLED = False
+CALENDAR_CONFIRM_WRITES = True
+CALENDAR_DEFAULT_EVENT_DURATION_MINUTES = 60
+CALENDAR_DRAFT_TTL_SECONDS = 2 * 60
+CALENDAR_QUERY_MAX_EVENTS = 6
+
+# Temporary actions currently support one resolved light at a time. The
+# original state is persisted and restored only if the light still matches the
+# temporary state, so a later manual or permanent command always wins.
+TEMPORARY_ACTIONS_ENABLED = True
+TEMPORARY_ACTION_MAX_SECONDS = 24 * 60 * 60
+TEMPORARY_ACTION_OBSERVE_DELAY_SECONDS = 1.0
+TEMPORARY_ACTION_OBSERVE_TIMEOUT_SECONDS = 5.0
+
 # Optional persistent context for conversational answers. Keep secrets and
 # precise addresses out of this mapping. Room voice sources do not identify
 # speakers, so preferred_name is a single-user/default-household convenience.

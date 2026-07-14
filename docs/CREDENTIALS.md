@@ -24,6 +24,7 @@ gitignored; only their `.example.py` templates should be committed.
 |---|---|---|---|
 | OpenAI | API account and API billing | OpenAI API platform account; ChatGPT billing is separate | Current STT modes, conversation, web search, fuzzy interpretation |
 | Home Assistant | Existing-service token | Home Assistant user | Home state, service calls, rooms, scenes, media players |
+| Google Calendar through Home Assistant | Home Assistant integration OAuth | Google account authorized in Home Assistant | Calendar agendas and guarded event creation; no extra Home Suite secret |
 | Alpaca Market Data | API account | Alpaca account; Basic IEX data is sufficient | Read-only stock quotes and U.S. market hours |
 | Home Suite HTTP API | Locally generated key | None | Satellites, Raycast, menu-bar and custom clients |
 | Plex | Existing-service token | Plex account and Plex Media Server | Library-grounded matching and playback |
@@ -146,6 +147,13 @@ Home Assistant is the broadest credential-saving alternative in this project.
 If it already exposes Sonos, Apple TV, Synology, Reolink, Radarr, Sonarr, Lidarr,
 weather, or another service, Home Suite can often use those entities without a
 second direct API credential.
+
+For Google Calendar, install and authorize the Google Calendar integration in
+Home Assistant, then map its resulting `calendar.*` entities in
+`deployment_config.py`. Home Assistant retains the OAuth grant. Do not create a
+second Google developer credential or copy OAuth tokens into Home Suite. Event
+creation is still off by default in Home Suite and requires both the global
+write switch and a writable target calendar.
 
 ### Home Suite HTTP and WebSocket API
 

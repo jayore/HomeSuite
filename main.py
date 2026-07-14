@@ -983,7 +983,13 @@ try:
     from private_config import OPENAI_API_KEY, HA_URL, HA_TOKEN, PLEX_URL, PLEX_TOKEN
 
     import ha_client
-    from ha_client import configure_ha, call_ha_service, ha_get_states, ha_get_state
+    from ha_client import (
+        configure_ha,
+        call_ha_service,
+        ha_get_states,
+        ha_get_state,
+        ha_get_calendar_events,
+    )
     configure_ha(ha_url=HA_URL, ha_token=HA_TOKEN)
     # --- Patch B: wrap HA service calls so successful HA actions count as ACTION_OCCURRED ---
     # This fixes the "error tone after successful silent actions" regression when modules return ''.
@@ -1212,6 +1218,7 @@ from command_dispatch import (
 command_dispatch.call_ha_service = call_ha_service
 command_dispatch.ha_get_states = ha_get_states
 command_dispatch.ha_get_state = ha_get_state
+command_dispatch.ha_get_calendar_events = ha_get_calendar_events
 command_dispatch.OPENAI_CLIENT = OPENAI_CLIENT
 
 RECENT_JOKES_MAX = 50
@@ -3994,6 +4001,17 @@ def main():
             logging.info("ALARM_COMMAND_EXECUTOR_REGISTERED")
         except Exception:
             logging.exception("ALARM_COMMAND_EXECUTOR_REGISTER_FAIL")
+
+        try:
+            import temporary_actions
+            temporary_actions.configure_runtime(
+                get_state=ha_get_state,
+                call_service=ha_client.call_ha_service,
+            )
+            scheduler.register_periodic(temporary_actions.tick)
+            logging.info("TEMPORARY_ACTIONS_REGISTERED")
+        except Exception:
+            logging.exception("TEMPORARY_ACTIONS_REGISTER_FAIL")
 
         scheduler.start_scheduler()
         logging.info("SCHEDULER_STARTED_FROM_HOMESUITE mode=in_process")

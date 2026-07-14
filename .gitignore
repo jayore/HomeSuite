@@ -56,6 +56,7 @@ patch_*.py
 # ============================================================================
 scheduled_jobs.json
 state/alarms.json
+state/temporary_actions.json
 state/source_rooms.json
 state/youtube_*.json
 .scheduler.lock

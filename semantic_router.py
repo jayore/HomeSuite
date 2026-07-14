@@ -22,6 +22,7 @@ from homelab_controls import looks_like_homelab_query
 from location_controls import looks_like_location_query
 from stock_quote_controls import looks_like_stock_query
 from weather_utils import looks_like_weather_query
+from calendar_controls import looks_like_calendar_request
 
 
 class RouteOutcome(str, Enum):
@@ -169,6 +170,7 @@ def _looks_local_utility(t: str) -> bool:
         or looks_like_location_query(t)
         or looks_like_stock_query(t)
         or looks_like_weather_query(t)
+        or looks_like_calendar_request(t)
         or any(p.search(t) for p in _LOCAL_UTILITY_PATTERNS)
     )
 

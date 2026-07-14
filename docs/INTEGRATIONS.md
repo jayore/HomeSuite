@@ -19,6 +19,7 @@ What it enables:
 * device state and control
 * rooms, areas, scenes, and scripts
 * media players and many homelab integrations
+* calendar reads and event creation through configured `calendar.*` entities
 
 Config keys:
 
@@ -30,6 +31,17 @@ HA_TOKEN = "..."
 Create a long-lived access token from your Home Assistant user profile.
 
 Docs: https://www.home-assistant.io/docs/authentication/
+
+#### Google Calendar Through Home Assistant
+
+Set up Google's integration in Home Assistant first. Home Assistant owns the
+Google OAuth grant and exposes each selected calendar as a `calendar.*` entity;
+Home Suite needs no Google client ID, refresh token, or additional secret. Add
+the entity IDs to `CALENDARS` in `deployment_config.py`, then opt individual
+calendars into combined agendas and writes. Reads use
+`calendar.get_events`; confirmed writes use `calendar.create_event`.
+
+Docs: https://www.home-assistant.io/integrations/google/
 
 ### OpenAI
 

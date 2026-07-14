@@ -66,6 +66,31 @@ ASSISTANT_PROFILE = {
     "notes": [],
 }
 
+# Calendar integrations and OAuth stay in Home Assistant. Map only the
+# calendar.* entities Home Suite should expose. Keep writes globally disabled
+# until at least one target has been deliberately marked writable.
+CALENDARS = {
+    # "personal": {
+    #     "entity_id": "calendar.your_name_example_com",
+    #     "label": "Personal",
+    #     "aliases": ["personal", "my calendar"],
+    #     "writable": True,
+    #     "include_in_agenda": True,
+    # },
+}
+DEFAULT_CALENDAR = None
+CALENDAR_READS_ENABLED = True
+CALENDAR_WRITES_ENABLED = False
+CALENDAR_CONFIRM_WRITES = True
+CALENDAR_DEFAULT_EVENT_DURATION_MINUTES = 60
+
+# Temporary light actions persist a conditional restore. These bounds are
+# shared by every Home Suite command source.
+TEMPORARY_ACTIONS_ENABLED = True
+TEMPORARY_ACTION_MAX_SECONDS = 24 * 60 * 60
+TEMPORARY_ACTION_OBSERVE_DELAY_SECONDS = 1.0
+TEMPORARY_ACTION_OBSERVE_TIMEOUT_SECONDS = 5.0
+
 # Optional Skyfield criteria for potential naked-eye visibility. Named queries
 # for Uranus and Neptune still work even though they are not listed here.
 PLANET_VISIBILITY_PLANETS = ("mercury", "venus", "mars", "jupiter", "saturn")

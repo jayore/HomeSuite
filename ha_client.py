@@ -126,6 +126,66 @@ def ha_get_weather_forecasts(
     return forecasts if isinstance(forecasts, list) else None
 
 
+def ha_get_calendar_events(
+    entity_ids,
+    *,
+    start_date_time: str,
+    end_date_time: str,
+) -> Optional[Dict[str, List[dict]]]:
+    """Return events from Home Assistant's response-producing calendar action.
+
+    Google and other calendar-provider credentials remain entirely inside Home
+    Assistant. HomeSuite sends only configured ``calendar.*`` entity IDs and a
+    bounded time window, then normalizes the provider response by entity.
+    """
+    if not _HA_URL:
+        raise RuntimeError("ha_client.configure_ha() was not called (missing HA_URL).")
+
+    if isinstance(entity_ids, str):
+        requested = [entity_ids.strip()] if entity_ids.strip() else []
+    else:
+        requested = [str(value or "").strip() for value in (entity_ids or [])]
+        requested = [value for value in requested if value]
+    if not requested or not start_date_time or not end_date_time:
+        return None
+
+    url = f"{_HA_URL}/api/services/calendar/get_events?return_response"
+    started = time.time()
+    response = HA_SESSION.post(
+        url,
+        headers=HEADERS,
+        json={
+            "entity_id": requested,
+            "start_date_time": str(start_date_time),
+            "end_date_time": str(end_date_time),
+        },
+        timeout=10,
+    )
+    logging.info(
+        "PERF_HA_CALENDAR entities=%d dt=%.3f status=%s",
+        len(requested),
+        time.time() - started,
+        getattr(response, "status_code", None),
+    )
+    if (response.status_code // 100) != 2:
+        return None
+
+    try:
+        body = response.json() or {}
+    except Exception:
+        return None
+    service_response = body.get("service_response") or {}
+    if not isinstance(service_response, dict):
+        return None
+
+    normalized: Dict[str, List[dict]] = {}
+    for entity_id in requested:
+        entity_response = service_response.get(entity_id) or {}
+        events = entity_response.get("events") if isinstance(entity_response, dict) else None
+        normalized[entity_id] = [row for row in (events or []) if isinstance(row, dict)]
+    return normalized
+
+
 def ha_get_states() -> Optional[list]:
     """
     Fetch full HA state snapshot (list of entity dicts) or None on failure.

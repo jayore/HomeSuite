@@ -273,6 +273,76 @@ Astral, and Skyfield calculations are local and require no credentials.
 Skyfield's ephemeris is installed with the Python dependencies instead of being
 downloaded during the first query.
 
+## Calendars
+
+Home Suite uses Home Assistant's calendar building block rather than storing a
+second provider credential. After adding Google Calendar or another calendar
+integration in Home Assistant, find its `calendar.*` entity IDs and map them in
+the ignored `deployment_config.py` file:
+
+```python
+CALENDARS = {
+    "personal": {
+        "entity_id": "calendar.your_name_example_com",
+        "label": "Personal",
+        "aliases": ["personal", "my calendar"],
+        "writable": True,
+        "include_in_agenda": True,
+    },
+    "family": {
+        "entity_id": "calendar.family",
+        "label": "Family",
+        "aliases": ["family"],
+        "writable": False,
+        "include_in_agenda": True,
+    },
+}
+
+DEFAULT_CALENDAR = "personal"
+CALENDAR_READS_ENABLED = True
+CALENDAR_WRITES_ENABLED = False
+CALENDAR_CONFIRM_WRITES = True
+CALENDAR_DEFAULT_EVENT_DURATION_MINUTES = 60
+CALENDAR_DRAFT_TTL_SECONDS = 2 * 60
+CALENDAR_QUERY_MAX_EVENTS = 6
+```
+
+`include_in_agenda` controls which calendars are merged for an unqualified
+agenda query. Naming a configured calendar selects it directly.
+`DEFAULT_CALENDAR` is used for event creation when the request does not name a
+target. Reads and writes have separate global switches; a write also requires
+the selected target's `writable` flag. The shipped default leaves writes off.
+
+Event drafts are short-lived and source-scoped. Home Suite can collect the
+title first or the date and time first, applies the configured default duration
+when one is omitted, and repeats the complete timed event before writing when
+confirmation is enabled. Provider OAuth remains in Home Assistant. Home Suite
+calls `calendar.get_events` and `calendar.create_event` with its existing
+`HA_TOKEN` and stores no Google secret.
+
+## Temporary Light Actions
+
+Temporary commands support one resolved Home Assistant `light.*` entity. They
+snapshot the original on/off, brightness, color, color-temperature, and effect
+attributes, then persist a conditional restore in
+`state/temporary_actions.json`. At expiry, Home Suite restores only if the live
+light still matches the observed temporary state. A manual change or later
+permanent command wins. A newer temporary command on the same light replaces
+the older deadline while retaining the first baseline.
+
+Shared bounds may be overridden in `deployment_config.py`:
+
+```python
+TEMPORARY_ACTIONS_ENABLED = True
+TEMPORARY_ACTION_MAX_SECONDS = 24 * 60 * 60
+TEMPORARY_ACTION_OBSERVE_DELAY_SECONDS = 1.0
+TEMPORARY_ACTION_OBSERVE_TIMEOUT_SECONDS = 5.0
+```
+
+The observation window allows Home Assistant state to catch up with the write
+before the restore is armed. Whole-room, multi-entity, and non-light temporary
+requests fail explicitly; Home Suite does not invent an inverse command.
+
 ## Stock Quotes
 
 Alpaca credentials are secrets and belong in `private_config.py`:

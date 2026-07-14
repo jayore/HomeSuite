@@ -16,9 +16,11 @@ Home Suite already includes:
 * Home Assistant control across lights, switches, locks, covers, fans, climate,
   vacuums, scenes, scripts, rooms, and state queries
 * Plex, Spotify, Sonos, YouTube, announcements, and transport focus
-* alarms, timers, reminders, delayed actions, and sunrise/sunset scheduling
-* deterministic date, time, weather, distance, astronomy, stock, and homelab
-  queries, with conversational web-enabled AI fallback
+* alarms, timers, reminders, delayed actions, sunrise/sunset scheduling, and
+  conditional temporary light restoration
+* deterministic date, time, weather, distance, astronomy, stock, calendar, and
+  homelab queries, plus confirmed Home Assistant calendar event creation and
+  conversational web-enabled AI fallback
 * continuous OpenWakeWord detection, one-breath command handoff, streaming STT,
   microphone profiles, calibration tooling, and local-TTS barge-in
 * a public installer, example configuration, operating documentation, and a
@@ -90,37 +92,12 @@ Small, periodic passes should:
 These are worthwhile candidates, but should be prioritized by actual household
 use rather than feature count.
 
-### Temporary State Overrides
-
-Natural requests such as `set the stair light to red for 10 minutes` should be
-able to apply a temporary override and restore the verified prior state. A safe
-design needs to store the original attributes, identify the exact entity, and
-avoid overwriting a newer manual or voice change when the timer expires.
-
-The same mechanism could eventually support temporary brightness, color,
-temperature, fan, and switch changes. It should build on the scheduler without
-turning arbitrary inverse commands into guessed state restoration.
-
 ### Recurring Schedules
 
 Common forms such as `every weekday at 7`, `every Tuesday`, and `on weekends`
 would extend alarms and reminders naturally. Recurrence requires explicit list,
 query, cancellation, persistence, and daylight-saving behavior rather than
 expanding only the creation parser.
-
-### Calendar Integration
-
-A read-only calendar path would cover most everyday value:
-
-* `what is on my calendar today?`
-* `what is my next event?`
-* `when is my dentist appointment?`
-
-Home Assistant calendar entities could provide a portable baseline. A direct
-Google Calendar integration could provide richer event metadata and eventually
-support guarded creation. Calendar writes should confirm title, date, time,
-timezone, duration, and target calendar before committing when any field is
-ambiguous.
 
 ### External Lists And Tasks
 

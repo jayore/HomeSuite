@@ -47,6 +47,8 @@ Current public-alpha capabilities include:
 * playback by title or description, resolved against real libraries and services
 * announcements and assistant speech routed locally or through room speakers
 * alarms, editable timers, reminders, and clock- or solar-based Home Assistant actions
+* conditional temporary light colors, brightness, and on/off state with verified restoration
+* Home Assistant calendar agendas, named-event queries, and confirmed event creation
 * deterministic date, time, weather, straight-line distance, sun, moon, lunar-phase, and planetary questions
 * optional read-only stock quotes, daily movement, prior closes, and U.S. market hours
 * homelab status through Home Assistant and optional direct service APIs

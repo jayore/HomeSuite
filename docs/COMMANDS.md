@@ -64,6 +64,17 @@ Advanced light forms:
 * `set the lamp to hex FF00AA`
 * `set the lamp to RGB 255 0 170`
 
+Temporary changes currently require one resolved `light.*` entity:
+
+* `set the stair light to red for 10 minutes`
+* `dim the desk lamp to 30 percent for 1 hour`
+* `turn off the porch light for 20 minutes`
+
+Home Suite snapshots the light before changing it. When the duration expires,
+it restores that snapshot only if the light still matches the temporary state.
+A later manual or voice change therefore wins. Whole-room and multi-light
+temporary changes fail explicitly instead of guessing an inverse action.
+
 ## Covers, Fans, Climate, And Vacuums
 
 These commands require a matching Home Assistant entity in the expected domain. Home Suite validates the resolved domain before calling a capability-specific service, and supported modes still depend on what the individual device reports.
@@ -314,6 +325,28 @@ querying the timer.
 Explicit names always take precedence, expired or missing context is not
 guessed, and unrelated request sources do not share pronouns unless their
 `SOURCES` entries intentionally share a continuity group.
+
+## Calendars
+
+Calendar commands use only the `calendar.*` entities configured through Home
+Assistant:
+
+* `what's on my calendar today?`
+* `what's on the family calendar tomorrow?`
+* `what's on my calendar this week?`
+* `what is my next event?`
+* `when is my dentist appointment?`
+* `add dentist appointment to my calendar on July 20 at 4:30 PM`
+* `add an event to my calendar on July 20 at 4:30 PM`
+* `add dentist appointment to my calendar`
+
+The last two forms start a source-scoped draft and ask for the missing title or
+date/time. Timed events default to
+`CALENDAR_DEFAULT_EVENT_DURATION_MINUTES`. Creation remains disabled unless
+`CALENDAR_WRITES_ENABLED` is true and the selected calendar is marked
+`writable`; when confirmation is enabled, Home Suite does not write until the
+user accepts the complete event summary. `no`, `cancel`, or `never mind`
+discards the pending draft.
 
 ## Announcements And Speech Testing
 
