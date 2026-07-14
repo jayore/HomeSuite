@@ -26,6 +26,17 @@ _DRAFT_CAPABILITY = "calendar_create"
 _DRAFT_CANCEL_RE = re.compile(r"^(?:no|nope|cancel|never mind|nevermind|don't|do not)$")
 _CREATE_RE = re.compile(r"^(?:please\s+)?(?:add|create|schedule|put)\b", re.IGNORECASE)
 _CALENDAR_WORD_RE = re.compile(r"\b(?:calendar|agenda|appointment|appointments|event|events)\b")
+_REVISION_PROMPT = "What should I change: the title, day, time, duration, or calendar?"
+_REVISION_FIELD_NAMES = {
+    "title": "title",
+    "name": "title",
+    "day": "date",
+    "date": "date",
+    "time": "time",
+    "duration": "duration",
+    "length": "duration",
+    "calendar": "calendar",
+}
 
 _MONTHS = {
     "january": 1, "jan": 1,
@@ -526,12 +537,92 @@ def _parse_creation(text: str, targets: Dict[str, CalendarTarget], now: datetime
     }
 
 
-def _fill_draft_from_followup(data: dict, text: str, *, now: datetime) -> bool:
+def _revision_content(text: str) -> str:
     t = _norm(text)
+    return re.sub(
+        r"^(?:(?:no|nope|actually|instead|sorry)\b[\s,]*|i meant\s+)",
+        "",
+        t,
+        count=1,
+    ).strip()
+
+
+def _revision_field_request(text: str) -> Optional[str]:
+    match = re.fullmatch(
+        r"(?:(?:change|fix|update)\s+)?(?:the\s+)?"
+        r"(title|name|day|date|time|duration|length|calendar)"
+        r"(?:\s+(?:please|is wrong|was wrong))?",
+        _revision_content(text),
+    )
+    return _REVISION_FIELD_NAMES.get(match.group(1)) if match else None
+
+
+def _revision_question(field: str) -> str:
+    return {
+        "title": "What should I call it?",
+        "date": "What day should it be?",
+        "time": "What time should I use?",
+        "duration": "How long should it be?",
+        "calendar": "Which calendar should I use?",
+    }.get(field, _REVISION_PROMPT)
+
+
+def _title_revision(text: str) -> Optional[str]:
+    t = _revision_content(text)
+    patterns = (
+        r"^(?:change|fix|update)\s+(?:the\s+)?(?:title|name)\s+to\s+(.+)$",
+        r"^(?:the\s+)?(?:title|name)\s+(?:is|should be)\s+(.+)$",
+        r"^(?:call|name|title)\s+(?:the\s+event\s+)?it\s+(.+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, t)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _fill_draft_from_followup(
+    data: dict,
+    text: str,
+    *,
+    now: datetime,
+    targets: Optional[Dict[str, CalendarTarget]] = None,
+) -> bool:
+    t = _revision_content(text)
+    requested_field = str(data.get("requested_field") or "")
     changed = False
+
     event_date = _date_from_text(t, today=now.date())
-    event_time = _clock_from_text("at " + t if re.match(r"^\d", t) else t)
+    event_time = _clock_from_text(t)
+    if event_time is None:
+        time_value = re.sub(
+            r"^(?:(?:change|fix|update)\s+(?:the\s+)?time\s+(?:to|is)\s+|"
+            r"(?:the\s+)?time\s+(?:is|should be)\s+|make\s+(?:it|that)\s+)",
+            "",
+            t,
+        ).strip()
+        numeric_time = bool(re.fullmatch(r"\d{1,2}(?::\d{2})?\s*(?:am|pm)?", time_value))
+        if requested_field == "time" or time_value != t or numeric_time:
+            event_time = _clock_from_text(f"at {time_value}")
+
     duration = _duration_from_text(t)
+    if duration is None:
+        duration_value = re.sub(
+            r"^(?:(?:change|fix|update)\s+(?:the\s+)?(?:duration|length)\s+(?:to|is)\s+|"
+            r"(?:the\s+)?(?:duration|length)\s+(?:is|should be)\s+)",
+            "",
+            t,
+        ).strip()
+        bare_duration = bool(
+            re.fullmatch(
+                r"(?:\d{1,4}|[a-z]+(?:[\s-]+[a-z]+)?)\s+"
+                r"(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)",
+                duration_value,
+            )
+        )
+        if requested_field == "duration" or duration_value != t or bare_duration:
+            duration = _duration_from_text(f"for {duration_value}")
+
     if event_date:
         data["date"] = event_date.isoformat()
         changed = True
@@ -541,12 +632,55 @@ def _fill_draft_from_followup(data: dict, text: str, *, now: datetime) -> bool:
     if duration:
         data["duration_seconds"] = duration
         changed = True
-    if not data.get("title") and not changed:
+
+    target = _explicit_target(t, targets or {}) if targets else None
+    if target and (
+        requested_field == "calendar"
+        or "calendar" in t
+        or bool(re.match(r"^(?:use|move|put|in|on)\b", t))
+    ):
+        data["calendar_key"] = target.key
+        changed = True
+
+    title = _title_revision(t)
+    if requested_field == "title" and not title:
+        title = re.sub(r"^(?:to\s+)?", "", t).strip()
+    if title and len(title.split()) <= 12 and not looks_like_calendar_request(title):
+        data["title"] = title.title()
+        changed = True
+    elif not data.get("title") and not changed:
         title = re.sub(r"^(?:call it|name it|title it|the title is)\s+", "", t).strip()
         if title and len(title.split()) <= 12 and not looks_like_calendar_request(title):
             data["title"] = title.title()
             changed = True
+
+    if changed:
+        data.pop("requested_field", None)
     return changed
+
+
+def _looks_like_confirmation_revision(
+    text: str,
+    targets: Dict[str, CalendarTarget],
+) -> bool:
+    original = _norm(text)
+    t = _revision_content(original)
+    if _revision_field_request(t):
+        return True
+    if re.match(
+        r"^(?:no\b|nope\b|actually\b|instead\b|sorry\b|i meant\b|"
+        r"change\b|fix\b|update\b|make\s+(?:it|that)\b|"
+        r"call it\b|name it\b|the\s+(?:title|name|day|date|time|duration|length)\b)",
+        original,
+    ):
+        return True
+    if re.match(r"^(?:at|on|for)\b", t):
+        return True
+    if re.fullmatch(r"\d{1,2}(?::\d{2})?\s*(?:am|pm)?", t):
+        return True
+    if re.fullmatch(r"(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)", t):
+        return True
+    return bool("calendar" in t and _explicit_target(t, targets))
 
 
 def _draft_question(data: dict) -> str:
@@ -588,7 +722,7 @@ def _confirmation(data: dict, target: CalendarTarget, tz: ZoneInfo) -> str:
     start, end = _draft_datetimes(data, tz)
     when = start.strftime("%A, %B %-d at %-I:%M %p").replace(":00 ", " ")
     duration = _duration_phrase((end - start).total_seconds())
-    return f"Add {data['title']} to {target.label} on {when} for {duration}?"
+    return f"{data['title']}, {when}, for {duration}. Is that right?"
 
 
 def _create_event(
@@ -613,6 +747,7 @@ def _create_event(
 def _confirmation_payload(data: dict, target: CalendarTarget, tz: ZoneInfo) -> dict:
     start, end = _draft_datetimes(data, tz)
     return {
+        "draft_id": str(data.get("id") or ""),
         "calendar_key": target.key,
         "entity_id": target.entity_id,
         "calendar_label": target.label,
@@ -666,7 +801,7 @@ def execute_calendar_confirmation(
         return "I couldn't add that event to the calendar."
     mark_action()
     when = start.strftime("%A at %-I:%M %p").replace(":00 ", " ")
-    return f"Added {title} to {target.label} on {when}."
+    return f"Added {title} on {when}."
 
 
 def _request_event_confirmation(data: dict, target: CalendarTarget, tz: ZoneInfo) -> str:
@@ -680,6 +815,116 @@ def _request_event_confirmation(data: dict, target: CalendarTarget, tz: ZoneInfo
         prompt=prompt,
         cancel_response="Okay, I didn't add it.",
     )
+
+
+def _draft_from_confirmation_payload(payload: dict) -> Optional[dict]:
+    targets = _config_targets()
+    calendar_key = str(payload.get("calendar_key") or "")
+    target = targets.get(calendar_key)
+    if (
+        not target
+        or not target.writable
+        or target.entity_id != str(payload.get("entity_id") or "")
+    ):
+        return None
+
+    title = str(payload.get("title") or "").strip()
+    try:
+        start = datetime.fromisoformat(str(payload.get("start_date_time") or ""))
+        end = datetime.fromisoformat(str(payload.get("end_date_time") or ""))
+    except ValueError:
+        return None
+    if not title or end <= start:
+        return None
+
+    tz = _local_timezone()
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=tz)
+    else:
+        start = start.astimezone(tz)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=tz)
+    else:
+        end = end.astimezone(tz)
+    return {
+        "id": str(payload.get("draft_id") or uuid.uuid4()),
+        "title": title,
+        "date": start.date().isoformat(),
+        "time": start.strftime("%H:%M"),
+        "duration_seconds": (end - start).total_seconds(),
+        "calendar_key": calendar_key,
+        "status": "revising",
+    }
+
+
+def _continue_calendar_draft(
+    data: dict,
+    text: str,
+    *,
+    targets: Dict[str, CalendarTarget],
+    now: datetime,
+    tz: ZoneInfo,
+) -> Optional[str]:
+    if data.get("status") == "revising":
+        field = _revision_field_request(text)
+        if field:
+            data["requested_field"] = field
+            _save_draft(data)
+            return _revision_question(field)
+
+    if not _fill_draft_from_followup(data, text, now=now, targets=targets):
+        return None
+
+    question = _draft_question(data)
+    if question:
+        _save_draft(data)
+        return question
+    target = targets.get(str(data.get("calendar_key") or ""))
+    if not target:
+        _forget_draft(data)
+        return "I don't have a default calendar configured."
+    if not target.writable:
+        data["requested_field"] = "calendar"
+        _save_draft(data)
+        return "That calendar isn't configured for event creation. Which calendar should I use?"
+    return _request_event_confirmation(data, target, tz)
+
+
+def begin_calendar_confirmation_revision(payload: dict) -> str:
+    """Restore a rejected typed calendar write as an editable draft."""
+    data = _draft_from_confirmation_payload(payload)
+    if not data:
+        return "I couldn't keep that event draft, so I left the calendar unchanged."
+    _save_draft(data)
+    return _REVISION_PROMPT
+
+
+def revise_calendar_confirmation(
+    payload: dict,
+    text: str,
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[str]:
+    """Apply a bounded correction spoken directly at the approval prompt."""
+    data = _draft_from_confirmation_payload(payload)
+    if not data:
+        return None
+    targets = _config_targets()
+    if not _looks_like_confirmation_revision(text, targets):
+        return None
+    tz = _local_timezone()
+    now = (now or datetime.now(tz)).astimezone(tz)
+    response = _continue_calendar_draft(
+        data,
+        text,
+        targets=targets,
+        now=now,
+        tz=tz,
+    )
+    if response is not None:
+        return response
+    _save_draft(data)
+    return _REVISION_PROMPT
 
 
 def handle_calendar_controls(
@@ -701,16 +946,15 @@ def handle_calendar_controls(
         if _DRAFT_CANCEL_RE.fullmatch(t):
             _forget_draft(draft)
             return "Okay, I didn't add it."
-        if draft.get("status") == "collecting" and _fill_draft_from_followup(draft, t, now=now):
-            question = _draft_question(draft)
-            if question:
-                _save_draft(draft)
-                return question
-            target = targets.get(str(draft.get("calendar_key") or ""))
-            if not target:
-                _forget_draft(draft)
-                return "I don't have a default calendar configured."
-            return _request_event_confirmation(draft, target, tz)
+        draft_response = _continue_calendar_draft(
+            draft,
+            t,
+            targets=targets,
+            now=now,
+            tz=tz,
+        )
+        if draft_response is not None:
+            return draft_response
 
     creation = _parse_creation(t, targets, now)
     if creation is not None:

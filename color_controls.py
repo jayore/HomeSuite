@@ -45,6 +45,29 @@ def handle_color_controls(
       - None if not a color command
     """
 
+    # Natural color-setting shells feed the same existing parsers. Keep this
+    # narrow: the value must be a known color and the target must be a light,
+    # a supported pronoun, or a configured room color target.
+    color_text = (tl or "").strip().lower()
+    make_match = re.fullmatch(
+        r"(?:make|change)\s+(?:the\s+)?(.+?)\s+([a-z]+)",
+        color_text,
+    )
+    if make_match:
+        natural_target = make_match.group(1).strip()
+        natural_color = make_match.group(2).strip()
+        target_is_safe = bool(
+            natural_target in {"it", "that", "this"}
+            or re.search(r"\b(?:light|lamp)s?\b", natural_target)
+            or natural_target in (color_lights or {})
+        )
+        if target_is_safe and is_known_css_color(natural_color):
+            tl = f"set {natural_target} to {natural_color}"
+    else:
+        go_match = re.fullmatch(r"go\s+([a-z]+)", color_text)
+        if go_match and is_known_css_color(go_match.group(1)):
+            tl = f"set it to {go_match.group(1)}"
+
     def _maybe_resolve(color: str) -> str:
         """If color is not a known CSS name and a resolver is available, ask AI."""
         if resolve_color and not is_known_css_color(color):

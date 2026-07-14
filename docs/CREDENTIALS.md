@@ -57,13 +57,13 @@ chmod 600 private_config.py deployment_config.py local_prefs.py
 
 Leave unused optional values as empty strings or empty lists. Do not enter fake
 placeholder URLs; a blank value means "intentionally not configured" to Home
-Suite and `homesuite-doctor`.
+Suite and `homesuite doctor`.
 
 After making changes:
 
 ```bash
-homesuite-doctor
-homesuite-doctor --live
+homesuite doctor
+homesuite doctor --live
 ```
 
 The live doctor makes bounded requests to configured services. It should be run
@@ -196,7 +196,7 @@ ALPACA_API_SECRET_KEY = "..."
 3. Generate a key and secret in the paper-trading web dashboard. Alpaca's SDK
    and terminal examples are not setup requirements for Home Suite.
 4. Store the key ID and secret key in the ignored `private_config.py` file.
-5. Run `homesuite-doctor --live` to validate a bounded read-only snapshot call.
+5. Run `homesuite doctor --live` to validate a bounded read-only snapshot call.
 
 Paper-account keys are sufficient for Alpaca Basic market data and its IEX
 equities feed. IEX represents one exchange, not the consolidated SIP market;
@@ -527,8 +527,8 @@ Depending on configuration, these paths can work without another credential:
 Finish with:
 
 ```bash
-homesuite-doctor
-homesuite-doctor --live
+homesuite doctor
+homesuite doctor --live
 ```
 
 A configured credential does not guarantee that the target entity, room, media

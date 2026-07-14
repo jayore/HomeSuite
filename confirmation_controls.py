@@ -51,6 +51,7 @@ _NEGATIVE = {
     "never mind",
     "nevermind",
 }
+_REVISION_NEGATIVE = {"no", "nope"}
 
 _AUTH_LOCK = threading.RLock()
 _AUTHORIZATIONS: Dict[tuple[str, str, str], float] = {}
@@ -264,6 +265,10 @@ def handle_confirmation_controls(
     tl: str,
     execute_command: Callable[[str], Optional[str]],
     typed_executors: Optional[Dict[str, Callable[[dict[str, Any]], Optional[str]]]] = None,
+    typed_rejectors: Optional[Dict[str, Callable[[dict[str, Any]], Optional[str]]]] = None,
+    typed_revision_handlers: Optional[
+        Dict[str, Callable[[dict[str, Any], str], Optional[str]]]
+    ] = None,
 ) -> Optional[str]:
     """Intercept replies to a pending confirmation before ordinary routing."""
     entry = pending_confirmation()
@@ -280,6 +285,23 @@ def handle_confirmation_controls(
             key=entry_id,
             scope_id=_confirmation_scope_id(),
         )
+        mode = str(data.get("mode") or "")
+        action_type = str(data.get("action_type") or "")
+        rejector = (typed_rejectors or {}).get(action_type)
+        if reply in _REVISION_NEGATIVE and mode == "typed" and callable(rejector):
+            logging.info(
+                "TYPED_CONFIRMATION_REJECT id=%s action_type=%s revision=True",
+                entry_id,
+                action_type,
+            )
+            try:
+                response = rejector(dict(data.get("payload") or {}))
+            except Exception:
+                logging.exception("TYPED_CONFIRMATION_REJECT_FAIL id=%s", entry_id)
+                return "I couldn't revise that action."
+            return response if response is not None else str(
+                data.get("cancel_response") or "Okay, I left it unchanged."
+            )
         logging.info("COMMAND_CONFIRMATION_REJECT id=%s", entry_id)
         return str(data.get("cancel_response") or "Okay, I left it unchanged.")
 
@@ -289,6 +311,23 @@ def handle_confirmation_controls(
             key=entry_id,
             scope_id=_confirmation_scope_id(),
         )
+        mode = str(data.get("mode") or "")
+        action_type = str(data.get("action_type") or "")
+        reviser = (typed_revision_handlers or {}).get(action_type)
+        if mode == "typed" and callable(reviser):
+            try:
+                response = reviser(dict(data.get("payload") or {}), str(tl or ""))
+            except Exception:
+                logging.exception("TYPED_CONFIRMATION_REVISION_FAIL id=%s", entry_id)
+                return "I couldn't revise that action."
+            if response is not None:
+                logging.info(
+                    "TYPED_CONFIRMATION_REVISE id=%s action_type=%s reply=%r",
+                    entry_id,
+                    action_type,
+                    tl,
+                )
+                return response
         logging.info(
             "COMMAND_CONFIRMATION_SUPERSEDE id=%s replacement=%r",
             entry_id,

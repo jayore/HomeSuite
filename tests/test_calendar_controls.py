@@ -124,7 +124,8 @@ class CalendarControlsTests(unittest.TestCase):
         )
         self.assertEqual(
             response,
-            "Add Dentist Appointment to Personal on Monday, July 20 at 4:30 PM for 1 hour?",
+            "Dentist Appointment, Monday, July 20 at 4:30 PM, for 1 hour. "
+            "Is that right?",
         )
         self.assertEqual(calls, [])
 
@@ -140,7 +141,7 @@ class CalendarControlsTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(response, "Added Dentist Appointment to Personal on Monday at 4:30 PM.")
+        self.assertEqual(response, "Added Dentist Appointment on Monday at 4:30 PM.")
         self.assertEqual(calls[0][0], "calendar/create_event")
         self.assertEqual(calls[0][1]["entity_id"], "calendar.personal")
         self.assertEqual(calls[0][1]["summary"], "Dentist Appointment")
@@ -165,7 +166,8 @@ class CalendarControlsTests(unittest.TestCase):
         )
 
         self.assertEqual(first, "What should I call the event?")
-        self.assertIn("Add Dentist Appointment to Personal", second)
+        self.assertIn("Dentist Appointment, Monday, July 20", second)
+        self.assertTrue(second.endswith("Is that right?"))
 
     def test_name_first_draft_collects_date_and_time(self):
         first = calendar_controls.handle_calendar_controls(
@@ -185,6 +187,197 @@ class CalendarControlsTests(unittest.TestCase):
 
         self.assertEqual(first, "What day should I schedule Dentist Appointment?")
         self.assertIn("Monday, July 20 at 4:30 PM", second)
+
+    def test_rejected_confirmation_can_revise_a_selected_field(self):
+        calls = []
+        mark_action = mock.Mock()
+        prompt = calendar_controls.handle_calendar_controls(
+            tl="add dentist appointment to my calendar on July 20 at 4:30 pm",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+        self.assertTrue(prompt.endswith("Is that right?"))
+
+        rejection = confirmation_controls.handle_confirmation_controls(
+            tl="no",
+            execute_command=mock.Mock(),
+            typed_rejectors={
+                "calendar_create": calendar_controls.begin_calendar_confirmation_revision,
+            },
+        )
+        field_question = calendar_controls.handle_calendar_controls(
+            tl="the time",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+        revised_prompt = calendar_controls.handle_calendar_controls(
+            tl="10:45 pm",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+
+        self.assertEqual(
+            rejection,
+            "What should I change: the title, day, time, duration, or calendar?",
+        )
+        self.assertEqual(field_question, "What time should I use?")
+        self.assertIn("10:45 PM", revised_prompt)
+        self.assertTrue(revised_prompt.endswith("Is that right?"))
+
+        response = confirmation_controls.handle_confirmation_controls(
+            tl="yes",
+            execute_command=mock.Mock(),
+            typed_executors={
+                "calendar_create": lambda payload: calendar_controls.execute_calendar_confirmation(
+                    payload,
+                    call_service=lambda service, body: calls.append((service, body)) or True,
+                    mark_action=mark_action,
+                )
+            },
+        )
+
+        self.assertEqual(response, "Added Dentist Appointment on Monday at 10:45 PM.")
+        self.assertEqual(calls[0][1]["start_date_time"], "2026-07-20T22:45:00-07:00")
+        mark_action.assert_called_once_with()
+
+    def test_rejected_confirmation_accepts_a_direct_replacement(self):
+        calendar_controls.handle_calendar_controls(
+            tl="add dentist appointment to my calendar on July 20 at 4:30 pm",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+        rejection = confirmation_controls.handle_confirmation_controls(
+            tl="no",
+            execute_command=mock.Mock(),
+            typed_rejectors={
+                "calendar_create": calendar_controls.begin_calendar_confirmation_revision,
+            },
+        )
+
+        revised_prompt = calendar_controls.handle_calendar_controls(
+            tl="at 10:45 pm",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+
+        self.assertEqual(
+            rejection,
+            "What should I change: the title, day, time, duration, or calendar?",
+        )
+        self.assertIn("10:45 PM", revised_prompt)
+        self.assertTrue(revised_prompt.endswith("Is that right?"))
+
+    def test_revision_prompt_field_options_are_actionable(self):
+        cases = (
+            ("the title", "Dinner with Sam", "Dinner With Sam"),
+            ("the day", "Thursday", "Thursday, July 16"),
+            ("the duration", "30 minutes", "for 30 minutes"),
+            ("the calendar", "family", "Dentist Appointment"),
+        )
+        for field_reply, replacement, expected in cases:
+            with self.subTest(field=field_reply):
+                reset_dialogue_state(all_scopes=True)
+                calendar_controls.handle_calendar_controls(
+                    tl="add dentist appointment to my calendar on July 20 at 4:30 pm",
+                    get_events=mock.Mock(),
+                    call_service=mock.Mock(),
+                    mark_action=mock.Mock(),
+                    now=self.now,
+                )
+                confirmation_controls.handle_confirmation_controls(
+                    tl="no",
+                    execute_command=mock.Mock(),
+                    typed_rejectors={
+                        "calendar_create": calendar_controls.begin_calendar_confirmation_revision,
+                    },
+                )
+                calendar_controls.handle_calendar_controls(
+                    tl=field_reply,
+                    get_events=mock.Mock(),
+                    call_service=mock.Mock(),
+                    mark_action=mock.Mock(),
+                    now=self.now,
+                )
+
+                revised_prompt = calendar_controls.handle_calendar_controls(
+                    tl=replacement,
+                    get_events=mock.Mock(),
+                    call_service=mock.Mock(),
+                    mark_action=mock.Mock(),
+                    now=self.now,
+                )
+
+                self.assertIn(expected, revised_prompt)
+                self.assertTrue(revised_prompt.endswith("Is that right?"))
+                if field_reply == "the calendar":
+                    pending = confirmation_controls.pending_confirmation()
+                    payload = (pending.get("data") or {}).get("payload") or {}
+                    self.assertEqual(payload.get("calendar_key"), "family")
+
+    def test_compact_correction_can_replace_confirmation_in_one_turn(self):
+        calendar_controls.handle_calendar_controls(
+            tl="add dentist appointment to my calendar on July 20 at 4:30 pm",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+
+        revised_prompt = confirmation_controls.handle_confirmation_controls(
+            tl="no, at 10:45 pm",
+            execute_command=mock.Mock(),
+            typed_revision_handlers={
+                "calendar_create": lambda payload, text: calendar_controls.revise_calendar_confirmation(
+                    payload,
+                    text,
+                    now=self.now,
+                ),
+            },
+        )
+
+        self.assertIn("10:45 PM", revised_prompt)
+        self.assertTrue(revised_prompt.endswith("Is that right?"))
+
+    def test_unrelated_command_supersedes_without_restoring_calendar_draft(self):
+        calendar_controls.handle_calendar_controls(
+            tl="add dentist appointment to my calendar on July 20 at 4:30 pm",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+
+        response = confirmation_controls.handle_confirmation_controls(
+            tl="turn off the kitchen light",
+            execute_command=mock.Mock(),
+            typed_revision_handlers={
+                "calendar_create": lambda payload, text: calendar_controls.revise_calendar_confirmation(
+                    payload,
+                    text,
+                    now=self.now,
+                ),
+            },
+        )
+        stale_followup = calendar_controls.handle_calendar_controls(
+            tl="at 10:45 pm",
+            get_events=mock.Mock(),
+            call_service=mock.Mock(),
+            mark_action=mock.Mock(),
+            now=self.now,
+        )
+
+        self.assertIsNone(response)
+        self.assertIsNone(stale_followup)
 
     def test_writes_disabled_fails_before_draft(self):
         with mock.patch.object(app_config, "CALENDAR_WRITES_ENABLED", False):

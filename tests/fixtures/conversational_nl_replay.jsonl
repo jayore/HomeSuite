@@ -1,0 +1,30 @@
+{"name":"polite binary request","kind":"normalize","input":"Could you turn the stair light off for me?","expected":"turn the stair light off"}
+{"name":"would you mind degerund","kind":"normalize","input":"Would you mind turning on the kitchen lights?","expected":"turn on the kitchen lights?"}
+{"name":"switch paraphrase","kind":"normalize","input":"Do me a favor and switch off the floor lamp, please","expected":"turn floor lamp off"}
+{"name":"qualitative brightness","kind":"normalize","input":"I'd like you to make the stair light half brightness","expected":"set stair light to 50%"}
+{"name":"qualitative volume alternate order","kind":"normalize","input":"Set the kitchen to half volume","expected":"set kitchen volume to 50%"}
+{"name":"timer shorthand","kind":"normalize","input":"Please give me five minutes","expected":"set a timer for five minutes"}
+{"name":"song payload keeps for me","kind":"normalize","input":"Could you play Dance for Me?","expected":"play Dance for Me?"}
+{"name":"announcement payload keeps for me","kind":"normalize","input":"Could you announce dinner is ready for me?","expected":"announce dinner is ready for me?"}
+{"name":"timing and right target remain intact","kind":"normalize","input":"right now turn off the right lamp","expected":"right now turn off the right lamp"}
+{"name":"unsupported timing clause remains intact","kind":"normalize","input":"turn off the lamp when you get a chance","expected":"turn off the lamp when you get a chance"}
+{"name":"binary target transfer","kind":"followup","frame":{"claim":"binary","text":"turn stair light off","target_keys":["light.stair"]},"input":"and the desk lamp too","expected":"turn desk lamp off","expected_kind":"target_transfer"}
+{"name":"target transfer survives dropped too","kind":"followup","frame":{"claim":"binary","text":"turn desk lamp off","target_keys":["light.desk_lamp"]},"input":"And the stair light?","expected":"turn stair light off","expected_kind":"target_transfer"}
+{"name":"also prefix transfers target","kind":"followup","frame":{"claim":"color","text":"set desk lamp to blue","target_keys":["light.desk_lamp"]},"input":"also the stair light","expected":"set stair light to blue","expected_kind":"target_transfer"}
+{"name":"conversational closer is not a target","kind":"followup","frame":{"claim":"binary","text":"turn desk lamp off","target_keys":["light.desk_lamp"]},"input":"and that's all","expected":null}
+{"name":"new action after also is not a target","kind":"followup","frame":{"claim":"brightness","text":"set desk lamp to 30%","target_keys":["light.desk_lamp"]},"input":"also make it brighter","expected":null}
+{"name":"light room transfer","kind":"followup","frame":{"claim":"binary","text":"turn stair light off","target_keys":["light.stair"]},"room_targets":["bedroom"],"input":"same in the bedroom","expected":"turn bedroom lights off","expected_kind":"target_transfer"}
+{"name":"color correction","kind":"followup","frame":{"claim":"color","text":"set stair light to red","target_keys":["light.stair"]},"input":"actually make it blue instead","expected":"set stair light to blue","expected_kind":"value_correction"}
+{"name":"brightness correction","kind":"followup","frame":{"claim":"brightness","text":"set stair light to 30%","target_keys":["light.stair"]},"input":"make that full","expected":"set stair light brightness to 100%","expected_kind":"value_correction"}
+{"name":"volume target transfer","kind":"followup","frame":{"claim":"volume","text":"set kitchen volume to 30%"},"input":"and the bedroom too","expected":"set bedroom volume to 30%","expected_kind":"target_transfer"}
+{"name":"timer extension","kind":"followup","frame":{"claim":"timer","text":"set a five minute timer for five minutes"},"input":"give me another two minutes","expected":"add two minutes to it","expected_kind":"duration_adjustment"}
+{"name":"weather day refinement","kind":"followup","frame":{"claim":"weather","text":"what's the weather tomorrow in seattle","metadata":{"location":"Seattle","mode":"day","day_offset":1}},"input":"what about Thursday?","expected":"weather thursday in seattle","expected_kind":"query_refinement"}
+{"name":"astronomy planet refinement","kind":"followup","frame":{"claim":"astronomy","text":"when does jupiter rise","metadata":{"intent":"planet_event","planet":"jupiter","event":"rise"}},"input":"what about Saturn?","expected":"when does saturn rise","expected_kind":"query_refinement"}
+{"name":"calendar day correction","kind":"followup","frame":{"claim":"calendar","text":"what's on my calendar today","metadata":{"label":"today","next_only":false}},"input":"I meant Friday","expected":"what's on my calendar friday","expected_kind":"query_refinement"}
+{"name":"calendar does not invent a location meaning","kind":"followup","frame":{"claim":"calendar","text":"what's on my calendar today","metadata":{"label":"today","next_only":false}},"input":"How about Portland?","expected":null}
+{"name":"full command supersedes old frame","kind":"followup","frame":{"claim":"color","text":"set stair light to red","target_keys":["light.stair"]},"input":"turn off the desk lamp","expected":null}
+{"name":"unrelated pronoun question is not rewritten","kind":"followup","frame":{"claim":"binary","text":"turn stair light off","target_keys":["light.stair"]},"input":"why did it do that","expected":null}
+{"name":"polite device route","kind":"route","input":"Could you turn the floor lamp off for me?","expected":"device"}
+{"name":"timer shorthand route","kind":"route","input":"Give me five minutes","expected":"device"}
+{"name":"polite explanation remains AI","kind":"route","input":"Could you explain photosynthesis?","expected":"chatgpt"}
+{"name":"content-bearing play remains device","kind":"route","input":"Could you play Dance for Me?","expected":"device"}

@@ -15,6 +15,9 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # Set True on a physical handset build where GPIO/off-hook handling is present.
 # HANDSET_PRESENT = False
 
+# Active-low handset hook input in BCM numbering. Defaults to 11.
+# HANDSET_GPIO_PIN = 11
+
 # Enable push-to-talk / handset interaction on devices with the needed hardware.
 # PTT_ENABLED = False
 
@@ -136,3 +139,18 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # that should not accept companion-client connections.
 # UNIFIED_SERVER_ENABLED = True
 # UNIFIED_SERVER_PORT = 8765
+
+
+# ---------------------------------------------------------------------------
+# Local diagnostics and privacy
+# ---------------------------------------------------------------------------
+
+# Runtime and structured command logs rotate automatically. Command metadata is
+# recorded without utterance text by default; opt in only while diagnosing a
+# problem, then turn it back off.
+# RUNTIME_LOG_MAX_BYTES = 5 * 1024 * 1024
+# RUNTIME_LOG_BACKUP_COUNT = 3
+# COMMAND_EVENT_LOG_ENABLED = True
+# COMMAND_EVENT_LOG_STORE_TEXT = False
+# COMMAND_EVENT_LOG_MAX_BYTES = 2 * 1024 * 1024
+# COMMAND_EVENT_LOG_BACKUP_COUNT = 3

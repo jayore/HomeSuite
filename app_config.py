@@ -63,6 +63,20 @@ DEFAULT_ROOM: str = "living_room"
 MANIFEST_SCHEMA_VERSION: int = 1
 
 
+# =============================
+# Operational logging and privacy
+# =============================
+# Keep local diagnostics bounded on long-lived Pi deployments. The structured
+# event log records command metadata by default but does not retain raw spoken
+# or typed text unless a deployment explicitly opts in for troubleshooting.
+RUNTIME_LOG_MAX_BYTES = 5 * 1024 * 1024
+RUNTIME_LOG_BACKUP_COUNT = 3
+COMMAND_EVENT_LOG_ENABLED = True
+COMMAND_EVENT_LOG_STORE_TEXT = False
+COMMAND_EVENT_LOG_MAX_BYTES = 2 * 1024 * 1024
+COMMAND_EVENT_LOG_BACKUP_COUNT = 3
+
+
 ROOMS: Dict[str, Dict[str, Any]] = {
     "living_room": {
         "label": "Living Room",
@@ -557,6 +571,16 @@ CHATGPT_WEB_SEARCH_MODEL = CHATGPT_MODEL
 # longer or shorter established TTL when they remember an object.
 DIALOGUE_REFERENT_TTL_SECONDS = 2 * 60
 
+# Semantic shape of the most recent deterministic turn. This is separate from
+# object referents: it remembers that a light was set to red, for example, so a
+# short follow-up such as "same in the bedroom" can be rebuilt and revalidated.
+DIALOGUE_INTENT_FRAME_TTL_SECONDS = 2 * 60
+
+# Exact-source pending clarification prompts expire quickly. Clarification
+# options replay ordinary deterministic commands rather than holding authority
+# to act on an entity directly.
+COMMAND_CLARIFICATION_TTL_SECONDS = 45
+
 # Extract short-lived media breadcrumbs from ChatGPT answers so deterministic
 # Plex/Spotify handlers can resolve follow-ups like "play it" or "watch that".
 # The extractor stores searchable names/kinds only, never model-invented IDs.
@@ -832,6 +856,10 @@ WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 1.0
 # and wakeword/push-and-hold UX works normally. Setting it True preserves the
 # original Pi 3 handset behavior. Fresh installs default to no handset hardware.
 HANDSET_PRESENT = False
+
+# Active-low handset hook input in BCM numbering. Keep this in configuration so
+# a different handset wiring does not require editing the runtime.
+HANDSET_GPIO_PIN = 11
 
 # Hardware input paths are opt-in per device. Fresh installs begin as safe text
 # command nodes until local_prefs.py explicitly enables a handset or wakeword.

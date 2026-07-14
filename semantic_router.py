@@ -25,6 +25,7 @@ from weather_utils import looks_like_weather_query
 from calendar_controls import looks_like_calendar_request
 from pending_controls import looks_like_pending_query
 from temporary_actions import looks_like_temporary_action_request
+from conversational_nl import normalize_conversational_command
 
 
 class RouteOutcome(str, Enum):
@@ -50,6 +51,7 @@ _CONVO_START_PAT = re.compile(
 
 _DEVICEISH_PATTERNS = [
     re.compile(r"\b(turn|switch)\s+(on|off)\b"),
+    re.compile(r"^(?:turn|switch)\s+.+\s+(?:back\s+)?(?:on|off)$"),
     re.compile(r"\bset\s+.+\b"),
     re.compile(r"\b(brightness|volume|color|kelvin)\b"),
     re.compile(r"\b(rgb|#?[0-9a-f]{6}|\d{4,5}\s*k)\b"),
@@ -224,7 +226,7 @@ def route_utterance(
     if now_ts is None:
         now_ts = time.time()
 
-    t = _norm(text)
+    t = _norm(normalize_conversational_command(text))
     if not t:
         return RouteResult(RouteOutcome.ERROR)
 

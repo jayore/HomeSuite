@@ -16,24 +16,19 @@ write_shortcut() {
 
 python_exec='exec "$HOMESUITE_DIR/.venv/bin/python"'
 
-write_shortcut "homesuite-doctor" '#!/usr/bin/env bash
+write_shortcut "homesuite" '#!/usr/bin/env bash
 set -euo pipefail
 HOMESUITE_DIR="'"$INSTALL_DIR"'"
-'"${python_exec}"' "$HOMESUITE_DIR/tools/doctor.py" "$@"'
+'"${python_exec}"' "$HOMESUITE_DIR/tools/homesuite_cli.py" "$@"'
+
+write_shortcut "homesuite-doctor" '#!/usr/bin/env bash
+exec homesuite doctor "$@"'
 
 write_shortcut "homesuite-test" '#!/usr/bin/env bash
-set -euo pipefail
-HOMESUITE_DIR="'"$INSTALL_DIR"'"
-export PIPHONE_NO_RUNTIME_INIT=1
-export PIPHONE_LIGHT_IMPORT=1
-export PIPHONE_SKIP_PID_LOCK=1
-export PIPHONE_TEST_MODE=1
-'"${python_exec}"' "$HOMESUITE_DIR/tools/test_commands.py" "$@"'
+exec homesuite test "$@"'
 
 write_shortcut "homesuite-live" '#!/usr/bin/env bash
-set -euo pipefail
-HOMESUITE_DIR="'"$INSTALL_DIR"'"
-'"${python_exec}"' "$HOMESUITE_DIR/tools/test_commands.py" "$@" --live'
+exec homesuite test --live "$@"'
 
 write_shortcut "homesuite-chat" '#!/usr/bin/env bash
 set -euo pipefail
@@ -67,24 +62,18 @@ exec homesuite-doctor "$@"'
 
 write_shortcut "pptest" '#!/usr/bin/env bash
 set -euo pipefail
-HOMESUITE_DIR="'"$INSTALL_DIR"'"
-export PIPHONE_NO_RUNTIME_INIT=1
-export PIPHONE_LIGHT_IMPORT=1
-export PIPHONE_SKIP_PID_LOCK=1
-export PIPHONE_TEST_MODE=1
 if [[ "$#" -eq 0 ]]; then
-  '"${python_exec}"' "$HOMESUITE_DIR/command_repl.py"
+  exec homesuite repl
 else
-  '"${python_exec}"' "$HOMESUITE_DIR/tools/test_commands.py" "$@" --capture
+  exec homesuite test "$@"
 fi'
 
 write_shortcut "pplive" '#!/usr/bin/env bash
 set -euo pipefail
-HOMESUITE_DIR="'"$INSTALL_DIR"'"
 if [[ "$#" -eq 0 ]]; then
-  '"${python_exec}"' "$HOMESUITE_DIR/command_repl.py" --live
+  exec homesuite repl --live
 else
-  '"${python_exec}"' "$HOMESUITE_DIR/tools/test_commands.py" "$@" --live
+  exec homesuite test --live "$@"
 fi'
 
 write_shortcut "ppchat" '#!/usr/bin/env bash
@@ -95,7 +84,7 @@ exec homesuite-chattest "$@"'
 
 cat <<EOF
 Installed HomeSuite shortcuts in $SHORTCUT_DIR:
-  homesuite-doctor, homesuite-test, homesuite-live, homesuite-chat, homesuite-chattest
+  homesuite, homesuite-doctor, homesuite-test, homesuite-live, homesuite-chat, homesuite-chattest
   homesuite-youtube-pair, homesuite-youtube-oauth
   ppdoctor, pptest, pplive, ppchat, ppchattest
 

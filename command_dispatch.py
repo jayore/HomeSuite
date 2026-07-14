@@ -48,6 +48,11 @@ from normalize_helpers import (
     _normalize_device_text,
     _normalize_restorative_device_phrase,
 )
+from conversational_nl import (
+    build_intent_frame,
+    normalize_conversational_command,
+    resolve_intent_followup,
+)
 from app_config import (
     APPLE_TV_DEFAULT_SKIP_SECONDS,
     ASSISTANT_PROFILE,
@@ -112,8 +117,11 @@ from request_context import (
     get_room_default_for_request,
 )
 from dialogue_state import (
+    forget_intent_frame,
     forget_referent,
     remember_referent,
+    remember_intent_frame,
+    resolve_intent_frame,
     resolve_referent,
     reset_dialogue_state,
     restore_scope as restore_dialogue_scope,
@@ -147,6 +155,8 @@ from media_referents import rewrite_media_pronoun_command
 from brightness_controls import handle_brightness_controls
 from color_controls import handle_color_controls
 from on_off_controls import (
+    TURN_OFF_PHRASE_OVERRIDES,
+    TURN_ON_PHRASE_OVERRIDES,
     handle_on_off_controls,
     handle_toggle_controls,
     supports_binary_action,
@@ -160,11 +170,26 @@ from state_query_controls import handle_state_query_controls, looks_like_state_q
 from alarm_controls import handle_alarm_controls, set_command_executor as set_alarm_command_executor
 from schedule_controls import handle_schedule_controls
 from temporary_actions import handle_temporary_action
-from calendar_controls import handle_calendar_controls, execute_calendar_confirmation
+from calendar_controls import (
+    begin_calendar_confirmation_revision,
+    execute_calendar_confirmation,
+    handle_calendar_controls,
+    parse_calendar_query,
+    revise_calendar_confirmation,
+)
 from confirmation_controls import (
     cancel_pending_confirmation,
     handle_confirmation_controls,
     reset_confirmation_state,
+)
+from clarification_controls import (
+    cancel_pending_clarification,
+    handle_clarification_controls,
+    request_command_clarification,
+)
+from device_clarification import (
+    build_binary_device_clarification,
+    build_light_device_clarification,
 )
 from temporal_safety import guard_unconsumed_temporal_action
 from pending_controls import handle_pending_controls
@@ -646,6 +671,83 @@ def _get_recent_lights() -> list:
     if data.get("command_id") == _current_cmd_id:
         return []
     return entity_ids
+
+
+def _intent_target_keys(claim: str) -> tuple[str, ...]:
+    """Return stable keys already verified by the successful claim."""
+    claim_n = str(claim or "").strip().lower()
+    refs = []
+    if claim_n in {"color", "brightness"}:
+        group = resolve_referent(kinds={"light_group"}, capability="light_group_target")
+        if group:
+            refs.extend((group.get("data") or {}).get("entity_ids") or ())
+        if not refs:
+            light = resolve_referent(kinds={"light"}, capability="light_target")
+            if light:
+                refs.append(light.get("key"))
+    elif claim_n == "binary":
+        device = resolve_referent(kinds={"device"}, capability="binary_control")
+        if device:
+            refs.append(device.get("key"))
+    elif claim_n == "timer":
+        timer = resolve_referent(kinds={"timer"}, capability="adjust_duration")
+        if timer:
+            refs.append(timer.get("key"))
+    return tuple(str(value) for value in refs if str(value or "").strip())
+
+
+def _remember_claimed_intent(
+    claim: str,
+    text: str,
+    response,
+    *,
+    metadata: Optional[dict] = None,
+) -> bool:
+    """Publish a frame only after a real handler has positively claimed a turn."""
+    if response is None:
+        return False
+    visible = str(response or "").strip().lower()
+    if visible.startswith("claim:") or visible.startswith(
+        ("i couldn't", "i can't", "sorry", "error")
+    ):
+        return False
+    frame = build_intent_frame(
+        claim,
+        text,
+        metadata=metadata,
+        target_keys=_intent_target_keys(claim),
+    )
+    if not frame:
+        return False
+    remembered = remember_intent_frame(frame, source=f"claim:{claim}")
+    if remembered:
+        logging.info(
+            "DIALOGUE_INTENT_CAPTURE claim=%s domain=%s intent=%s command=%r",
+            claim,
+            frame.domain,
+            frame.intent,
+            frame.canonical_command,
+        )
+        return True
+    return False
+
+
+def _intent_frame_marker():
+    entry = resolve_referent(kinds={"intent_frame"}, capability="intent_followup")
+    if not entry:
+        return None
+    return (entry.get("scope_id"), entry.get("key"), entry.get("ts"))
+
+
+def _preserves_intent_frame(text: str) -> bool:
+    value = re.sub(r"[\s?!.]+$", "", str(text or "").strip().lower())
+    return bool(
+        re.fullmatch(
+            r"say that again|say it again|repeat that|repeat it|"
+            r"what did you say|what was that|pardon|come again",
+            value,
+        )
+    )
 
 def _maybe_normalize_for_device_pipeline(text: str) -> str:
     if not _looks_like_device_command(text):
@@ -2165,6 +2267,19 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     _text_after_routing = text
     _dispatch_timing_mark("routing_repair")
 
+    try:
+        conversational_text = normalize_conversational_command(text)
+    except Exception:
+        logging.exception("CONVERSATIONAL_NORMALIZE_FAIL text=%r", text)
+        conversational_text = text
+    if conversational_text != text:
+        logging.info(
+            "CONVERSATIONAL_NORMALIZE: %r -> %r",
+            text,
+            conversational_text,
+        )
+        text = conversational_text
+
     # Ensure ACTION_DECISION 'norm=' always reflects THIS utterance even when
     # we skip device normalization (e.g., trigger aliases like 'living room dim').
     # globals() writes target this module (command_dispatch); readers in
@@ -2184,11 +2299,12 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         logging.info("CLAIM: local_say_controls")
         return LOCAL_SAY_RESP
 
+    _pre_device_normalized_text = text
     try:
         text = _maybe_normalize_for_device_pipeline(text)
     except Exception:
         # Never let normalization break command handling
-        text = _raw_text
+        text = _pre_device_normalized_text
     if text != _raw_text:
         try:
             logging.info("NORMALIZED_TEXT: %r -> %r", _raw_text, text)
@@ -2213,6 +2329,12 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
                     mark_action=mark_action_occurred,
                 ),
             },
+            typed_rejectors={
+                "calendar_create": begin_calendar_confirmation_revision,
+            },
+            typed_revision_handlers={
+                "calendar_create": revise_calendar_confirmation,
+            },
         )
     except Exception:
         logging.exception("confirmation_controls failed")
@@ -2220,6 +2342,52 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     if confirmation_resp is not None:
         logging.info("CLAIM: confirmation_controls")
         return confirmation_resp
+
+    # Clarification selections are exact-source pending interactions. A chosen
+    # label replays an ordinary command through this same dispatcher; unrelated
+    # complete speech supersedes the pending question and continues normally.
+    try:
+        clarification_resp = handle_clarification_controls(
+            tl=tl,
+            execute_command=lambda command: process_device_commands(command),
+        )
+    except Exception:
+        logging.exception("clarification_controls failed")
+        clarification_resp = None
+    if clarification_resp is not None:
+        logging.info("CLAIM: clarification_controls")
+        return clarification_resp
+
+    # Resolve only bounded continuation forms such as "same in the bedroom"
+    # or "what about Thursday?". The rewritten command still traverses every
+    # normal parser, resolver, confirmation policy, and live-state check below.
+    try:
+        prior_frame = resolve_intent_frame()
+        followup = (
+            resolve_intent_followup(
+                t,
+                prior_frame,
+                room_targets=(
+                    alias for _room_id, alias in _known_room_aliases_for_text()
+                ),
+            )
+            if prior_frame
+            else None
+        )
+    except Exception:
+        logging.exception("DIALOGUE_INTENT_FOLLOWUP_FAIL text=%r", t)
+        followup = None
+    if followup and followup.rewritten_text != t:
+        logging.info(
+            "DIALOGUE_INTENT_FOLLOWUP kind=%s input=%r rewrite=%r",
+            followup.kind,
+            t,
+            followup.rewritten_text,
+        )
+        text = followup.rewritten_text
+        t = text.strip()
+        tl = t.lower().strip()
+        globals()["_LAST_STT_NORM_OUT"] = text
 
     try:
         _media_rewrite = rewrite_media_pronoun_command(t)
@@ -2594,6 +2762,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         alarm_resp = None
 
     if alarm_resp is not None:
+        _remember_claimed_intent("timer", tl, alarm_resp)
         logging.info("CLAIM: alarm_controls")
         return alarm_resp
 
@@ -2601,6 +2770,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     # scheduling. "Schedule a dentist appointment" is a calendar write, while
     # "turn off the lamp at 8" remains a scheduled HomeSuite command.
     try:
+        calendar_query = parse_calendar_query(tl)
         calendar_resp = handle_calendar_controls(
             tl=tl,
             get_events=(
@@ -2613,9 +2783,21 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         )
     except Exception:
         logging.exception("calendar_controls failed")
+        calendar_query = None
         calendar_resp = None
 
     if calendar_resp is not None:
+        if calendar_query is not None:
+            _remember_claimed_intent(
+                "calendar",
+                tl,
+                calendar_resp,
+                metadata={
+                    "label": calendar_query.label,
+                    "next_only": calendar_query.next_only,
+                    "search_term": calendar_query.search_term,
+                },
+            )
         logging.info("CLAIM: calendar_controls")
         return calendar_resp
 
@@ -2862,6 +3044,12 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             home_location=HOME_LOCATION,
         )
         if astronomy_response is not None:
+            _remember_claimed_intent(
+                "astronomy",
+                tl,
+                astronomy_response,
+                metadata=dict(vars(_early_astronomy_query)),
+            )
             logging.info("CLAIM: astronomy_controls")
             return astronomy_response
 
@@ -2955,6 +3143,55 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         "ha_get_states",
         states=(len(_states_snapshot) if isinstance(_states_snapshot, list) else None),
     )
+
+    # A short generic target such as "the lamp" may match several live
+    # entities. Ask only when there are two to four distinguishable candidates;
+    # configured aliases and exact names remain authoritative.
+    try:
+        from app_config import HA_DEVICE_ALIASES as _HA_DEVICE_ALIASES
+
+        _clarification_aliases = {
+            entity_id: (
+                list(aliases)
+                if isinstance(aliases, (list, tuple, set))
+                else [aliases]
+            )
+            for entity_id, aliases in (_HA_DEVICE_ALIASES or {}).items()
+        }
+        for phrase_map in (TURN_ON_PHRASE_OVERRIDES, TURN_OFF_PHRASE_OVERRIDES):
+            for phrase, entity_id in (phrase_map or {}).items():
+                _clarification_aliases.setdefault(str(entity_id), []).append(str(phrase))
+
+        device_clarification = build_binary_device_clarification(
+            tl,
+            states_snapshot=_states_snapshot,
+            aliases_by_entity=_clarification_aliases,
+        )
+        if device_clarification is None:
+            device_clarification = build_light_device_clarification(
+                tl,
+                states_snapshot=_states_snapshot,
+                aliases_by_entity=_clarification_aliases,
+                authoritative_targets=(
+                    alias for _room_id, alias in _known_room_aliases_for_text()
+                ),
+            )
+    except Exception:
+        logging.exception("DEVICE_CLARIFICATION_DETECT_FAIL text=%r", tl)
+        device_clarification = None
+    if device_clarification is not None:
+        clarification_prompt = None
+        if device_clarification.options:
+            clarification_prompt = request_command_clarification(
+                prompt=device_clarification.prompt,
+                options=device_clarification.options,
+                original_command=tl,
+            )
+        logging.info(
+            "CLAIM: device_clarification options=%s",
+            len(device_clarification.options),
+        )
+        return clarification_prompt or device_clarification.prompt
 
     # ------------------------------------------------------------------
     # No-TV request-room bare next/previous.
@@ -3116,6 +3353,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             ),
         )
         if onoff_resp is not None:
+            _remember_claimed_intent("binary", tl, onoff_resp)
             logging.info("CLAIM: on_off_controls")
             return onoff_resp
 
@@ -3204,6 +3442,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             label=f"{_request_sonos_room} volume",
         )
     if VOLUME_MODULE_RESP is not None:
+        _remember_claimed_intent("volume", tl, VOLUME_MODULE_RESP)
         logging.info("CLAIM: volume_controls")
         return VOLUME_MODULE_RESP
     # --- Announcements (module) ---
@@ -3662,12 +3901,20 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         return sonos_resp
 
     # --- Local astronomy ---
+    astronomy_query = parse_astronomy_query(tl)
     astronomy_response = handle_astronomy_query(
         tl,
         home_location=HOME_LOCATION,
         states_snapshot=_states_snapshot,
     )
     if astronomy_response is not None:
+        if astronomy_query is not None:
+            _remember_claimed_intent(
+                "astronomy",
+                tl,
+                astronomy_response,
+                metadata=dict(vars(astronomy_query)),
+            )
         logging.info("CLAIM: astronomy_controls")
         return astronomy_response
 
@@ -3694,11 +3941,20 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         loc = weather_query.location
         if not loc:
             loc = _resolve_location_pronoun(tl)
-        return handle_weather_query(
+        weather_response = handle_weather_query(
             loc,
             query=weather_query,
             states_snapshot=_states_snapshot,
         )
+        weather_metadata = dict(vars(weather_query))
+        weather_metadata["location"] = loc
+        _remember_claimed_intent(
+            "weather",
+            tl,
+            weather_response,
+            metadata=weather_metadata,
+        )
+        return weather_response
 
     # 6.5) State queries (device state readback)
     # IMPORTANT: this block must be at top-level indentation inside process_device_commands.
@@ -4537,6 +4793,8 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             remember_light=_remember_light,
         )
         if room_lights_resp is not None:
+            if not _remember_claimed_intent("brightness", tl, room_lights_resp):
+                _remember_claimed_intent("color", tl, room_lights_resp)
             logging.info("CLAIM: room_lights_controls")
             return room_lights_resp
 
@@ -4600,6 +4858,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
                 label=f"{get_room_label(brightness_room) or 'Room'} brightness",
             )
         if bri_resp is not None:
+            _remember_claimed_intent("brightness", tl, bri_resp)
             logging.info(f"DEBUG: bri_resp={bri_resp!r}")
             logging.info("CLAIM: brightness_controls")
             return bri_resp
@@ -4620,6 +4879,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             resolve_color=_color_resolver,
         )
         if color_resp is not None:
+            _remember_claimed_intent("color", tl, color_resp)
             logging.info("CLAIM: color_controls")
             return color_resp
 
@@ -4641,6 +4901,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             ),
         )
         if onoff_resp is not None:
+            _remember_claimed_intent("binary", tl, onoff_resp)
             logging.info("CLAIM: on_off_controls")
             return onoff_resp
 
@@ -4708,6 +4969,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
 def process_device_commands(text: str, *, _repair_pass: int = 1) -> Optional[str]:
     """Run the ordered device pipeline, including at most one repair retry."""
     _dispatch_timing_begin(text, _repair_pass)
+    intent_marker_before = _intent_frame_marker()
     result = None
     error = None
     try:
@@ -4717,6 +4979,13 @@ def process_device_commands(text: str, *, _repair_pass: int = 1) -> Optional[str
         error = exc
         raise
     finally:
+        if (
+            error is None
+            and result is not None
+            and not _preserves_intent_frame(text)
+            and _intent_frame_marker() == intent_marker_before
+        ):
+            forget_intent_frame()
         _dispatch_timing_end(result, error)
 
 
@@ -4740,5 +5009,6 @@ def reset_dispatch_state():
     _last_location_query_ts = 0.0
     _ACTION_OCCURRED = False
     cancel_pending_confirmation()
+    cancel_pending_clarification()
     reset_dialogue_state()
     reset_confirmation_state()

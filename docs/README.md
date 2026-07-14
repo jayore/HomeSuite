@@ -1,25 +1,35 @@
 # Home Suite Docs
 
-Start here if you are installing or evaluating Home Suite:
+Start here if you are installing, evaluating, or operating Home Suite.
 
-* [Getting started](GETTING_STARTED.md)
-* [Install guide](INSTALL.md)
-* [Configuration guide](CONFIGURATION.md)
-* [Room configuration](ROOM_CONFIGURATION.md)
-* [HTTP and WebSocket API](API.md)
-* [Credentials and connected services](CREDENTIALS.md)
-* [Integrations](INTEGRATIONS.md)
-* [Wake-word audio guide](WAKEWORD.md)
+## First Hour
+
+1. [Getting started](GETTING_STARTED.md) for the shortest install-to-command path.
+2. [Choose a node role](DEPLOYMENT_ROLES.md): text/API, PTT handset, or wakeword.
+3. [First-run acceptance checks](ACCEPTANCE.md) to prove that role safely.
+4. [Operations and privacy](OPERATIONS.md) for status, logs, and support bundles.
+5. [Updating a node](UPDATING.md) for the safe post-install path.
+
+## Configure a Home
+
+* [Configuration guide](CONFIGURATION.md) for setting behavior and ownership.
+* [Room configuration](ROOM_CONFIGURATION.md) for shared topology and entities.
+* [Credentials](CREDENTIALS.md) for accounts, keys, OAuth, and security.
+* [Integrations](INTEGRATIONS.md) for what each connected service enables.
+
+## Build an Interface
+
+* [HTTP and WebSocket API](API.md) for companion clients and authenticated access.
+* [Commands to try](COMMANDS.md) for the deterministic language contract.
+* [Features](FEATURES.md) for the supported capability overview.
+
+## Voice Hardware
+
 * [PTT handset guide](PTT.md)
-* [Features](FEATURES.md)
-* [Commands to try](COMMANDS.md)
-* [FAQ](FAQ.md)
+* [Wakeword audio guide](WAKEWORD.md)
+
+## Contribute
+
 * [Contributing](../CONTRIBUTING.md)
-
-The public docs focus on installing, configuring, and using Home Suite.
-
-For a quick evaluation, read the project README, then use [Commands to
-try](COMMANDS.md) alongside [Features](FEATURES.md). Room-aware behavior depends
-on the topology described in [Room configuration](ROOM_CONFIGURATION.md), and
-voice reliability depends on the device-specific setup in [Wake-word audio
-guide](WAKEWORD.md).
+* [FAQ](FAQ.md)
+* [Release checklist](RELEASING.md)

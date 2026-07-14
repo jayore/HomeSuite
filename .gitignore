@@ -5,6 +5,10 @@ local_prefs.py
 private_config.py
 deployment_config.py
 
+# The portable test suite needs a deliberately non-secret module with the same
+# import name. Keep real node configuration ignored everywhere else.
+!tests/fixtures/private_config.py
+
 # ============================================================================
 # Python / runtime artifacts
 # ============================================================================

@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DeploymentConfigTests(unittest.TestCase):
+    def test_handset_pin_has_a_portable_default(self):
+        values = runpy.run_path(str(ROOT / "app_config.py"))
+
+        self.assertEqual(values["HANDSET_GPIO_PIN"], 11)
+
     def test_public_example_neutralizes_home_specific_catalogs(self):
         values = runpy.run_path(str(ROOT / "deployment_config.example.py"))
 

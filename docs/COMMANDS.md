@@ -2,29 +2,62 @@
 
 Home Suite commands are natural-language examples, not a strict grammar. Exact results depend on your Home Assistant rooms, entity names, scenes, scripts, media libraries, and configured services.
 
-Use `pptest` for safe testing while you are setting things up:
+Use the safe REPL while you are setting things up:
 
 ```bash
-pptest
+homesuite repl
 ```
 
 Then type a phrase at the prompt. For a single reproducible check, run:
 
 ```bash
-pptest "what lights are on?"
+homesuite test "what lights are on?"
 ```
 
-Use `pplive`, `ppchat`, voice, Telegram, HTTP, or other clients only when you are ready for commands to affect real devices. `pptest` parses alarm and timer requests but does not persist them or create scheduler jobs.
+Safe command modes read real Home Assistant state but block writes. Use
+`homesuite repl --live`, `homesuite test --live "phrase"`, `ppchat`, voice,
+Telegram, HTTP, or other clients only when you are ready for commands to affect
+real devices. `homesuite test` parses alarm and timer requests but does not
+persist them or create scheduler jobs.
 
 ## First Checks
 
-These are good early tests after `homesuite-doctor` passes its core checks:
+These are good early tests after `homesuite doctor` passes its core checks:
 
 * `what lights are on?`
 * `turn on the kitchen lights`
 * `service status`
 * `where am I?`
 * `say this is a speech test`
+
+## Conversational Command Forms
+
+Common deterministic commands accept bounded request wrappers and safe
+paraphrases, so ordinary phrasing does not have to match one exact sentence:
+
+* `could you turn the stair light off for me?`
+* `would you mind turning on the kitchen lights?`
+* `make the stair light half brightness`
+* `set the kitchen to half volume`
+* `give me five minutes`
+
+Home Suite removes only harmless conversational framing. It preserves payloads
+for commands such as `play`, `say`, and `announce`, and it does not discard
+timing clauses or target words merely because they sound conversational.
+
+After a successful deterministic command, compatible short follow-ups can
+reuse its typed intent. For example, `make the stair light red` can be followed
+by `actually make it blue` and then `and the desk lamp too`. Weather,
+astronomy, and calendar queries support similarly bounded refinements such as
+`what about Thursday?`, `what about Saturn?`, and `I meant Friday` when the
+immediately preceding intent makes the domain unambiguous. A complete new
+command always supersedes the old intent.
+
+When a short device name matches two to four live entities, Home Suite asks
+which one and accepts a distinguishing name such as `floor` or `desk`. The
+selected option is replayed through ordinary entity resolution and live-state
+checks. Configured device aliases and room targets remain authoritative; with
+many matches, Home Suite asks for a more specific full name instead of guessing.
 
 ## Home Assistant Control
 
@@ -348,6 +381,12 @@ Explicit names always take precedence, expired or missing context is not
 guessed, and unrelated request sources do not share pronouns unless their
 `SOURCES` entries intentionally share a continuity group.
 
+Successful deterministic actions and queries may also publish a short-lived
+typed intent frame containing only the command shape and safe slots needed for
+compatible corrections, target transfers, or query refinements. It is separate
+from the stable-ID referent above: every rewritten follow-up goes back through
+the normal dispatcher, resolver, confirmation policy, and current-state checks.
+
 ## Calendars
 
 Calendar commands use only the `calendar.*` entities configured through Home
@@ -367,14 +406,20 @@ date/time. Timed events default to
 `CALENDAR_DEFAULT_EVENT_DURATION_MINUTES`. Creation remains disabled unless
 `CALENDAR_WRITES_ENABLED` is true and the selected calendar is marked
 `writable`; when confirmation is enabled, Home Suite does not write until the
-user accepts the complete event summary. `no`, `cancel`, or `never mind`
-discards the pending draft.
+user accepts the complete event summary. The approval prompt ends with `Is
+that right?`; `yes` creates the event, while `no` keeps it as a short-lived
+editable draft and asks which detail to change. You can answer directly with a
+replacement such as `at 10:45 PM`, or select a field first with `the time`,
+`the day`, `the title`, `the duration`, or `the calendar`. Compact corrections
+such as `no, at 10:45 PM` also work. `cancel` or `never mind` discards the
+pending draft without writing anything.
 
 Final calendar approval uses the same typed confirmation gate as other
 protected commands. Exact replies such as `yes`, `confirm`, `do it`, or `go
-ahead` approve only the pending action in that request source. `no` rejects it.
-Any unrelated utterance supersedes the confirmation and routes as a new
-command, so a later stray `yes` cannot authorize stale work.
+ahead` approve only the pending action in that request source. Calendar writes
+use the same gate with the bounded revision behavior above. Any unrelated
+utterance supersedes the confirmation and routes as a new command, so a later
+stray `yes` cannot authorize stale work.
 
 ## Announcements And Speech Testing
 
@@ -405,9 +450,10 @@ AI can answer conversational questions and leave short-lived context breadcrumbs
 
 These are not spoken commands, but they are useful ways to send the same command text into Home Suite.
 
-* `pptest`
-* `pptest "service status"`
-* `pplive`
+* `homesuite repl`
+* `homesuite test "service status"`
+* `homesuite repl --live`
+* `pptest` and `pplive` (legacy aliases)
 * `ppchattest`
 * `ppchat`
 * HTTP `POST /command`

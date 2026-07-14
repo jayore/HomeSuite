@@ -68,8 +68,7 @@ only. Install it in the project virtual environment on a wake-word device:
 
 ```bash
 cd ~/homesuite
-source .venv/bin/activate
-pip install openwakeword onnxruntime
+homesuite install-wakeword
 ```
 
 The regular audio dependencies come from `requirements.txt`. Always run Home

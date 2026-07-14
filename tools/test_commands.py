@@ -14,6 +14,7 @@ def _parse_cli(argv):
     text = None
     live = False
     capture = False
+    isolated = False
     source_id = None
     source_type = None
     origin = None
@@ -31,6 +32,11 @@ def _parse_cli(argv):
 
         if arg == "--capture":
             capture = True
+            i += 1
+            continue
+
+        if arg in {"--isolated", "--test"}:
+            isolated = True
             i += 1
             continue
 
@@ -68,14 +74,16 @@ def _parse_cli(argv):
         raise SystemExit(2)
 
     if not text:
-        print('Usage: test_commands.py "phrase here" [--live] [--capture] [--source SOURCE_ID] [--source-type TYPE] [--origin ORIGIN] [--source-room ROOM] [--target-room ROOM]')
+        print('Usage: test_commands.py "phrase here" [--live | --capture | --isolated] [--source SOURCE_ID] [--source-type TYPE] [--origin ORIGIN] [--source-room ROOM] [--target-room ROOM]')
         raise SystemExit(2)
 
-    if live and capture:
-        print("Choose only one of --live or --capture")
+    if sum((live, capture, isolated)) > 1:
+        print("Choose only one of --live, --capture, or --isolated")
         raise SystemExit(2)
 
-    mode = "live" if live else ("capture" if capture else "test")
+    # Safe command checks should see the deployment's actual HA state. The
+    # isolated all-stubbed mode remains available for focused parser work.
+    mode = "live" if live else ("test" if isolated else "capture")
 
     return {
         "text": text,

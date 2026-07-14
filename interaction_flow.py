@@ -15,7 +15,7 @@ import threading
 from dataclasses import dataclass
 
 from app_config import INTERACTION_CANCEL_PHRASES
-from dialogue_state import current_scope_id, forget_referents
+from dialogue_state import current_scope_id, forget_intent_frame, forget_referents
 
 
 @dataclass
@@ -280,8 +280,10 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
         pass
 
     if is_interaction_cancel(text):
+        from clarification_controls import cancel_pending_clarification
         from confirmation_controls import cancel_pending_confirmation
 
+        cancel_pending_clarification()
         cancel_pending_confirmation()
         forget_referents(capability="pending_interaction")
         logging.info("INTERACTION_CANCEL source=text text=%r", text)
@@ -296,6 +298,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
     try:
         device_response = gpio_ptt.process_device_commands(text)
     except Exception as e:
+        forget_intent_frame()
         return InteractionResult(
             handled=True,
             action_occurred=False,
@@ -339,6 +342,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
             else:
                 reply = _clean_text(gpio_ptt.get_chatgpt_response(text))
         except Exception as e:
+            forget_intent_frame()
             return InteractionResult(
                 handled=True,
                 action_occurred=False,
@@ -347,6 +351,10 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
             )
 
         if reply:
+            # Once a turn enters open-ended AI conversation, short phrases such
+            # as "what about Thursday?" belong to that conversation rather than
+            # an older deterministic intent frame. AI history remains intact.
+            forget_intent_frame()
             return InteractionResult(
                 handled=True,
                 action_occurred=False,
@@ -354,6 +362,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
                 source="chatgpt",
             )
 
+    forget_intent_frame()
     return InteractionResult(
         handled=False,
         action_occurred=False,

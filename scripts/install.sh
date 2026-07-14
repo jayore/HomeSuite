@@ -9,6 +9,14 @@ START_SERVICE=0
 SKIP_APT=0
 EXISTING_CHECKOUT=0
 
+require_supported_python() {
+  local interpreter="$1"
+  if ! "$interpreter" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+    echo "Home Suite requires Python 3.9 or newer. Found: $($interpreter --version 2>&1)" >&2
+    exit 1
+  fi
+}
+
 usage() {
   cat <<'USAGE'
 Home Suite native installer
@@ -52,9 +60,16 @@ if [[ "$SKIP_APT" != "1" ]]; then
   $SUDO apt-get install -y     git curl ca-certificates     python3 python3-venv python3-pip python3-dev build-essential     portaudio19-dev libasound2-dev libffi-dev     mpg123 alsa-utils     python3-rpi.gpio python3-gpiozero python3-pigpio python3-pyaudio
 fi
 
-if [[ -d "$INSTALL_DIR/.git" ]]; then
+require_supported_python python3
+
+if [[ -d "$INSTALL_DIR" ]] && git -C "$INSTALL_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   EXISTING_CHECKOUT=1
   echo "Updating existing checkout..."
+  if [[ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]]; then
+    echo "Refusing to update an existing checkout with local changes." >&2
+    echo "Commit, stash, or otherwise resolve those changes first, then rerun." >&2
+    exit 1
+  fi
   git -C "$INSTALL_DIR" fetch origin "$BRANCH"
   git -C "$INSTALL_DIR" checkout "$BRANCH"
   git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
@@ -68,6 +83,8 @@ cd "$INSTALL_DIR"
 if [[ ! -d .venv ]]; then
   python3 -m venv --system-site-packages .venv
 fi
+
+require_supported_python .venv/bin/python
 
 .venv/bin/python -m pip install --upgrade pip setuptools wheel
 .venv/bin/python -m pip install -r requirements.txt
@@ -135,9 +152,13 @@ Next steps:
   3. Edit $INSTALL_DIR/deployment_config.py for shared rooms, mappings, and catalogs
      (fresh installs only; existing installs may continue using app_config.py).
   4. Check setup and test command routing:
-       homesuite-doctor
-       pptest "service status"
+       homesuite doctor
+       homesuite test "service status"
   5. Start or restart the service when ready:
        sudo systemctl restart homesuite.service
+
+For later updates, use:
+       cd $INSTALL_DIR
+       bash scripts/update.sh
 
 EOF

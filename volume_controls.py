@@ -180,6 +180,15 @@ def handle_volume_controls(
     if not t:
         return None
 
+    natural_quiet = re.fullmatch(
+        r"(?:make|turn)\s+(?:the\s+)?(.+?)\s+(?:a\s+(?:little|bit)\s+)?"
+        r"(?:less\s+loud|not\s+so\s+loud)",
+        t,
+    )
+    if natural_quiet:
+        target = _norm(natural_quiet.group(1))
+        t = "quieter" if target in {"it", "that", "this"} else f"decrease {target} volume"
+
     players = sonos_players or {}
     room = _find_room_in_text(t, players) if players else None
 

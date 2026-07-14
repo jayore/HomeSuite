@@ -1,12 +1,16 @@
 # Home Suite install guide
 
-This is the first public-alpha install path for Home Suite. It targets a native
+This is the current beta-readiness install path for Home Suite. It targets a native
 Raspberry Pi OS or Debian-like install because Home Suite currently touches local
 audio, optional GPIO, systemd, Home Assistant, and optional wake-word hardware
 directly.
 
 Docker may make sense later for a central brain/server role, but the native Pi
 installer is the simplest path for the current appliance runtime.
+
+Home Suite requires CPython 3.9 or newer. The portable test suite runs on both
+3.9 and 3.13; physical audio and GPIO behavior still needs validation on the
+target Pi.
 
 For a shorter walkthrough, start with [GETTING_STARTED.md](GETTING_STARTED.md).
 
@@ -25,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/insta
 ```
 
 To install, enable, and start the service after required configuration already
-exists (the installer runs `homesuite-doctor` first):
+exists (the installer runs `homesuite doctor` first):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
@@ -49,6 +53,8 @@ HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.s
 `scripts/install.sh`:
 
 * installs required OS packages with `apt-get`
+* refuses an unsupported system Python or existing virtual environment before
+  changing the checkout
 * clones or updates the repo into `$HOME/homesuite` by default
 * creates `.venv` with `--system-site-packages` so Raspberry Pi OS hardware
   bindings remain available
@@ -66,9 +72,11 @@ HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.s
 
 The installer writes shortcuts to `$HOME/.local/bin`:
 
-* `homesuite-doctor` - configuration and reachability checks
-* `pptest` - safe interactive command test shell
-* `pplive` - live interactive command shell that can control devices
+* `homesuite` - canonical node CLI for setup, testing, logs, and support bundles
+* `homesuite doctor` - configuration, role, and reachability checks
+* `homesuite repl` - safe interactive command test shell
+* `homesuite test --live "phrase"` - explicit live one-shot test
+* `pptest` and `pplive` - retained compatibility aliases for the safe and live command harnesses
 * `ppchattest` - safe chat-style test shell
 * `ppchat` - live chat-style shell
 * `homesuite-youtube-pair` and `homesuite-youtube-oauth` - YouTube setup helpers
@@ -129,9 +137,9 @@ After editing config, run the doctor and test command routing before starting th
 
 ```bash
 cd ~/homesuite
-homesuite-doctor
-homesuite-doctor --live
-pptest
+homesuite doctor
+homesuite doctor --live
+homesuite repl
 ```
 
 At the `homesuite >` prompt, type a phrase such as `service status`.
@@ -142,6 +150,12 @@ For syntax checks:
 .venv/bin/python -m py_compile main.py command_dispatch.py app_config.py
 ```
 
+The GitHub workflow is the portable baseline: it installs dependencies, compiles
+the source, and runs the full unit and command-contract suite on CPython 3.9
+and 3.13. It cannot validate a particular microphone, speaker, GPIO wiring,
+Home Assistant topology, or provider account. Run the role-specific steps in
+[ACCEPTANCE.md](ACCEPTANCE.md) before relying on a new appliance.
+
 For service checks:
 
 ```bash
@@ -150,7 +164,7 @@ sudo systemctl status homesuite.service --no-pager -l
 curl -sS http://localhost:8765/health
 ```
 
-## Current public-alpha limitations
+## Current beta-readiness gaps
 
 The installer is intentionally conservative. It sets up the native runtime, but
 users still need to configure their own Home Assistant entities, rooms, media

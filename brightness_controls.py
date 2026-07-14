@@ -36,6 +36,14 @@ def handle_brightness_controls(
       - None if not a brightness command
     """
 
+    natural_dim = re.fullmatch(
+        r"(?:make|turn)\s+(?:the\s+)?(.+?)\s+(?:a\s+(?:little|bit)\s+)?"
+        r"(?:less\s+bright|not\s+so\s+bright)",
+        (tl or "").strip().lower(),
+    )
+    if natural_dim:
+        tl = f"make the {natural_dim.group(1).strip()} dimmer"
+
     # --------------------------------------------------
     # 0) Relative brightness: "brighter", "dimmer", "brightness up/down", etc.
     # --------------------------------------------------
@@ -78,7 +86,14 @@ def handle_brightness_controls(
         # Check for an explicit target in the phrase, e.g. "make the kitchen brighter"
         # Require "the <target>" pattern to avoid capturing verb phrases like "make it".
         _target_m = re.search(
-            r"\bthe\s+([a-zA-Z0-9][a-zA-Z0-9 \-']*?)\s+(?:brighter|dimmer|brightness)\b", tl
+            r"\b(?:make|turn)\s+(?:the\s+)?"
+            r"([a-zA-Z0-9][a-zA-Z0-9 \-']*?)\s+"
+            r"(?:brighter|dimmer|darker|brightness)\b",
+            tl,
+        ) or re.search(
+            r"\bthe\s+([a-zA-Z0-9][a-zA-Z0-9 \-']*?)\s+"
+            r"(?:brighter|dimmer|darker|brightness)\b",
+            tl,
         )
         _explicit_target = (_target_m.group(1).strip() if _target_m else None)
 

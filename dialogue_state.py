@@ -18,7 +18,7 @@ import logging
 import re
 import threading
 import time
-from typing import Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Optional
 
 from home_registry import get_source
 from request_context import get_current_request_context
@@ -27,6 +27,10 @@ from request_context import get_current_request_context
 _LOCK = threading.RLock()
 _REFERENTS_BY_SCOPE: dict[str, dict[str, dict[str, Any]]] = {}
 _PROCESS_SCOPE = "process"
+_INTENT_FRAME_KIND = "intent_frame"
+
+if TYPE_CHECKING:
+    from conversational_nl import IntentFrame
 
 
 def _clean_token(value: Any, fallback: str = "") -> str:
@@ -53,6 +57,24 @@ def _default_ttl_seconds() -> float:
         import app_config
 
         return max(1.0, float(getattr(app_config, "DIALOGUE_REFERENT_TTL_SECONDS", 120)))
+    except Exception:
+        return 120.0
+
+
+def _intent_ttl_seconds() -> float:
+    try:
+        import app_config
+
+        return max(
+            1.0,
+            float(
+                getattr(
+                    app_config,
+                    "DIALOGUE_INTENT_FRAME_TTL_SECONDS",
+                    getattr(app_config, "DIALOGUE_REFERENT_TTL_SECONDS", 120),
+                )
+            ),
+        )
     except Exception:
         return 120.0
 
@@ -165,6 +187,76 @@ def resolve_referent(
         return None
     candidates.sort(key=lambda entry: float(entry.get("ts") or 0.0), reverse=True)
     return _copy_entry(candidates[0])
+
+
+def remember_intent_frame(
+    frame: "IntentFrame",
+    *,
+    scope_id: Optional[str] = None,
+    source: str = "deterministic",
+) -> Optional[dict[str, Any]]:
+    """Remember one typed successful-turn frame in the current context bubble."""
+    try:
+        data = frame.to_data()
+        domain = str(frame.domain or "").strip().lower()
+        intent = str(frame.intent or "").strip().lower()
+        followups = set(frame.followups or ())
+    except Exception:
+        logging.exception("DIALOGUE_INTENT_FRAME_INVALID frame=%r", frame)
+        return None
+    if not domain or not intent:
+        return None
+    return remember_referent(
+        _INTENT_FRAME_KIND,
+        f"{domain}:{intent}",
+        label=str(frame.canonical_command or "").strip(),
+        capabilities={"intent_followup", *followups},
+        data=data,
+        ttl_seconds=_intent_ttl_seconds(),
+        scope_id=scope_id,
+        source=source,
+    )
+
+
+def resolve_intent_frame(
+    *,
+    required_followup: Optional[str] = None,
+    scope_id: Optional[str] = None,
+) -> Optional["IntentFrame"]:
+    """Return the active typed intent frame, if it supports the requested turn."""
+    entry = resolve_referent(
+        kinds={_INTENT_FRAME_KIND},
+        capability=required_followup or "intent_followup",
+        scope_id=scope_id,
+    )
+    if not entry:
+        return None
+    try:
+        from conversational_nl import IntentFrame
+
+        return IntentFrame.from_data(entry.get("data") or {})
+    except Exception:
+        logging.exception(
+            "DIALOGUE_INTENT_FRAME_DECODE_FAIL scope=%s key=%s",
+            entry.get("scope_id"),
+            entry.get("key"),
+        )
+        forget_referent(
+            _INTENT_FRAME_KIND,
+            key=str(entry.get("key") or ""),
+            scope_id=scope_id,
+        )
+        return None
+
+
+def forget_intent_frame(*, scope_id: Optional[str] = None) -> None:
+    entry = resolve_referent(kinds={_INTENT_FRAME_KIND}, scope_id=scope_id)
+    if entry:
+        forget_referent(
+            _INTENT_FRAME_KIND,
+            key=str(entry.get("key") or ""),
+            scope_id=scope_id,
+        )
 
 
 def forget_referent(

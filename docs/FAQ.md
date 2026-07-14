@@ -5,10 +5,11 @@
 Not directly. Home Suite first uses a deterministic natural-language processing layer to parse and route commands. AI can help with conversation, summarization, and interpreting context, but actual home actions should still route through code paths that can be tested with:
 
 ```bash
-pptest
+homesuite repl
 ```
 
-Then type the phrase you want to test. For a single reproducible command, use `pptest "your phrase"`.
+Then type the phrase you want to test. For a single reproducible command, use
+`homesuite test "your phrase"`.
 
 That design is intentional. It keeps real device control easier to inspect, test, and debug. It also means routine home-control commands usually do not spend AI tokens or wait on an AI response.
 
@@ -21,7 +22,7 @@ Home Suite's deterministic natural-language layer handles most commands without 
 * fewer AI calls and lower token usage
 * faster responses for common commands
 * more predictable routing
-* easier debugging with `pptest`
+* easier debugging with `homesuite repl`
 * a smaller security surface for real device actions
 
 AI is still useful for conversation, summaries, ambiguous references, and media/context interpretation. It just does not get to bypass the command layer and operate devices on its own.
@@ -43,14 +44,18 @@ When in doubt, make the thing sensible in Home Assistant first. Add direct Home 
 After install and config edits:
 
 ```bash
-homesuite-doctor
-homesuite-doctor --live
-pptest
+homesuite doctor
+homesuite doctor --live
+homesuite repl
 ```
 
-Then type `what lights are on?` at the prompt. For one-shot debugging, `pptest "what lights are on?"` also works.
+Then type `what lights are on?` at the prompt. For one-shot debugging,
+`homesuite test "what lights are on?"` also works.
 
-Use `pptest` and `ppchattest` while setting up. Use `pplive`, `ppchat`, or the systemd service only when you are ready for commands to affect real devices.
+Use `homesuite repl` and `homesuite test` while setting up. They read real HA
+state but block writes. Use `homesuite repl --live`, `homesuite test --live`,
+`ppchat`, or the systemd service only when you are ready for commands to affect
+real devices.
 
 ## What Are The Configuration Files For?
 
@@ -92,7 +97,7 @@ and wake-word settings blank until you use them.
 Run:
 
 ```bash
-homesuite-doctor
+homesuite doctor
 ```
 
 Blank optional services should show as `SKIP`, not `FAIL`.
@@ -102,7 +107,7 @@ Blank optional services should show as `SKIP`, not `FAIL`.
 Yes. Start with text:
 
 ```bash
-pptest
+homesuite repl
 ppchattest
 ```
 
@@ -124,7 +129,7 @@ X-API-Key: <HOMESUITE_HTTP_API_KEY>
 
 ## Should I Use Docker?
 
-The first supported public-alpha install path is native Raspberry Pi OS or Debian-like Linux. Docker may be useful later for a central server role, but Home Suite currently has local audio, optional GPIO, wake-word, and systemd assumptions that are simpler to support natively first.
+The first supported install path is native Raspberry Pi OS or Debian-like Linux. Docker may be useful later for a central server role, but Home Suite currently has local audio, optional GPIO, wake-word, and systemd assumptions that are simpler to support natively first.
 
 ## Why Did A Command Say An Integration Is Not Configured?
 
@@ -133,7 +138,7 @@ That usually means the command routed correctly, but the matching optional servi
 Check:
 
 ```bash
-homesuite-doctor
+homesuite doctor
 ```
 
 Then see [INTEGRATIONS.md](INTEGRATIONS.md) for the keys that service needs.
@@ -142,9 +147,12 @@ Then see [INTEGRATIONS.md](INTEGRATIONS.md) for the keys that service needs.
 
 Use this loop:
 
-1. `homesuite-doctor --live`
-2. `pptest`, then type the exact phrase, or run `pptest "the exact phrase"`
-3. `logs/`
+1. `homesuite doctor --live`
+2. `homesuite repl`, then type the exact phrase, or run
+   `homesuite test "the exact phrase"`
+3. `homesuite logs` or `homesuite logs --events`
 4. Home Assistant entity/service names
 
-If `pptest` shows that the natural-language router claimed the phrase, debug that integration. If it falls through to conversation, the router probably did not recognize the phrase as an action.
+If the REPL shows that the natural-language router claimed the phrase, debug
+that integration. If it falls through to conversation, the router probably did
+not recognize the phrase as an action.

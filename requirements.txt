@@ -3,6 +3,9 @@
 # Raspberry Pi OS packages provide some hardware bindings more reliably than pip.
 # See docs/INSTALL.md and scripts/install.sh for the apt packages installed first.
 
+# webrtcvad 2.0.10 imports pkg_resources, which setuptools removed in 81.
+setuptools<81
+
 aiohttp>=3.9,<4
 astral>=3.2,<4
 gTTS>=2.5,<3

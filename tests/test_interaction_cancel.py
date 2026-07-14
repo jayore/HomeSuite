@@ -43,7 +43,9 @@ class InteractionCancelMatcherTests(unittest.TestCase):
 
 class InteractionCancelTextFlowTests(unittest.TestCase):
     def test_cancel_is_silent_and_bypasses_routing(self):
+        import clarification_controls
         import confirmation_controls
+        from clarification_controls import ClarificationOption
         from dialogue_state import remember_referent, resolve_referent, reset_dialogue_state
         from interaction_flow import handle_text_interaction
 
@@ -58,6 +60,14 @@ class InteractionCancelTextFlowTests(unittest.TestCase):
             command="do something",
             prompt="Continue?",
         )
+        clarification_controls.request_command_clarification(
+            prompt="Which lamp?",
+            original_command="turn off the lamp",
+            options=(
+                ClarificationOption("Floor Lamp", "turn floor lamp off"),
+                ClarificationOption("Desk Lamp", "turn desk lamp off"),
+            ),
+        )
         runtime = mock.Mock()
         runtime._ACTION_OCCURRED = True
 
@@ -68,9 +78,34 @@ class InteractionCancelTextFlowTests(unittest.TestCase):
         self.assertEqual(result.response_text, "")
         self.assertEqual(result.source, "cancelled")
         self.assertIsNone(resolve_referent(kinds={"calendar_draft"}))
+        self.assertIsNone(clarification_controls.pending_clarification())
         self.assertIsNone(confirmation_controls.pending_confirmation())
         runtime.process_device_commands.assert_not_called()
         runtime.get_chatgpt_response.assert_not_called()
+        reset_dialogue_state(all_scopes=True)
+
+    def test_failed_ai_turn_supersedes_a_prior_intent_frame(self):
+        from conversational_nl import build_intent_frame
+        from dialogue_state import (
+            remember_intent_frame,
+            reset_dialogue_state,
+            resolve_intent_frame,
+        )
+        from interaction_flow import handle_text_interaction
+
+        reset_dialogue_state(all_scopes=True)
+        remember_intent_frame(build_intent_frame("color", "set stair light to red"))
+        runtime = mock.Mock()
+        runtime._ACTION_OCCURRED = False
+        runtime.process_device_commands.return_value = None
+        runtime._looks_like_chatgpt_intent.return_value = True
+        runtime._looks_like_joke_request.return_value = False
+        runtime.get_chatgpt_response.side_effect = RuntimeError("offline")
+
+        result = handle_text_interaction(runtime, "tell me something new")
+
+        self.assertEqual(result.source, "fallback")
+        self.assertIsNone(resolve_intent_frame())
         reset_dialogue_state(all_scopes=True)
 
 

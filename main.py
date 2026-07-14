@@ -435,8 +435,15 @@ PIPHONE_LIGHT_IMPORT = (os.environ.get("PIPHONE_LIGHT_IMPORT") == "1")
 if not PIPHONE_NO_RUNTIME_INIT and not PIPHONE_LIGHT_IMPORT:
     time.sleep(2)
 
-import RPi.GPIO as GPIO
 import logging
+from logging.handlers import RotatingFileHandler
+
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    # Text/API nodes and CI do not need GPIO. A PTT-enabled non-Pi node fails
+    # explicitly during initialization below instead of failing at import time.
+    GPIO = None
 
 # =========================
 # PERF LOGGING (opt-in)
@@ -1072,7 +1079,14 @@ try:
 
     fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(threadName)s - %(message)s")
 
-    fh = logging.FileHandler(LOG_PATH)
+    log_max_bytes = max(0, int(_pref_value("RUNTIME_LOG_MAX_BYTES", 5 * 1024 * 1024) or 0))
+    log_backup_count = max(0, int(_pref_value("RUNTIME_LOG_BACKUP_COUNT", 3) or 0))
+    fh = RotatingFileHandler(
+        LOG_PATH,
+        maxBytes=log_max_bytes,
+        backupCount=log_backup_count,
+        encoding="utf-8",
+    )
     fh.setFormatter(fmt)
     root.addHandler(fh)
 
@@ -1080,7 +1094,13 @@ try:
     sh.setFormatter(fmt)
     root.addHandler(sh)
 
-    logging.info(f"LOGGING_INIT OK pid={os.getpid()} log_path={LOG_PATH}")
+    logging.info(
+        "LOGGING_INIT OK pid=%s log_path=%s max_bytes=%s backup_count=%s",
+        os.getpid(),
+        LOG_PATH,
+        log_max_bytes,
+        log_backup_count,
+    )
 
     # Single-instance lock (prevents duplicate chimes / GPIO contention)
     if not PIPHONE_NO_RUNTIME_INIT and os.environ.get('PIPHONE_SKIP_PID_LOCK') != '1':
@@ -1100,14 +1120,23 @@ except Exception as e:
     print(f"LOGGING_INIT FAILED: {e}")
 
 # GPIO setup
-GPIO_PIN = 11
-if not PIPHONE_NO_RUNTIME_INIT:
+try:
+    GPIO_PIN = int(_pref_value("HANDSET_GPIO_PIN", 11) or 11)
+except (TypeError, ValueError):
+    GPIO_PIN = 11
+    logging.warning("HANDSET_GPIO_PIN_INVALID; using BCM GPIO 11")
+
+if not PIPHONE_NO_RUNTIME_INIT and GPIO is not None:
     try:
         GPIO.cleanup()
     except Exception:
         pass
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+elif not PIPHONE_NO_RUNTIME_INIT and _ptt_enabled():
+    raise RuntimeError("PTT is enabled but RPi.GPIO is unavailable on this node")
+elif not PIPHONE_NO_RUNTIME_INIT:
+    logging.info("GPIO_INIT_SKIPPED reason=unavailable ptt_enabled=false")
 else:
     logging.info("GPIO_INIT_SKIPPED (PIPHONE_NO_RUNTIME_INIT=1)")
 

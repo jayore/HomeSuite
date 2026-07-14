@@ -33,11 +33,17 @@ The deployment template also starts home-specific catalogs empty. Populate
 pronunciation overrides there when you need them. This prevents a fresh install
 from inheriting the original deployment's entities or personal media choices.
 
+Choose one or more node roles before tuning every setting. A text/API node can
+keep both `PTT_ENABLED` and `WAKEWORD_ENABLED` false; a handset node needs only
+PTT settings; and a wake-word appliance needs a stable microphone profile and
+model. See [Deployment roles](DEPLOYMENT_ROLES.md) and run
+`homesuite doctor --role <role>` to validate a specific target.
+
 ## Optional Integrations
 
 Most integrations are optional. Leave service-specific values blank in `private_config.py` until you actually connect that service. Home Suite should still start, and commands for missing services should return a plain not-configured response instead of crashing.
 
-Avoid placeholder URLs for services you do not run. A blank value tells Home Suite and `homesuite-doctor` that the service is intentionally not configured.
+Avoid placeholder URLs for services you do not run. A blank value tells Home Suite and `homesuite doctor` that the service is intentionally not configured.
 
 For a service-by-service setup guide, see [INTEGRATIONS.md](INTEGRATIONS.md).
 For account types, OAuth flows, key acquisition, speech-provider choices, and
@@ -68,8 +74,8 @@ HANDSET_PRESENT = False
 Run the doctor command after editing config:
 
 ```bash
-homesuite-doctor
-homesuite-doctor --live
+homesuite doctor
+homesuite doctor --live
 ```
 
 ## OpenAI
@@ -135,8 +141,11 @@ information out of `ASSISTANT_PROFILE` and its `notes`.
 Profile context is generated fresh for each AI call and is not stored in the
 conversation history. Short-lived actionable referents use
 `DIALOGUE_REFERENT_TTL_SECONDS`, which defaults to two minutes and may be
-overridden in `local_prefs.py`. See [ROOM_CONFIGURATION.md](ROOM_CONFIGURATION.md)
-for source mobility, `continuity_group`, and `device_group` behavior.
+overridden in `local_prefs.py`. Compatible deterministic follow-ups also use a
+typed command-shape frame controlled by `DIALOGUE_INTENT_FRAME_TTL_SECONDS`,
+which defaults to two minutes. See
+[ROOM_CONFIGURATION.md](ROOM_CONFIGURATION.md) for source mobility,
+`continuity_group`, and `device_group` behavior.
 
 ## Home Assistant
 
@@ -360,6 +369,32 @@ Confirmations belong to the exact request source even when ordinary follow-up
 referents share a configured continuity group; collecting drafts follow that
 source's configured context bubble.
 
+## Command Clarifications
+
+When an otherwise valid short device name matches two to four live Home
+Assistant entities, Home Suite can ask which entity was intended. The pending
+choice belongs to the exact request source and expires quickly. A short answer
+selects an option; a complete unrelated command supersedes the question.
+Selection never authorizes a write by itself: the generated ordinary command
+returns through the dispatcher, current entity resolution, capability checks,
+and any configured confirmation policy.
+
+Defaults live in `app_config.py` and may be overridden in `local_prefs.py`:
+
+```python
+# Command-shape context for corrections and target/query refinements.
+DIALOGUE_INTENT_FRAME_TTL_SECONDS = 2 * 60
+
+# Pending "which device?" choices are exact-source scoped.
+COMMAND_CLARIFICATION_TTL_SECONDS = 45
+```
+
+Configured `HA_DEVICE_ALIASES`, on/off phrase overrides, and room targets take
+precedence over inferred ambiguity. Clarification currently covers ordinary
+on/off, named-light color, and named-light brightness commands. Bare contextual
+targets such as `the lights`, `the TV`, or `brightness` continue through room
+and request-context routing rather than being treated as ambiguous entity names.
+
 ## Temporary Light Actions
 
 Temporary commands support one resolved Home Assistant `light.*` entity. They
@@ -503,7 +538,7 @@ Control only a selected set of room lights:
 ```
 
 The area strategy is convenient but intentionally opt-in because HA areas may
-contain decorative, grouped, or non-dimmable lights. Run `homesuite-doctor`
+contain decorative, grouped, or non-dimmable lights. Run `homesuite doctor`
 to see each room's resolved target. Existing `brightness_number` and
 `brightness_light` keys remain supported for compatibility, but new
 configurations should use `brightness_target`.

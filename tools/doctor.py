@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,12 +34,26 @@ class Check:
     label: str
     detail: str = ""
     required: bool = False
+    roles: tuple[str, ...] = ()
 
 
 class Doctor:
-    def __init__(self, *, live: bool = False, timeout: float = 5.0) -> None:
+    """Validate configuration, enabled node roles, and optional live topology."""
+
+    ROLE_ORDER = ("text", "api", "ptt", "wakeword")
+
+    def __init__(
+        self,
+        *,
+        live: bool = False,
+        timeout: float = 5.0,
+        requested_roles: Optional[Iterable[str]] = None,
+        json_output: bool = False,
+    ) -> None:
         self.live = live
         self.timeout = timeout
+        self.requested_roles = tuple(requested_roles or ())
+        self.json_output = json_output
         self.checks: list[Check] = []
         self.private_config = self._load_module("private_config")
         self.app_config = self._load_module("app_config")
@@ -56,8 +72,26 @@ class Doctor:
             self.add("Config files", "FAIL" if required else "WARN", f"{name}.py imports", str(exc), required=required)
             return None
 
-    def add(self, group: str, status: str, label: str, detail: str = "", *, required: bool = False) -> None:
-        self.checks.append(Check(group=group, status=status, label=label, detail=detail, required=required))
+    def add(
+        self,
+        group: str,
+        status: str,
+        label: str,
+        detail: str = "",
+        *,
+        required: bool = False,
+        roles: Iterable[str] = (),
+    ) -> None:
+        self.checks.append(
+            Check(
+                group=group,
+                status=status,
+                label=label,
+                detail=detail,
+                required=required,
+                roles=tuple(roles),
+            )
+        )
 
     def value(self, name: str, default=""):
         if self.private_config is None:
@@ -85,18 +119,52 @@ class Doctor:
     def configured(self, names: Iterable[str]) -> bool:
         return not self.missing(names)
 
-    def run(self) -> int:
+    @staticmethod
+    def module_available(name: str) -> bool:
+        """Return whether an optional runtime module can be imported safely."""
+        try:
+            return importlib.util.find_spec(name) is not None
+        except (ModuleNotFoundError, ValueError):
+            return False
+
+    def active_roles(self) -> tuple[str, ...]:
+        """Return node roles requested by the user or implied by preferences."""
+        requested = tuple(getattr(self, "requested_roles", ()) or ())
+        if requested and "all" not in requested:
+            return tuple(role for role in self.ROLE_ORDER if role in requested)
+
+        roles = {"text"}
+        if bool(self.pref("UNIFIED_SERVER_ENABLED", True)):
+            roles.add("api")
+        if bool(self.pref("PTT_ENABLED", False)):
+            roles.add("ptt")
+        if bool(self.pref("WAKEWORD_ENABLED", False)):
+            roles.add("wakeword")
+        return tuple(role for role in self.ROLE_ORDER if role in roles)
+
+    def run(self, *, report: bool = True) -> int:
+        self._active_roles = self.active_roles()
         self.check_local_files()
         self.check_core_config()
         self.check_room_registry()
         self.check_room_brightness()
+        self.check_local_runtime()
         self.check_optional_config()
         if self.live:
             self.check_live_services()
+            self.check_live_topology()
+            self.check_live_api_listener()
         else:
-            self.add("Live checks", "SKIP", "network reachability", "Run homesuite-doctor --live to test configured services.")
-        self.print_report()
-        return 1 if any(c.required and c.status == "FAIL" for c in self.checks) else 0
+            self.add(
+                "Live checks",
+                "SKIP",
+                "network reachability",
+                "Run homesuite doctor --live to test configured services and configured HA entities.",
+                roles=self._active_roles,
+            )
+        if report:
+            self.print_report()
+        return 1 if self.required_failures() else 0
 
     def check_local_files(self) -> None:
         private_path = ROOT / "private_config.py"
@@ -107,6 +175,7 @@ class Doctor:
             "private_config.py",
             "found" if private_path.exists() else "missing; copy private_config.example.py",
             required=True,
+            roles=self.ROLE_ORDER,
         )
         self.add(
             "Config files",
@@ -124,6 +193,7 @@ class Doctor:
                 if deployment_path.exists()
                 else "missing; using tracked app_config.py topology (see room migration guide)"
             ),
+            roles=self.ROLE_ORDER,
         )
 
     def check_core_config(self) -> None:
@@ -136,6 +206,7 @@ class Doctor:
                 label,
                 "missing: " + ", ".join(missing) if missing else "configured",
                 required=True,
+                roles=self.ROLE_ORDER,
             )
 
         openai_key = self.value("OPENAI_API_KEY")
@@ -143,7 +214,7 @@ class Doctor:
             self.pref("PTT_ENABLED", False) or self.pref("WAKEWORD_ENABLED", False)
         )
         if self.has_value(openai_key):
-            self.add("Core", "OK", "OpenAI API key", "configured")
+            self.add("Core", "OK", "OpenAI API key", "configured", roles=("ptt", "wakeword"))
         else:
             self.add(
                 "Core",
@@ -155,12 +226,21 @@ class Doctor:
                     else "missing; deterministic text commands work, conversation and OpenAI speech do not"
                 ),
                 required=voice_enabled,
+                roles=("ptt", "wakeword"),
             )
 
         server_enabled = bool(self.pref("UNIFIED_SERVER_ENABLED", True))
         api_key = self.value("HOMESUITE_HTTP_API_KEY") or self.value("PIPHONE_HTTP_API_KEY")
         if not server_enabled:
-            self.add("Core", "SKIP", "Home Suite HTTP/WebSocket API", "disabled in preferences")
+            api_requested = "api" in tuple(getattr(self, "_active_roles", self.active_roles()))
+            self.add(
+                "Core",
+                "FAIL" if api_requested and bool(getattr(self, "requested_roles", ())) else "SKIP",
+                "Home Suite HTTP/WebSocket API",
+                "disabled in preferences",
+                required=api_requested and bool(getattr(self, "requested_roles", ())),
+                roles=("api",),
+            )
         else:
             self.add(
                 "Core",
@@ -168,13 +248,14 @@ class Doctor:
                 "Home Suite HTTP/WebSocket API key",
                 "configured" if self.has_value(api_key) else "missing; server is enabled and fails closed without it",
                 required=True,
+                roles=("api",),
             )
 
     def check_room_registry(self) -> None:
         rooms = self.pref("ROOMS", {}) or {}
         default_room = str(self.pref("DEFAULT_ROOM", "") or "").strip()
         if not isinstance(rooms, dict) or not rooms:
-            self.add("Rooms", "FAIL", "room registry", "ROOMS is empty", required=True)
+            self.add("Rooms", "FAIL", "room registry", "ROOMS is empty", required=True, roles=self.ROLE_ORDER)
             return
         if not default_room or default_room not in rooms:
             self.add(
@@ -183,9 +264,10 @@ class Doctor:
                 "default room",
                 f"DEFAULT_ROOM {default_room!r} is not present in ROOMS",
                 required=True,
+                roles=self.ROLE_ORDER,
             )
             return
-        self.add("Rooms", "OK", "default room", default_room)
+        self.add("Rooms", "OK", "default room", default_room, roles=self.ROLE_ORDER)
 
     def check_room_brightness(self) -> None:
         try:
@@ -221,6 +303,7 @@ class Doctor:
                         if explicitly_disabled
                         else "invalid configuration" if configured else "not configured"
                     ),
+                    roles=self.ROLE_ORDER,
                 )
                 continue
 
@@ -231,7 +314,181 @@ class Doctor:
                 detail = "lights " + ", ".join(target["entity_ids"])
             else:
                 detail = f"entity {target['entity_id']}"
-            self.add("Rooms", "OK", label, detail)
+            self.add("Rooms", "OK", label, detail, roles=self.ROLE_ORDER)
+
+    def check_local_runtime(self) -> None:
+        roles = tuple(getattr(self, "_active_roles", self.active_roles()))
+        supported = sys.version_info >= (3, 9)
+        self.add(
+            "Runtime readiness",
+            "OK" if supported else "FAIL",
+            "Python version",
+            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            required=True,
+            roles=roles,
+        )
+
+        voice_roles = tuple(role for role in ("ptt", "wakeword") if role in roles)
+        if voice_roles:
+            self.check_audio_input_profile(voice_roles)
+        if "ptt" in roles:
+            self.check_ptt_runtime()
+        if "wakeword" in roles:
+            self.check_wakeword_runtime()
+
+    def check_audio_input_profile(self, roles: tuple[str, ...]) -> None:
+        profile = self.pref("AUDIO_INPUT_PROFILE", {}) or {}
+        if not isinstance(profile, dict):
+            self.add(
+                "Runtime readiness",
+                "FAIL",
+                "audio input profile",
+                "AUDIO_INPUT_PROFILE must be a mapping",
+                required=True,
+                roles=roles,
+            )
+            return
+
+        try:
+            import sounddevice as sd
+        except Exception as exc:
+            self.add(
+                "Runtime readiness",
+                "FAIL",
+                "sounddevice input support",
+                f"unavailable: {exc}",
+                required=True,
+                roles=roles,
+            )
+            return
+
+        device_match = str(profile.get("device_match") or "").strip()
+        device_index = profile.get("device_index")
+        try:
+            devices = sd.query_devices()
+            selected_index = None
+            if device_index is not None:
+                candidate = int(device_index)
+                if 0 <= candidate < len(devices) and int(devices[candidate]["max_input_channels"] or 0) > 0:
+                    selected_index = candidate
+            elif device_match:
+                needle = device_match.casefold()
+                for index, device in enumerate(devices):
+                    if int(device["max_input_channels"] or 0) <= 0:
+                        continue
+                    if needle in str(device["name"] or "").casefold():
+                        selected_index = index
+                        break
+
+            if selected_index is None:
+                target = f"index {device_index}" if device_index is not None else repr(device_match or "default input")
+                self.add(
+                    "Runtime readiness",
+                    "FAIL",
+                    "configured audio input",
+                    f"no input device matched {target}",
+                    required=True,
+                    roles=roles,
+                )
+                return
+
+            sample_rate = int(profile.get("sample_rate") or 0)
+            channels = max(1, int(profile.get("channels") or 1))
+            try:
+                sd.check_input_settings(device=selected_index, samplerate=sample_rate or None, channels=channels)
+                detail = f"{devices[selected_index]['name']} (index {selected_index}, {sample_rate or 'default'} Hz)"
+                status = "OK"
+            except Exception as exc:
+                detail = f"{devices[selected_index]['name']} cannot open at {sample_rate or 'default'} Hz: {exc}"
+                status = "FAIL"
+            self.add(
+                "Runtime readiness",
+                status,
+                "configured audio input",
+                detail,
+                required=status == "FAIL",
+                roles=roles,
+            )
+        except Exception as exc:
+            self.add(
+                "Runtime readiness",
+                "FAIL",
+                "configured audio input",
+                str(exc),
+                required=True,
+                roles=roles,
+            )
+
+    def check_ptt_runtime(self) -> None:
+        if not bool(self.pref("HANDSET_PRESENT", False)):
+            self.add(
+                "Runtime readiness",
+                "WARN",
+                "PTT handset input",
+                "PTT is enabled but HANDSET_PRESENT is false; confirm this is an intentional button-only build",
+                roles=("ptt",),
+            )
+            return
+        gpio_available = self.module_available("RPi.GPIO")
+        hook_pin = self.pref("HANDSET_GPIO_PIN", 11)
+        self.add(
+            "Runtime readiness",
+            "OK" if gpio_available else "FAIL",
+            "PTT GPIO support",
+            f"BCM GPIO {hook_pin}" if gpio_available else "RPi.GPIO is not installed",
+            required=not gpio_available,
+            roles=("ptt",),
+        )
+
+    def check_wakeword_runtime(self) -> None:
+        engine = str(self.pref("WAKEWORD_ENGINE", "openwakeword") or "openwakeword").strip().lower()
+        if engine == "openwakeword":
+            missing = [
+                module
+                for module in ("openwakeword", "onnxruntime")
+                if not self.module_available(module)
+            ]
+            self.add(
+                "Runtime readiness",
+                "OK" if not missing else "FAIL",
+                "OpenWakeWord runtime",
+                "installed" if not missing else "missing: " + ", ".join(missing) + "; run homesuite install-wakeword",
+                required=bool(missing),
+                roles=("wakeword",),
+            )
+            for raw_path in self.pref("WAKEWORD_MODEL_PATHS", []) or []:
+                path = Path(str(raw_path)).expanduser()
+                self.add(
+                    "Runtime readiness",
+                    "OK" if path.is_file() else "FAIL",
+                    "wakeword model path",
+                    str(path),
+                    required=not path.is_file(),
+                    roles=("wakeword",),
+                )
+            return
+
+        if engine == "porcupine":
+            available = self.module_available("pvporcupine")
+            has_key = self.has_value(self.value("PVPORCUPINE_ACCESS_KEY"))
+            self.add(
+                "Runtime readiness",
+                "OK" if available and has_key else "FAIL",
+                "Porcupine runtime",
+                "installed and key configured" if available and has_key else "requires pvporcupine and PVPORCUPINE_ACCESS_KEY",
+                required=True,
+                roles=("wakeword",),
+            )
+            return
+
+        self.add(
+            "Runtime readiness",
+            "FAIL",
+            "wakeword engine",
+            f"unsupported engine {engine!r}",
+            required=True,
+            roles=("wakeword",),
+        )
 
     def optional_group(self, label: str, names: list[str], *, warn_detail: Optional[str] = None) -> None:
         missing = self.missing(names)
@@ -295,14 +552,20 @@ class Doctor:
     def clean_url(url: str) -> str:
         return (url or "").strip().rstrip("/") + "/"
 
-    def get_url(self, url: str, *, headers: Optional[dict] = None) -> tuple[int, str]:
+    def get_url(
+        self,
+        url: str,
+        *,
+        headers: Optional[dict] = None,
+        max_bytes: int = 2048,
+    ) -> tuple[int, str]:
         req = Request(url, headers=headers or {})
         try:
             with urlopen(req, timeout=self.timeout) as resp:
-                body = resp.read(2048).decode("utf-8", "replace")
+                body = resp.read(max_bytes).decode("utf-8", "replace")
                 return int(resp.status), body
         except HTTPError as exc:
-            body = exc.read(2048).decode("utf-8", "replace")
+            body = exc.read(max_bytes).decode("utf-8", "replace")
             return int(exc.code), body
         except URLError as exc:
             raise RuntimeError(str(exc.reason)) from exc
@@ -327,9 +590,10 @@ class Doctor:
                 "Home Assistant reachable",
                 f"HTTP {status}",
                 required=True,
+                roles=self.ROLE_ORDER,
             )
         except Exception as exc:
-            self.add("Live checks", "FAIL", "Home Assistant reachable", str(exc), required=True)
+            self.add("Live checks", "FAIL", "Home Assistant reachable", str(exc), required=True, roles=self.ROLE_ORDER)
 
     def check_alpaca_live(self) -> None:
         key_id = (
@@ -406,11 +670,165 @@ class Doctor:
         except Exception as exc:
             self.add("Live checks", "WARN", "Telegram bot", str(exc))
 
+    @staticmethod
+    def _walk_entity_ids(value) -> set[str]:
+        """Extract Home Assistant entity IDs from nested deployment mappings."""
+        entity_re = re.compile(r"^[a-z_]+\.[a-z0-9_]+$", re.IGNORECASE)
+        found: set[str] = set()
+        if isinstance(value, str):
+            candidate = value.strip()
+            if entity_re.fullmatch(candidate):
+                found.add(candidate)
+        elif isinstance(value, dict):
+            for child in value.values():
+                found.update(Doctor._walk_entity_ids(child))
+        elif isinstance(value, (list, tuple, set)):
+            for child in value:
+                found.update(Doctor._walk_entity_ids(child))
+        return found
+
+    def configured_entity_ids(self) -> set[str]:
+        """Return explicitly configured entity IDs without scanning every default."""
+        sources = (
+            self.pref("ROOMS", {}),
+            self.pref("CALENDARS", {}),
+            self.pref("WEATHER_ENTITY_ID", None),
+            self.pref("HA_DEVICE_ALIASES", {}),
+            self.pref("HA_TRIGGER_ALIASES", {}),
+        )
+        found: set[str] = set()
+        for source in sources:
+            found.update(self._walk_entity_ids(source))
+        return found
+
+    def check_live_topology(self) -> None:
+        if not self.configured(["HA_URL", "HA_TOKEN"]):
+            self.add("Live checks", "SKIP", "configured HA entities", "missing HA_URL or HA_TOKEN", roles=self.ROLE_ORDER)
+            return
+
+        configured_ids = self.configured_entity_ids()
+        if not configured_ids:
+            self.add("Live checks", "SKIP", "configured HA entities", "no explicit entity IDs to validate", roles=self.ROLE_ORDER)
+            return
+
+        url = urljoin(self.clean_url(str(self.value("HA_URL"))), "api/states")
+        try:
+            status, body = self.get_url(
+                url,
+                headers={"Authorization": f"Bearer {self.value('HA_TOKEN')}"},
+                max_bytes=4 * 1024 * 1024,
+            )
+            if status != 200:
+                self.add("Live checks", "WARN", "configured HA entities", f"could not read states (HTTP {status})", roles=self.ROLE_ORDER)
+                return
+            states = json.loads(body)
+            live_ids = {
+                str(row.get("entity_id"))
+                for row in states
+                if isinstance(row, dict) and row.get("entity_id")
+            }
+            missing = sorted(configured_ids - live_ids)
+            if missing:
+                display = ", ".join(missing[:8])
+                suffix = "" if len(missing) <= 8 else f" (+{len(missing) - 8} more)"
+                self.add(
+                    "Live checks",
+                    "WARN",
+                    "configured HA entities",
+                    f"{len(missing)} configured ID(s) not found: {display}{suffix}",
+                    roles=self.ROLE_ORDER,
+                )
+                return
+            self.add(
+                "Live checks",
+                "OK",
+                "configured HA entities",
+                f"{len(configured_ids)} configured ID(s) found",
+                roles=self.ROLE_ORDER,
+            )
+        except Exception as exc:
+            self.add("Live checks", "WARN", "configured HA entities", str(exc), roles=self.ROLE_ORDER)
+
+    def check_live_api_listener(self) -> None:
+        if not bool(self.pref("UNIFIED_SERVER_ENABLED", True)):
+            self.add("Live checks", "SKIP", "local API listener", "disabled in preferences", roles=("api",))
+            return
+        try:
+            port = int(self.pref("UNIFIED_SERVER_PORT", 8765) or 8765)
+            status, _body = self.get_url(f"http://127.0.0.1:{port}/health")
+            self.add(
+                "Live checks",
+                "OK" if status == 200 else "WARN",
+                "local API listener",
+                f"HTTP {status} on port {port}",
+                roles=("api",),
+            )
+        except Exception as exc:
+            self.add(
+                "Live checks",
+                "WARN",
+                "local API listener",
+                f"not running yet or unreachable: {exc}",
+                roles=("api",),
+            )
+
+    def role_summary(self) -> list[dict]:
+        roles = tuple(getattr(self, "_active_roles", self.active_roles()))
+        summary = []
+        for role in roles:
+            relevant = [check for check in self.checks if role in check.roles]
+            failures = [check for check in relevant if check.required and check.status == "FAIL"]
+            warnings = [check for check in relevant if check.status == "WARN"]
+            status = "FAIL" if failures else ("WARN" if warnings else "OK")
+            summary.append(
+                {
+                    "role": role,
+                    "status": status,
+                    "required_failures": len(failures),
+                    "warnings": len(warnings),
+                }
+            )
+        return summary
+
+    def relevant_checks(self) -> list[Check]:
+        """Return checks that apply to the selected or detected node roles."""
+        active_roles = set(getattr(self, "_active_roles", self.active_roles()))
+        return [
+            check
+            for check in self.checks
+            if not check.roles or bool(active_roles.intersection(check.roles))
+        ]
+
+    def required_failures(self) -> list[Check]:
+        return [
+            check
+            for check in self.relevant_checks()
+            if check.required and check.status == "FAIL"
+        ]
+
     def print_report(self) -> None:
+        checks = self.relevant_checks()
+        required_failures = self.required_failures()
+        warnings = [check for check in checks if check.status == "WARN"]
+        summary = self.role_summary()
+        if bool(getattr(self, "json_output", False)):
+            print(
+                json.dumps(
+                    {
+                        "ok": not required_failures,
+                        "roles": summary,
+                        "checks": [check.__dict__ for check in checks],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return
+
         print("Home Suite doctor")
         print("================")
         current_group = None
-        for check in self.checks:
+        for check in checks:
             if check.group != current_group:
                 current_group = check.group
                 print()
@@ -418,8 +836,11 @@ class Doctor:
             detail = f" - {check.detail}" if check.detail else ""
             print(f"[{check.status}] {check.label}{detail}")
 
-        required_failures = [c for c in self.checks if c.required and c.status == "FAIL"]
-        warnings = [c for c in self.checks if c.status == "WARN"]
+        print()
+        print("Role readiness")
+        for role in summary:
+            detail = f"{role['required_failures']} required failure(s), {role['warnings']} warning(s)"
+            print(f"[{role['status']}] {role['role']} - {detail}")
         print()
         if required_failures:
             print(f"Result: FAIL ({len(required_failures)} required check(s) failed, {len(warnings)} warning(s)).")
@@ -433,8 +854,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Check Home Suite first-run configuration.")
     parser.add_argument("--live", action="store_true", help="also test reachability for configured services")
     parser.add_argument("--timeout", type=float, default=5.0, help="per-request timeout for --live checks")
+    parser.add_argument(
+        "--role",
+        action="append",
+        choices=("text", "api", "ptt", "wakeword", "all"),
+        help="validate one role explicitly instead of auto-detecting enabled roles",
+    )
+    parser.add_argument("--json", action="store_true", help="emit a machine-readable redacted report")
     args = parser.parse_args(argv)
-    return Doctor(live=args.live, timeout=args.timeout).run()
+    return Doctor(
+        live=args.live,
+        timeout=args.timeout,
+        requested_roles=args.role,
+        json_output=args.json,
+    ).run()
 
 
 if __name__ == "__main__":

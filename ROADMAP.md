@@ -25,6 +25,8 @@ Home Suite already includes:
   microphone profiles, calibration tooling, and local-TTS barge-in
 * a public installer, example configuration, operating documentation, and a
   sanitized public GitHub export
+* portable GitHub Actions coverage of the unit and command-contract suite on
+  CPython 3.9 and 3.13; real Pi audio and GPIO validation remains deliberate
 
 Those are maintained capabilities, not roadmap items.
 
@@ -47,10 +49,9 @@ cancellation. PTT behavior must remain isolated from wakeword-specific tuning.
 
 ### Automated Validation
 
-The test suite is currently run manually. Useful next steps include:
+The portable test suite runs in GitHub Actions on CPython 3.9 and 3.13. Useful
+next steps include:
 
-* GitHub Actions coverage for supported Python versions, currently 3.9 and 3.13
-* a documented split between hardware-independent CI and Pi/audio validation
 * a larger multi-turn utterance corpus covering positive routes, collisions,
   unresolved language, and source-scoped continuity
 * replayable regression cases derived from real failures without committing

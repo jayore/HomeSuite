@@ -139,6 +139,63 @@ class ConfirmationControlsTests(unittest.TestCase):
         self.assertEqual(response, "Added Dentist.")
         executor.assert_called_once_with({"title": "Dentist"})
 
+    def test_typed_rejection_can_enter_a_revision_flow(self):
+        confirmation_controls.request_typed_confirmation(
+            policy="calendar_write",
+            action_type="calendar_create",
+            payload={"title": "Dentist"},
+            prompt="Is that right?",
+            cancel_response="Canceled.",
+        )
+        rejector = mock.Mock(return_value="What should I change?")
+
+        response = confirmation_controls.handle_confirmation_controls(
+            tl="no",
+            execute_command=mock.Mock(),
+            typed_rejectors={"calendar_create": rejector},
+        )
+
+        self.assertEqual(response, "What should I change?")
+        rejector.assert_called_once_with({"title": "Dentist"})
+        self.assertIsNone(confirmation_controls.pending_confirmation())
+
+    def test_explicit_typed_cancellation_does_not_enter_revision(self):
+        confirmation_controls.request_typed_confirmation(
+            policy="calendar_write",
+            action_type="calendar_create",
+            payload={"title": "Dentist"},
+            prompt="Is that right?",
+            cancel_response="Canceled.",
+        )
+        rejector = mock.Mock(return_value="What should I change?")
+
+        response = confirmation_controls.handle_confirmation_controls(
+            tl="no thanks",
+            execute_command=mock.Mock(),
+            typed_rejectors={"calendar_create": rejector},
+        )
+
+        self.assertEqual(response, "Canceled.")
+        rejector.assert_not_called()
+
+    def test_typed_revision_handler_can_replace_pending_confirmation(self):
+        confirmation_controls.request_typed_confirmation(
+            policy="calendar_write",
+            action_type="calendar_create",
+            payload={"title": "Dentist"},
+            prompt="Is that right?",
+        )
+        reviser = mock.Mock(return_value="Dentist at 10:45 PM. Is that right?")
+
+        response = confirmation_controls.handle_confirmation_controls(
+            tl="no, at 10:45 pm",
+            execute_command=mock.Mock(),
+            typed_revision_handlers={"calendar_create": reviser},
+        )
+
+        self.assertEqual(response, "Dentist at 10:45 PM. Is that right?")
+        reviser.assert_called_once_with({"title": "Dentist"}, "no, at 10:45 pm")
+
 
 if __name__ == "__main__":
     unittest.main()

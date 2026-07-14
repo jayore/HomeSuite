@@ -96,6 +96,32 @@ class DialogueStateTests(unittest.TestCase):
             "light.stair",
         )
 
+    def test_typed_intent_frames_are_source_scoped_and_round_trip(self):
+        import dialogue_state
+        from conversational_nl import IntentFrame
+        from request_context import RequestContext, set_current_request_context
+
+        set_current_request_context(RequestContext(source_id="telegram"))
+        dialogue_state.remember_intent_frame(
+            IntentFrame(
+                domain="light",
+                intent="set_color",
+                canonical_command="set stair light to red",
+                slots={"target": "stair light", "value": "red"},
+                target_keys=("light.stair",),
+                followups=frozenset({"target_transfer", "value_correction"}),
+            )
+        )
+
+        resolved = dialogue_state.resolve_intent_frame(
+            required_followup="target_transfer"
+        )
+        self.assertEqual(resolved.slots["value"], "red")
+        self.assertEqual(resolved.target_keys, ("light.stair",))
+
+        set_current_request_context(RequestContext(source_id="default_piphone"))
+        self.assertIsNone(dialogue_state.resolve_intent_frame())
+
     def test_forget_referents_can_clear_only_pending_interactions(self):
         import dialogue_state
 

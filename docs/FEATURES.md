@@ -10,6 +10,14 @@ Home Suite expects most device control to flow through Home Assistant, but the d
 
 Examples include lights, switches, locks, scenes, scripts, state questions, and scheduled Home Assistant actions.
 
+The deterministic language layer accepts common politeness wrappers, safe
+paraphrases, qualitative brightness and volume levels, and short corrections
+without handing device execution to AI. Successful commands can establish a
+typed intent for bounded follow-ups such as correcting a color or applying the
+same action to another target. Ambiguous short device names produce a scoped
+choice instead of silently selecting one entity; the answer is still resolved
+and validated through the normal command path.
+
 ## Rooms, Focus, And Defaults
 
 Fixed devices can have fixed room defaults. Mobile clients such as chat, Telegram, Raycast-style launchers, or future satellites can keep sticky room focus. That lets Home Suite route short commands to the room or media player that makes sense without forcing every request to mention a Home Assistant entity.

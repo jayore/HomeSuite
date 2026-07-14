@@ -4,13 +4,16 @@ This guide takes a fresh Home Suite install to the first useful command. Start
 small: get Home Assistant and deterministic text commands working, then add
 conversation, voice, media, and homelab services one at a time.
 
-The goal of first setup is not to configure everything. The goal is to make `homesuite-doctor` pass its core checks, open `pptest`, and get one safe plain-English phrase returning a sensible result.
+The goal of first setup is not to configure everything. The goal is to make
+`homesuite doctor` pass its core checks, open `homesuite repl`, and get one
+safe plain-English phrase returning a sensible result.
 
 ## Before You Start
 
 You should already have:
 
 * a Raspberry Pi or Debian-like host on the same network as Home Assistant
+* CPython 3.9 or newer (the installer checks this before creating or reusing its virtual environment)
 * Home Assistant running and reachable from that host
 * a Home Assistant long-lived access token
 * basic comfort editing files over SSH
@@ -41,13 +44,17 @@ Fresh installs receive a randomly generated `HOMESUITE_HTTP_API_KEY` in
 `private_config.py`; the value is not printed. Reuse that key only in trusted
 companion clients.
 
-The most useful shortcuts are:
+The canonical node command is `homesuite`:
 
-* `homesuite-doctor` - check local configuration
-* `pptest` - safe interactive command test shell
-* `pplive` - live interactive command shell that can control devices
-* `ppchattest` - safe chat-style test shell
-* `ppchat` - live chat-style shell
+* `homesuite doctor` - check configuration and enabled node roles
+* `homesuite test "phrase"` - run one safe command against real HA state
+* `homesuite repl` - open the safe interactive command shell
+* `homesuite logs` - show the bounded runtime log
+* `homesuite support-bundle` - create a redacted diagnostic bundle
+
+`pptest`, `pplive`, `ppchattest`, and `ppchat` remain available as familiar
+compatibility aliases. `pptest` maps to the safe REPL with no arguments and to
+the safe one-shot test command when given a phrase.
 
 ## 2. Edit Local Config
 
@@ -92,13 +99,13 @@ to `None`, and use empty lists or mappings for optional collections. See
 Check your local setup:
 
 ```bash
-homesuite-doctor
+homesuite doctor
 ```
 
 Run safe network checks for configured services:
 
 ```bash
-homesuite-doctor --live
+homesuite doctor --live
 ```
 
 Fix any `FAIL` items first. `WARN` items are usually useful follow-ups. `SKIP` items usually mean optional services are intentionally blank.
@@ -108,7 +115,7 @@ Fix any `FAIL` items first. `WARN` items are usually useful follow-ups. `SKIP` i
 Use the safe test shell before starting live audio or hardware flows:
 
 ```bash
-pptest
+homesuite repl
 ```
 
 Then type phrases such as:
@@ -118,7 +125,8 @@ what lights are on?
 service status
 ```
 
-For a one-shot check from the normal shell, use `pptest "service status"`.
+For a one-shot check from the normal shell, use
+`homesuite test "service status"`.
 
 For chat-style text testing without live device effects:
 
@@ -128,7 +136,10 @@ ppchattest
 
 ## 5. Decide When To Go Live
 
-Use `pptest` and `ppchattest` while configuring. Use `pplive`, `ppchat`, or the systemd service only when you are ready for commands to control real devices. You can also run `pplive "exact phrase"` for a single live command.
+`homesuite repl` and `homesuite test` read real Home Assistant state but block
+writes. Use `homesuite repl --live`, `homesuite test --live "exact phrase"`,
+`ppchat`, or the systemd service only when you are ready for commands to affect
+real devices.
 
 ## 6. Start or Restart the Service
 
@@ -166,9 +177,13 @@ See [INTEGRATIONS.md](INTEGRATIONS.md) for the keys each service needs and where
 
 When something does not work:
 
-1. Run `homesuite-doctor --live`.
-2. Run the phrase through `pptest`, or use `pptest "your exact phrase"` for a one-shot check.
-3. Check `logs/`.
+1. Run `homesuite doctor --live`.
+2. Run the phrase through `homesuite repl`, or use
+   `homesuite test "your exact phrase"` for a one-shot check.
+3. Check `homesuite logs` or `homesuite logs --events`.
 4. Confirm the entity, room, or service works directly in Home Assistant.
 
-Home Suite is easiest to debug when each integration is added and tested separately. If a phrase behaves oddly, first confirm whether Home Suite's natural-language router claimed it or handed it to conversational fallback; `pptest` output and `logs/` are usually enough to tell.
+Home Suite is easiest to debug when each integration is added and tested
+separately. If a phrase behaves oddly, first confirm whether Home Suite's
+natural-language router claimed it or handed it to conversational fallback; the
+REPL output and bounded logs are usually enough to tell.

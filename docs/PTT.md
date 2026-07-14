@@ -10,14 +10,16 @@ trigger timing, VAD endpoint policy, chimes, and rearm behavior remain separate.
 
 ## Hardware Contract
 
-The current handset hook input is hardcoded to **BCM GPIO 11** with the Pi's
-internal pull-up enabled:
+The handset hook input uses **BCM GPIO 11** by default with the Pi's internal
+pull-up enabled. Override `HANDSET_GPIO_PIN` in `local_prefs.py` when your
+wiring needs another BCM pin:
 
 * on-hook/open: GPIO reads high
 * off-hook/closed to ground: GPIO reads low
 
-This is a current hardware assumption, not yet a configurable pin. Verify your
-board numbering before wiring; BCM 11 is not physical header pin 11.
+Verify your board numbering before wiring; BCM 11 is not physical header pin
+11. A PTT-enabled node fails at startup if `RPi.GPIO` is unavailable. Text/API
+and wakeword-only nodes can run without that package.
 
 The systemd service must run as a user that can access GPIO and the selected
 audio devices. The native installer uses the account that ran the installer.
@@ -33,6 +35,7 @@ DEFAULT_ROOM = "office"
 HANDSET_PRESENT = True
 PTT_ENABLED = True
 WAKEWORD_ENABLED = False
+HANDSET_GPIO_PIN = 11
 
 ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 START_CHIME_DELAY_SECONDS = 0.0
@@ -146,4 +149,3 @@ Useful checks:
 | Transcripts lose audio | `PTT_AUDIO_CAPTURE overflows` | Use profile `stream_latency="high"`, stop competing capture, and inspect Pi load. |
 | It hears the assistant response | output-to-mic placement and cooldown | Reduce acoustic coupling; hanging up remains immediate interruption. |
 | No speech after hang-up | expected behavior | Hang-up cancels the current utterance by design. |
-

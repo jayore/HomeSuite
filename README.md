@@ -13,8 +13,9 @@ and state. Home Suite adds a shared language and interaction layer above it, so
 you can speak in terms of what you want without losing the ability to name a
 specific device when precision matters.
 
-> **Status:** Public alpha. Home Suite is used daily in its original deployment,
-> but installation and voice hardware setup still assume a comfortable tinkerer.
+> **Status:** Advanced alpha, moving toward beta. Home Suite is used daily in
+> its original deployment; beta readiness work focuses on reproducible node
+> roles, diagnostics, operational privacy, and a clearer first-run path.
 
 ## Room Context In Practice
 
@@ -39,7 +40,7 @@ See [Room configuration](docs/ROOM_CONFIGURATION.md) for the topology model and
 
 ## What It Can Do
 
-Current public-alpha capabilities include:
+Current capabilities include:
 
 * plain-English control for Home Assistant lights, switches, locks, covers, fans, thermostats, vacuums, scenes, scripts, and state
 * room-aware defaults and sticky room focus for fixed and mobile command sources
@@ -52,6 +53,7 @@ Current public-alpha capabilities include:
 * deterministic date, time, weather, straight-line distance, sun, moon, lunar-phase, and planetary questions
 * optional read-only stock quotes, daily movement, prior closes, and U.S. market hours
 * homelab status through Home Assistant and optional direct service APIs
+* bounded conversational phrasing, corrections, and ambiguity clarification for deterministic commands
 * source-scoped continuity across deterministic actions, readbacks, and AI conversation
 * reusable source-scoped confirmations for long-running and sensitive actions
 * optional persistent user profile and coarse home context for conversational answers
@@ -146,16 +148,21 @@ cd ~/homesuite
 nano private_config.py
 nano deployment_config.py
 nano local_prefs.py
-homesuite-doctor
-pptest
+homesuite doctor
+homesuite repl
 sudo systemctl start homesuite.service
 ```
 
-Inside `pptest`, try `service status`, or run
-`pptest "service status"` as a one-shot check.
+Inside `homesuite repl`, try `service status`, or run
+`homesuite test "service status"` as a one-shot check. The safe command modes
+read real Home Assistant state but block writes; add `--live` only when you
+intend a test to control devices.
 
 Start with [Getting started](docs/GETTING_STARTED.md) for the guided path or
 [Install](docs/INSTALL.md) for all installer and systemd options.
+For a role-specific target and a concrete first-run checklist, see
+[Deployment roles](docs/DEPLOYMENT_ROLES.md) and
+[Acceptance checks](docs/ACCEPTANCE.md).
 
 **Name note:** the user-facing name is **Home Suite**. The repository, install
 directory, service, and shell commands use `HomeSuite` or `homesuite` as
@@ -163,8 +170,9 @@ technical identifiers.
 
 ## Configuration And Requirements
 
-The smallest useful text-command setup needs Home Assistant, a long-lived Home
-Assistant token, and the generated local configuration files. An OpenAI API key
+The smallest useful text-command setup needs CPython 3.9 or newer, Home
+Assistant, a long-lived Home Assistant token, and the generated local
+configuration files. An OpenAI API key
 is required for the currently supported OpenAI speech and conversational paths,
 including web search, but not for text-only deterministic commands.
 
@@ -188,7 +196,8 @@ See [Configuration](docs/CONFIGURATION.md),
 The same command brain can be reached through:
 
 * a local Raspberry Pi PTT or wake-word voice appliance
-* `pptest`, `pplive`, `ppchattest`, and `ppchat`
+* the `homesuite` command (`doctor`, `test`, `repl`, `logs`, and support tools)
+* `pptest`, `pplive`, `ppchattest`, and `ppchat` legacy compatibility aliases
 * HTTP `POST /command` and WebSocket `/ws`
 * Telegram
 * scheduler and alarm jobs
@@ -228,9 +237,9 @@ authentication contract.
 
 ## Status
 
-Home Suite is public-alpha software and a daily driver in its original
-deployment. The public setup experience is still young, particularly around
-hardware differences, OAuth flows, and entity naming.
+Home Suite is advanced-alpha software and a daily driver in its original
+deployment. It is being prepared for beta; hardware differences, OAuth flows,
+and entity naming still need deliberate setup attention.
 
 The first supported target is a native Raspberry Pi OS or Debian-like
 deployment. Docker and streamlined satellite packaging may come later. Today,
@@ -245,8 +254,8 @@ Important entry points:
 * `command_dispatch.py` - deterministic natural-language routing pipeline
 * `interaction_flow.py` - shared interaction and response policy
 * `unified_server.py` - in-process HTTP and WebSocket server
-* `homesuite-doctor` - setup and configuration diagnostics
-* `pptest` and `pplive` - safe and live command harnesses
+* `tools/homesuite_cli.py` - canonical node CLI behind the `homesuite` command
+* `command_repl.py` and `tools/test_commands.py` - safe and live command harnesses
 
 Documentation:
 
@@ -257,6 +266,10 @@ Documentation:
 * [Integrations](docs/INTEGRATIONS.md)
 * [Features](docs/FEATURES.md)
 * [Commands](docs/COMMANDS.md)
+* [Deployment roles](docs/DEPLOYMENT_ROLES.md)
+* [Acceptance checks](docs/ACCEPTANCE.md)
+* [Operations](docs/OPERATIONS.md)
+* [Updating](docs/UPDATING.md)
 * [Roadmap](ROADMAP.md)
 * [HTTP and WebSocket API](docs/API.md)
 * [PTT handset setup](docs/PTT.md)
