@@ -170,11 +170,12 @@ technical identifiers.
 
 ## Configuration And Requirements
 
-The smallest useful text-command setup needs CPython 3.9 or newer, Home
-Assistant, a long-lived Home Assistant token, and the generated local
-configuration files. An OpenAI API key
-is required for the currently supported OpenAI speech and conversational paths,
-including web search, but not for text-only deterministic commands.
+The portable core runtime needs CPython 3.9 or newer, Home Assistant, a
+long-lived Home Assistant token, and the generated local configuration files.
+Experimental applets can add platform-specific dependencies and are documented
+separately. An OpenAI API key is required for the currently supported OpenAI
+speech and conversational paths, including web search, but not for text-only
+deterministic commands.
 
 Home Suite separates configuration by responsibility:
 
@@ -237,7 +238,7 @@ authentication contract.
 
 ## Status
 
-Home Suite is advanced-alpha software and a daily driver in its original
+Home Suite is advanced alpha software and a daily driver in its original
 deployment. It is being prepared for beta; hardware differences, OAuth flows,
 and entity naming still need deliberate setup attention.
 

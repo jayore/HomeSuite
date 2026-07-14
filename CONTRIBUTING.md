@@ -1,9 +1,9 @@
 # Contributing to Home Suite
 
-Home Suite is a public-alpha project and a daily driver in its original
-deployment. Changes should preserve predictable command execution and keep PTT,
-wakeword, text, and companion-client behavior isolated where their hardware or
-timing policies differ.
+Home Suite is an advanced alpha project moving toward beta and a daily driver
+in its original deployment. Changes should preserve predictable command
+execution and keep PTT, wakeword, text, and companion-client behavior isolated
+where their hardware or timing policies differ.
 
 Open an issue before a large feature or routing change so scope and integration
 boundaries can be agreed first. Small bug fixes, tests, and documentation

@@ -8,8 +8,8 @@ household devices.
    environment:
 
    ```bash
-   python -m unittest discover -s tests -p 'test_*.py'
-   python tools/check_docs.py
+   .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+   .venv/bin/python tools/check_docs.py
    ```
 
    Confirm the GitHub Actions portable matrix is also green on CPython 3.9 and

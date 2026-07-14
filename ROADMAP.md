@@ -67,8 +67,10 @@ record. A bounded reporting tool could summarize:
 * command latency and slow outliers
 * recurring phrases that deserve parser or documentation work
 
-Raw utterances may be sensitive. Event logging should gain explicit enablement,
-text-storage, retention, and pruning controls before richer reporting is built.
+Raw utterances may be sensitive. Event logging already provides explicit
+enablement, opt-in text storage, and bounded retention. Any reporting tool
+should preserve those defaults and work from metadata unless a user has
+deliberately enabled command-text capture.
 
 ### Sensitive-Action Policy
 

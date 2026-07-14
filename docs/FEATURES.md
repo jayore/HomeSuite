@@ -1,6 +1,8 @@
 # Features
 
-This is a public-alpha overview of what Home Suite can do. Exact behavior depends on your Home Assistant entities, room names, media libraries, and configured services.
+This is an advanced alpha overview of what Home Suite can do while it moves
+toward beta. Exact behavior depends on your Home Assistant entities, room
+names, media libraries, and configured services.
 
 For a categorized list of phrases to try, see [COMMANDS.md](COMMANDS.md).
 
@@ -194,4 +196,6 @@ subprocess or temporarily remap buttons for a mode such as an Apple TV remote.
 These are extension points rather than polished portable features today. Pin
 maps, gestures, and `PHYSICAL_BUTTON_ACTIONS` belong in `local_prefs.py`.
 Applet registrations currently live in `applet_controls.py` and may require
-device-specific dependencies or exclusive microphone ownership.
+device-specific dependencies or exclusive microphone ownership. See the
+[experimental applet guide](../applets/README.md) for the supported Note Lights
+host and optional installation step.

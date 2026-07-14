@@ -17,6 +17,7 @@ CLI for testing / scripting:
     python applet_controls.py status note_lights
 """
 
+import importlib.util
 import logging
 import os
 import re
@@ -74,6 +75,8 @@ APPLETS = {
             ),
         ],
         "exclusive_audio": True,
+        "required_modules": ["sounddevice", "librosa"],
+        "requirements_file": "applets/requirements-note-lights.txt",
         "startup_wait_sec": 8.0,
         "deferred_start_sec": 1.5,
         "description":    "Map instrument notes to Home Assistant light colors",
@@ -355,10 +358,38 @@ def start_applet(name: str) -> str:
         return f"Unknown applet: {name!r}"
     t = _applet_type(name)
     if t == "subprocess":
+        missing = _missing_applet_modules(name)
+        if missing:
+            requirements_file = str(
+                (APPLETS.get(name) or {}).get("requirements_file") or ""
+            )
+            log.warning(
+                "APPLET_DEPENDENCIES_MISSING name=%s modules=%s requirements=%r",
+                name,
+                missing,
+                requirements_file,
+            )
+            return (
+                f"{_display_name(name).capitalize()} isn't available on this "
+                "device because its optional audio packages aren't installed."
+            )
         return _start_subprocess_applet(name)
     if t == "button_mode":
         return _start_button_mode_applet(name)
     return f"Unknown applet type for {name}: {t!r}"
+
+
+def _missing_applet_modules(name: str) -> list[str]:
+    """Return optional Python modules unavailable to this applet."""
+    missing = []
+    for module_name in (APPLETS.get(name) or {}).get("required_modules") or ():
+        try:
+            available = importlib.util.find_spec(str(module_name)) is not None
+        except (ImportError, ModuleNotFoundError, ValueError):
+            available = False
+        if not available:
+            missing.append(str(module_name))
+    return missing
 
 
 def _start_button_mode_applet(name: str) -> str:

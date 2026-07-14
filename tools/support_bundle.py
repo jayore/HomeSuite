@@ -129,11 +129,7 @@ def write_bundle(output: Path, *, live: bool) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     doctor = Doctor(live=live, json_output=True)
     doctor.run(report=False)
-    payload = {
-        "ok": not doctor.required_failures(),
-        "roles": doctor.role_summary(),
-        "checks": [check.__dict__ for check in doctor.relevant_checks()],
-    }
+    payload = doctor.redacted_report()
 
     with tempfile.TemporaryDirectory(prefix="homesuite-support-") as tmp:
         staging = Path(tmp)

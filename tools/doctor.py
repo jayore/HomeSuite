@@ -806,23 +806,37 @@ class Doctor:
             if check.required and check.status == "FAIL"
         ]
 
+    @staticmethod
+    def _redacted_check_label(check: Check) -> str:
+        """Keep diagnostic categories while removing deployment identifiers."""
+        if check.group == "Rooms" and check.label.endswith(" brightness"):
+            return "room brightness"
+        return check.label
+
+    def redacted_report(self) -> dict:
+        """Return shareable readiness data without local configuration values."""
+        return {
+            "ok": not self.required_failures(),
+            "roles": self.role_summary(),
+            "checks": [
+                {
+                    "group": check.group,
+                    "status": check.status,
+                    "label": self._redacted_check_label(check),
+                    "required": check.required,
+                    "roles": check.roles,
+                }
+                for check in self.relevant_checks()
+            ],
+        }
+
     def print_report(self) -> None:
         checks = self.relevant_checks()
         required_failures = self.required_failures()
         warnings = [check for check in checks if check.status == "WARN"]
         summary = self.role_summary()
         if bool(getattr(self, "json_output", False)):
-            print(
-                json.dumps(
-                    {
-                        "ok": not required_failures,
-                        "roles": summary,
-                        "checks": [check.__dict__ for check in checks],
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-            )
+            print(json.dumps(self.redacted_report(), indent=2, sort_keys=True))
             return
 
         print("Home Suite doctor")

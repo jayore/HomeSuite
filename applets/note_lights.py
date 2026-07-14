@@ -17,11 +17,17 @@ USAGE:
 STOP:
     Ctrl+C  (or play the EXIT_NOTE if configured)
 
-FUTURE INTEGRATION:
-    Will eventually be startable/stoppable via HomeSuite voice command.
-    The applet is designed as a standalone process so HomeSuite can
-    subprocess.Popen() it and os.kill() it by PID.
+HOMESUITE INTEGRATION:
+    The applet lifecycle is managed by applet_controls.py, including spoken
+    start, stop, toggle, and status commands.
+
+OPTIONAL DEPENDENCIES:
+    Install applets/requirements-note-lights.txt on the device that will run
+    this applet. The core Home Suite installer does not install this heavier
+    pitch-analysis stack.
 """
+
+from __future__ import annotations
 
 import sys
 import os

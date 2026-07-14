@@ -627,7 +627,10 @@ Create a Spotify app in the Spotify Developer Dashboard. Spotify's app page expl
 
 * https://developer.spotify.com/documentation/web-api/concepts/apps
 
-The refresh-token flow is still rough in this public-alpha release. Expect to use your own OAuth helper or future Home Suite tooling to obtain `SPOTIFY_REFRESH_TOKEN` with the scopes needed for playback, library, and playlist access.
+The refresh-token flow is still rough in this advanced alpha build. Expect to
+use your own OAuth helper or future Home Suite tooling to obtain
+`SPOTIFY_REFRESH_TOKEN` with the scopes needed for playback, library, and
+playlist access.
 
 ## Telegram
 
@@ -680,7 +683,8 @@ homesuite-youtube-pair
 homesuite-youtube-oauth
 ```
 
-These are still public-alpha quality and may need refinement for a clean first-run setup.
+These are still advanced alpha quality and may need refinement for a clean
+first-run setup.
 
 ## qBittorrent
 

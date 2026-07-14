@@ -70,6 +70,14 @@ if [[ -d "$INSTALL_DIR" ]] && git -C "$INSTALL_DIR" rev-parse --is-inside-work-t
     echo "Commit, stash, or otherwise resolve those changes first, then rerun." >&2
     exit 1
   fi
+  if [[ -e "$INSTALL_DIR/.venv" ]]; then
+    if [[ ! -x "$INSTALL_DIR/.venv/bin/python" ]]; then
+      echo "Existing virtual environment is incomplete: $INSTALL_DIR/.venv" >&2
+      echo "Repair or replace it before updating the checkout." >&2
+      exit 1
+    fi
+    require_supported_python "$INSTALL_DIR/.venv/bin/python"
+  fi
   git -C "$INSTALL_DIR" fetch origin "$BRANCH"
   git -C "$INSTALL_DIR" checkout "$BRANCH"
   git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
@@ -86,7 +94,7 @@ fi
 
 require_supported_python .venv/bin/python
 
-.venv/bin/python -m pip install --upgrade pip setuptools wheel
+.venv/bin/python -m pip install --upgrade pip wheel "setuptools<81"
 .venv/bin/python -m pip install -r requirements.txt
 
 if [[ ! -f private_config.py ]]; then

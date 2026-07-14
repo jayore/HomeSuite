@@ -8,9 +8,10 @@ directly.
 Docker may make sense later for a central brain/server role, but the native Pi
 installer is the simplest path for the current appliance runtime.
 
-Home Suite requires CPython 3.9 or newer. The portable test suite runs on both
-3.9 and 3.13; physical audio and GPIO behavior still needs validation on the
-target Pi.
+The portable core runtime requires CPython 3.9 or newer. The portable test suite
+runs on both 3.9 and 3.13; physical audio and GPIO behavior still needs
+validation on the target Pi. Experimental applets can have additional platform
+requirements and are not installed with the core dependency set.
 
 For a shorter walkthrough, start with [GETTING_STARTED.md](GETTING_STARTED.md).
 
@@ -67,6 +68,11 @@ HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.s
 * installs convenience shortcuts into `$HOME/.local/bin`
 * optionally installs `/etc/systemd/system/homesuite.service` from the service
   template
+
+Experimental applets are separate from this core install. In particular, Note
+Lights needs a heavier pitch-analysis stack and is not supported on the current
+32-bit Pi 3 environment. See the [applet guide](../applets/README.md) before
+installing it on a Pi 4-class device.
 
 ## Shortcut Commands
 

@@ -221,7 +221,8 @@ Create a Spotify app in the Spotify Developer Dashboard.
 
 Docs: https://developer.spotify.com/documentation/web-api/concepts/apps
 
-The refresh-token setup still needs more polish in this public-alpha release. You need scopes appropriate to playback, library, and playlist operations.
+The refresh-token setup still needs more polish in this advanced alpha build.
+You need scopes appropriate to playback, library, and playlist operations.
 
 ### YouTube
 
