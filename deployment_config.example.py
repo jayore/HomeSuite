@@ -46,9 +46,24 @@ WEATHER_ENTITY_ID = None
 # Use an IANA timezone name, or None to use the host timezone. Set either
 # coordinate to None to disable coordinate-based features.
 HOME_LOCATION = {
+    # Optional coarse fields are available to conversational answers and may
+    # be sent to the configured AI provider. Exact coordinates stay local.
+    "city": None,
+    "region": None,
+    "country": None,  # Two-letter ISO code, for example "US".
     "latitude": None,
     "longitude": None,
     "timezone": None,
+}
+
+# Optional persistent context for conversational answers. Do not put secrets,
+# access codes, precise addresses, or other sensitive data here. Shared room
+# microphones cannot identify which household member is speaking.
+ASSISTANT_PROFILE = {
+    "preferred_name": "",
+    "locale": "",
+    "units": "",
+    "notes": [],
 }
 
 # Optional Skyfield criteria for potential naked-eye visibility. Named queries

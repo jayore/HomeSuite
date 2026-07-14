@@ -694,6 +694,11 @@ import re
 import difflib
 from spoken_text import normalize_for_tts, tokenize_for_gtts
 from media_referents import capture_from_chatgpt_turn
+from assistant_context import (
+    build_assistant_runtime_context,
+    build_web_search_tool,
+    contextualize_chat_messages,
+)
 from volume_controls import handle_volume_controls
 from announcement_controls import handle_announcement_controls
 
@@ -3202,6 +3207,7 @@ def get_chatgpt_response(text: str) -> str:
     try:
         interaction_flow.append_history_message("user", text)
         history = interaction_flow.get_history_snapshot()
+        runtime_context = build_assistant_runtime_context()
 
         assistant_text = ""
         web_search_used = False
@@ -3216,13 +3222,8 @@ def get_chatgpt_response(text: str) -> str:
                         or _chatgpt_model()
                     ),
                     input=history,
-                    instructions=(
-                        "The device's current local date is "
-                        f"{datetime.now().strftime('%B %d, %Y').replace(' 0', ' ')}. "
-                        "Use this local date when interpreting today, yesterday, "
-                        "or other relative dates. Keep the answer concise for speech."
-                    ),
-                    tools=[{"type": "web_search"}],
+                    instructions=runtime_context.instructions,
+                    tools=[build_web_search_tool(runtime_context)],
                 )
                 assistant_text = (getattr(response, "output_text", "") or "").strip()
                 web_search_used = any(
@@ -3242,7 +3243,7 @@ def get_chatgpt_response(text: str) -> str:
         if not assistant_text:
             response = OPENAI_CLIENT.chat.completions.create(
                 model=_chatgpt_model(),
-                messages=history,
+                messages=contextualize_chat_messages(history, runtime_context),
             )
             assistant_text = (response.choices[0].message.content or "").strip()
             logging.info("CHATGPT_CHAT_COMPLETIONS_DONE fallback=%s", web_search_enabled)

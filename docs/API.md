@@ -101,6 +101,18 @@ Context fields are optional:
 | `response_mode` | Client preference echoed in the response; defaults to `text`. |
 | `stt` | Optional client-provided speech metadata object echoed in the response. |
 
+Use a stable, configured `source_id` for every turn from one client. AI history,
+typed follow-up referents, and other continuity state are scoped by that source
+or its configured `continuity_group`/`device_group`. Omitting `source_id`
+defaults HTTP requests to the shared `http` source, so otherwise unrelated
+clients can end up in the same context bubble.
+
+Source mobility also affects conversational location context. A source marked
+`mobile: False` may use the configured coarse home area for `near me`; a mobile
+or unknown source is not assumed to be physically at home. Clients that know
+their user's current geographic location should put it in the natural-language
+request for now rather than changing the configured home coordinates.
+
 A successful request returns the interaction result, even when no device action
 occurred:
 

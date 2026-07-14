@@ -111,6 +111,12 @@ Follow-up actions still route through deterministic Plex, Spotify, or Home
 Assistant handlers. The runtime is self-hosted, but OpenAI and other configured
 integrations are network services rather than local-only dependencies.
 
+An optional deployment profile gives conversational answers durable context
+such as a preferred name, locale, measurement system, and coarse home area.
+Fixed home sources may use that area for `near me` and local web-search results.
+Mobile and unknown sources are not assumed to be at home, and exact coordinates
+used by deterministic astronomy and weather code are not sent as AI context.
+
 ## Voice, PTT, And Wake Words
 
 Handset push-to-talk and wake-word capture share transcription, interaction,

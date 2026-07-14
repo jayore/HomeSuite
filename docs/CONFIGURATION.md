@@ -88,6 +88,56 @@ Home Suite uses OpenAI for conversational fallback and, depending on configurati
 
 Most routine home-control commands should not call OpenAI. This keeps common actions faster and conservative with token usage, while preserving AI for cases where language understanding or conversation actually helps.
 
+## Assistant Profile And Conversational Location
+
+Persistent user and home context belongs in the shared, ignored
+`deployment_config.py`, not in prompt strings or individual command modules:
+
+```python
+HOME_LOCATION = {
+    # Optional coarse fields available to conversational AI and web search.
+    "city": "Santa Barbara",
+    "region": "California",
+    "country": "US",
+
+    # Exact fields used locally by deterministic weather and astronomy.
+    "latitude": 34.4208,
+    "longitude": -119.6982,
+    "timezone": "America/Los_Angeles",
+    "elevation_m": 30,
+}
+
+ASSISTANT_PROFILE = {
+    "preferred_name": "Jason",
+    "locale": "en-US",
+    "units": "imperial",
+    "notes": ["Prefers concise spoken answers."],
+}
+```
+
+Only the optional `city`, `region`, `country`, and `timezone` fields are used
+for conversational location context. Latitude, longitude, and elevation remain
+local to deterministic calculations and are not copied into OpenAI prompts or
+web-search location hints. `country` should be a two-letter ISO code when it
+will be used for search localization.
+
+For a fixed source, phrases such as `near me` may use the configured home area.
+For a source marked `mobile: True`, Home Suite tells the conversational model
+that home is not necessarily the user's current location and does not send a
+default web-search locality. An explicit place in the request or recent
+conversation always takes precedence.
+
+`preferred_name` is a deployment default, not speaker recognition. A shared
+room microphone cannot tell which household member is speaking. Keep secrets,
+access codes, precise street addresses, medical details, and other sensitive
+information out of `ASSISTANT_PROFILE` and its `notes`.
+
+Profile context is generated fresh for each AI call and is not stored in the
+conversation history. Short-lived actionable referents use
+`DIALOGUE_REFERENT_TTL_SECONDS`, which defaults to two minutes and may be
+overridden in `local_prefs.py`. See [ROOM_CONFIGURATION.md](ROOM_CONFIGURATION.md)
+for source mobility, `continuity_group`, and `device_group` behavior.
+
 ## Home Assistant
 
 Set:
@@ -142,6 +192,9 @@ WEATHER_ENTITY_ID = None
 
 # Home coordinates and IANA timezone for weather and astronomy.
 HOME_LOCATION = {
+    "city": "Santa Barbara",
+    "region": "California",
+    "country": "US",
     "latitude": 34.4208,
     "longitude": -119.6982,
     "timezone": "America/Los_Angeles",

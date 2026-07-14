@@ -365,9 +365,24 @@ WEATHER_ENTITY_ID = None
 # timezone is an IANA name; None falls back to the host's local timezone. Set
 # either coordinate to None to disable coordinate-based features.
 HOME_LOCATION = {
+    # Coarse fields may be shared with the conversational provider. Exact
+    # coordinates remain local to deterministic weather/astronomy code.
+    "city": "Santa Barbara",
+    "region": "California",
+    "country": "US",
     "latitude": 34.4208,
     "longitude": -119.6982,
     "timezone": "America/Los_Angeles",
+}
+
+# Optional persistent context for conversational answers. Keep secrets and
+# precise addresses out of this mapping. Room voice sources do not identify
+# speakers, so preferred_name is a single-user/default-household convenience.
+ASSISTANT_PROFILE = {
+    "preferred_name": "",
+    "locale": "en-US",
+    "units": "imperial",
+    "notes": [],
 }
 
 # Local Skyfield criteria for "visible tonight" answers. The default catalog

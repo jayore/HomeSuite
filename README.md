@@ -50,7 +50,8 @@ Current public-alpha capabilities include:
 * deterministic date, time, weather, sun, moon, lunar-phase, and planetary questions
 * optional read-only stock quotes, daily movement, prior closes, and U.S. market hours
 * homelab status through Home Assistant and optional direct service APIs
-* AI conversation with continuity into deterministic follow-up actions
+* source-scoped continuity across deterministic actions, readbacks, and AI conversation
+* optional persistent user profile and coarse home context for conversational answers
 * optional web search for current questions such as news and recent events
 * HTTP and WebSocket APIs for companion clients
 
@@ -90,8 +91,10 @@ flowchart LR
     C -->|Yes| D["Explicit service handler"]
     D --> E["Home Assistant or configured integration"]
     C -->|No, conversational| F["AI fallback"]
+    I["Configured profile and coarse home location"] --> F
     F --> G["Answer, optional web search, bounded interpretation"]
-    G --> H["Store useful short-lived context"]
+    D --> H["Publish useful typed short-lived context"]
+    G --> H
     H --> B
 ```
 
@@ -99,6 +102,11 @@ Known actions are carried out by handlers constrained to configured rooms,
 devices, and services. AI can answer questions, summarize, search the web, and
 help resolve bounded descriptions, but it is not given an unrestricted tool for
 inventing entities or arbitrary Home Assistant service calls.
+
+Persistent profile and home context are separate from short-lived dialogue
+state. Conversational calls can receive an optional preferred name, coarse home
+area, timezone, and response preferences, while exact coordinates stay local
+to deterministic weather and astronomy calculations.
 
 Most routine control commands do not require an AI call. This keeps common paths
 faster, cheaper, easier to test, and more predictable.

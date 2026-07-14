@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from assistant_context import AssistantRuntimeContext  # noqa: E402
+
 
 class ChatGPTWebSearchTests(unittest.TestCase):
     @classmethod
@@ -31,11 +33,25 @@ class ChatGPTWebSearchTests(unittest.TestCase):
         )
         client = mock.Mock()
         client.responses.create.return_value = response
+        runtime_context = AssistantRuntimeContext(
+            instructions="Trusted runtime context with current local date.",
+            web_search_user_location={
+                "type": "approximate",
+                "city": "Santa Barbara",
+                "region": "California",
+                "country": "US",
+            },
+        )
 
         with (
             mock.patch.object(self.main, "OPENAI_CLIENT", client),
             mock.patch.object(self.main, "_pref_bool", return_value=True),
             mock.patch.object(self.main, "_pref_str", return_value="gpt-5.4-mini"),
+            mock.patch.object(
+                self.main,
+                "build_assistant_runtime_context",
+                return_value=runtime_context,
+            ),
             mock.patch.object(self.main, "capture_from_chatgpt_turn"),
         ):
             result = self.main.get_chatgpt_response("What's the latest news?")
@@ -44,7 +60,17 @@ class ChatGPTWebSearchTests(unittest.TestCase):
         client.responses.create.assert_called_once()
         self.assertEqual(
             client.responses.create.call_args.kwargs["tools"],
-            [{"type": "web_search"}],
+            [
+                {
+                    "type": "web_search",
+                    "user_location": {
+                        "type": "approximate",
+                        "city": "Santa Barbara",
+                        "region": "California",
+                        "country": "US",
+                    },
+                }
+            ],
         )
         self.assertIn(
             "current local date",
@@ -62,11 +88,19 @@ class ChatGPTWebSearchTests(unittest.TestCase):
                 )
             ]
         )
+        runtime_context = AssistantRuntimeContext(
+            instructions="Trusted runtime context for fallback.",
+        )
 
         with (
             mock.patch.object(self.main, "OPENAI_CLIENT", client),
             mock.patch.object(self.main, "_pref_bool", return_value=True),
             mock.patch.object(self.main, "_pref_str", return_value="gpt-5.4-mini"),
+            mock.patch.object(
+                self.main,
+                "build_assistant_runtime_context",
+                return_value=runtime_context,
+            ),
             mock.patch.object(self.main, "capture_from_chatgpt_turn"),
         ):
             result = self.main.get_chatgpt_response("Explain photosynthesis.")
@@ -74,6 +108,8 @@ class ChatGPTWebSearchTests(unittest.TestCase):
         self.assertEqual(result, "A non-web answer.")
         client.responses.create.assert_called_once()
         client.chat.completions.create.assert_called_once()
+        messages = client.chat.completions.create.call_args.kwargs["messages"]
+        self.assertIn("Trusted runtime context for fallback.", messages[0]["content"])
 
 
 if __name__ == "__main__":
