@@ -42,6 +42,36 @@ def _looks_like_device_command(t: str) -> bool:
     return False
 
 
+def _normalize_restorative_device_phrase(t: str) -> str:
+    """Canonicalize natural "turn it back ..." state-setting language.
+
+    "Back" expresses restoration here, but the existing deterministic handlers
+    only need the target and desired state. Keep this as a narrow whole-command
+    rewrite so entity names containing "back" are left untouched.
+    """
+    if not t:
+        return t
+
+    text = str(t).strip()
+    binary = re.fullmatch(
+        r"turn\s+(.+?)\s+back\s+(on|off)[\s.?!]*",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if binary:
+        return f"turn {binary.group(1).strip()} {binary.group(2).lower()}"
+
+    state = re.fullmatch(
+        r"turn\s+(.+?)\s+back\s+to\s+(.+?)[\s.?!]*",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if state:
+        return f"set {state.group(1).strip()} to {state.group(2).strip()}"
+
+    return t
+
+
 def _parse_number_words(phrase: str):
     """Parse small spoken numbers up to 100. Returns int or None."""
     if not phrase:

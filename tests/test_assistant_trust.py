@@ -121,6 +121,43 @@ class OnOffSafetyTests(unittest.TestCase):
         resolver.assert_not_called()
 
 
+class RestorativeDevicePhrasingTests(unittest.TestCase):
+    def test_restorative_binary_phrases_use_existing_on_off_grammar(self):
+        from normalize_helpers import _normalize_restorative_device_phrase
+
+        self.assertEqual(
+            _normalize_restorative_device_phrase("turn it back on"),
+            "turn it on",
+        )
+        self.assertEqual(
+            _normalize_restorative_device_phrase("Turn the stair light back off."),
+            "turn the stair light off",
+        )
+
+    def test_restorative_state_phrases_use_existing_set_grammar(self):
+        from normalize_helpers import _normalize_restorative_device_phrase
+
+        for phrase, expected in (
+            ("turn it back to red", "set it to red"),
+            ("turn that back to warm white", "set that to warm white"),
+            ("turn it back to 40%", "set it to 40%"),
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(_normalize_restorative_device_phrase(phrase), expected)
+
+    def test_back_inside_an_entity_name_is_untouched(self):
+        from normalize_helpers import _normalize_restorative_device_phrase
+
+        self.assertEqual(
+            _normalize_restorative_device_phrase("turn the back light on"),
+            "turn the back light on",
+        )
+        self.assertEqual(
+            _normalize_restorative_device_phrase("go back to the beginning"),
+            "go back to the beginning",
+        )
+
+
 class AreaRegistryTests(unittest.TestCase):
     def test_area_lookup_prefers_fast_template_endpoint(self):
         import ha_client
@@ -440,8 +477,9 @@ class DeviceReferentContinuityTests(unittest.TestCase):
 
         dialogue_state.reset_dialogue_state(all_scopes=True)
 
-    def test_state_query_then_turn_it_off_uses_the_verified_entity_id(self):
+    def test_state_query_then_turn_it_off_and_back_on_uses_the_verified_entity_id(self):
         import command_dispatch
+        from normalize_helpers import _normalize_restorative_device_phrase
         from on_off_controls import handle_on_off_controls
         from state_query_controls import handle_state_query_controls
 
@@ -467,11 +505,76 @@ class DeviceReferentContinuityTests(unittest.TestCase):
                 capability="binary_control",
             ),
             states_snapshot=states,
+            remember_entity=lambda eid, domain: command_dispatch._remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
+        )
+        back_on = handle_on_off_controls(
+            tl=_normalize_restorative_device_phrase("turn it back on"),
+            call_ha_service=call,
+            maybe_say=lambda text: text,
+            resolve_device_entity=lambda phrase: command_dispatch._resolve_device_entity_with_context(
+                phrase,
+                states,
+                capability="binary_control",
+            ),
+            states_snapshot=states,
+            remember_entity=lambda eid, domain: command_dispatch._remember_resolved_entity(
+                eid,
+                domain,
+                source="device_action",
+            ),
         )
 
         self.assertEqual(query, "Yes.")
         self.assertEqual(action, "Turning it off.")
-        call.assert_called_once_with("light/turn_off", {"entity_id": "light.stair"})
+        self.assertEqual(back_on, "Turning it on.")
+        self.assertEqual(
+            call.call_args_list,
+            [
+                mock.call("light/turn_off", {"entity_id": "light.stair"}),
+                mock.call("light/turn_on", {"entity_id": "light.stair"}),
+            ],
+        )
+
+    def test_light_referent_accepts_turn_it_back_to_a_color(self):
+        import command_dispatch
+        from color_controls import handle_color_controls
+        from normalize_helpers import _normalize_restorative_device_phrase
+
+        states = [{"entity_id": "light.stair", "state": "on"}]
+        command_dispatch._remember_resolved_entity(
+            "light.stair",
+            "light",
+            source="state_query",
+        )
+        call = mock.Mock(return_value=True)
+
+        def resolve_light(phrase):
+            resolved = command_dispatch._resolve_device_entity_with_context(
+                phrase,
+                states,
+                capability="color_control",
+            )
+            return (resolved[0], True) if resolved else (None, False)
+
+        result = handle_color_controls(
+            tl=_normalize_restorative_device_phrase("turn it back to red"),
+            call_ha_service=call,
+            maybe_say=lambda text: text,
+            resolve_light_target=resolve_light,
+            remember_light=lambda _eid: None,
+            color_lights={},
+            default_color_room="",
+        )
+
+        self.assertEqual(result, "Setting it to red.")
+        call.assert_called_once_with(
+            "light/turn_on",
+            {"entity_id": "light.stair", "color_name": "red"},
+        )
 
     def test_missing_live_entity_invalidates_referent_without_a_write(self):
         import command_dispatch
