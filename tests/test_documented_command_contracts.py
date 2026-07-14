@@ -32,6 +32,8 @@ AI_COMMANDS = {
     "what movie has Darth Vader telling Luke he is his father?",
     "what is this movie about?",
     "tell me more about that",
+    "how far is that by car?",
+    "how long would that take?",
 }
 
 CONTEXTUAL_DEVICE_COMMANDS = {

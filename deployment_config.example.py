@@ -42,9 +42,9 @@ ROOMS = {
 # to auto-discover one with a current temperature.
 WEATHER_ENTITY_ID = None
 
-# Open-Meteo fallback for weather and Astral's local sun/moon calculations.
-# Use an IANA timezone name, or None to use the host timezone. Set either
-# coordinate to None to disable coordinate-based features.
+# Open-Meteo fallback for weather, straight-line location distance, and local
+# astronomy calculations. Use an IANA timezone name, or None to use the host
+# timezone. Set either coordinate to None to disable coordinate-based features.
 HOME_LOCATION = {
     # Optional coarse fields are available to conversational answers and may
     # be sent to the configured AI provider. Exact coordinates stay local.

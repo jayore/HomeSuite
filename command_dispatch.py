@@ -37,9 +37,10 @@ from weather_utils import (
     forecast_days_needed,
     format_forecast_response,
     format_hourly_response,
-    geocode_location,
     parse_weather_query,
 )
+from location_utils import geocode_location
+from location_controls import answer_location_query, parse_location_query
 from date_controls import format_date_response, parse_date_query
 from normalize_helpers import (
     _looks_like_device_command,
@@ -48,6 +49,7 @@ from normalize_helpers import (
 )
 from app_config import (
     APPLE_TV_DEFAULT_SKIP_SECONDS,
+    ASSISTANT_PROFILE,
     DEFAULT_SONOS_ROOM,
     HOME_LOCATION,
     SONOS_PLAYERS,
@@ -127,6 +129,7 @@ from home_registry import (
     get_source_room,
     get_source_room_key,
     get_room_label,
+    get_source,
     is_source_mobile,
 )
 from source_room_state import (
@@ -1267,6 +1270,7 @@ def _recall_location() -> Optional[str]:
 
 
 _LOCATION_PRONOUN_RE = re.compile(r"\b(?:there|over there|in there)\b", re.IGNORECASE)
+_LOCATION_DISTANCE_ORIGIN_TTL_SECONDS = 2 * 60
 
 
 def _resolve_location_pronoun(text: str) -> Optional[str]:
@@ -1276,6 +1280,40 @@ def _resolve_location_pronoun(text: str) -> Optional[str]:
     if not text or not _LOCATION_PRONOUN_RE.search(text):
         return None
     return _recall_location()
+
+
+def _remember_pending_location_origin(destination: str) -> None:
+    """Keep a source-scoped destination while asking for its origin."""
+    cleaned = str(destination or "").strip()
+    if not cleaned:
+        return
+    remember_referent(
+        "location_distance_origin",
+        cleaned,
+        label=cleaned,
+        capabilities={"supply_location_origin"},
+        data={"destination": cleaned},
+        ttl_seconds=_LOCATION_DISTANCE_ORIGIN_TTL_SECONDS,
+    )
+
+
+def _recall_pending_location_origin() -> Optional[str]:
+    ref = resolve_referent(
+        kinds={"location_distance_origin"},
+        capability="supply_location_origin",
+        max_age_seconds=_LOCATION_DISTANCE_ORIGIN_TTL_SECONDS,
+    )
+    if not ref:
+        return None
+    return str((ref.get("data") or {}).get("destination") or ref.get("key") or "").strip() or None
+
+
+def _request_source_is_fixed() -> Optional[bool]:
+    """Return True/False only when source mobility is explicitly configured."""
+    source = get_source(get_current_source_id())
+    if not isinstance(source, dict) or "mobile" not in source:
+        return None
+    return not bool(source.get("mobile"))
 
 
 def handle_time_query(location: Optional[str]) -> Optional[str]:
@@ -2685,6 +2723,36 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
     if stock_response is not None:
         logging.info("CLAIM: stock_quote_controls")
         return stock_response
+
+    # Named-place distance and direction are read-only and need no Home
+    # Assistant snapshot. Road distance, traffic, and travel time deliberately
+    # remain unclaimed so the conversational web-search path can answer them.
+    pending_location_destination = _recall_pending_location_origin()
+    location_query = parse_location_query(
+        tl,
+        pending_destination=pending_location_destination,
+    )
+    if location_query is not None:
+        profile_units = str((ASSISTANT_PROFILE or {}).get("units") or "imperial")
+        location_answer = answer_location_query(
+            location_query,
+            home_location=HOME_LOCATION,
+            units=profile_units,
+            source_is_fixed=_request_source_is_fixed(),
+            recalled_location=_recall_location(),
+        )
+        if location_answer.needs_origin and location_answer.destination:
+            _remember_pending_location_origin(location_answer.destination)
+            _remember_location(location_answer.destination)
+        elif location_answer.destination:
+            forget_referent("location_distance_origin")
+            _remember_location(location_answer.destination)
+        logging.info(
+            "CLAIM: location_controls intent=%s needs_origin=%s",
+            location_query.intent,
+            location_answer.needs_origin,
+        )
+        return location_answer.text
 
     # Read-only lunar-date and planetary questions can contain action words such
     # as "next", "set", and "up". Claim them before device/media handlers so

@@ -52,6 +52,19 @@ Model selection lives in `app_config.py` defaults and can be overridden per devi
 
 Because routine control commands use the deterministic NLP layer first, model choice mostly affects open-ended conversation, summaries, and interpretation tasks rather than every light switch or media command.
 
+### Open-Meteo
+
+What it enables:
+
+* named-place geocoding for weather, date/time, and location-distance questions
+* weather fallback when Home Assistant cannot provide the requested forecast
+* coordinates for local straight-line distance and compass-direction math
+
+Open-Meteo requires network access but no account or API key. Named place text
+is sent to its geocoding service. Distance and bearing calculations then run
+locally; Open-Meteo does not provide Home Suite with driving routes, traffic,
+or travel-time estimates.
+
 ### Astral
 
 What it enables:

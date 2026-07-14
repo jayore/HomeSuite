@@ -47,7 +47,7 @@ Current public-alpha capabilities include:
 * playback by title or description, resolved against real libraries and services
 * announcements and assistant speech routed locally or through room speakers
 * alarms, editable timers, reminders, and clock- or solar-based Home Assistant actions
-* deterministic date, time, weather, sun, moon, lunar-phase, and planetary questions
+* deterministic date, time, weather, straight-line distance, sun, moon, lunar-phase, and planetary questions
 * optional read-only stock quotes, daily movement, prior closes, and U.S. market hours
 * homelab status through Home Assistant and optional direct service APIs
 * source-scoped continuity across deterministic actions, readbacks, and AI conversation
@@ -106,7 +106,7 @@ inventing entities or arbitrary Home Assistant service calls.
 Persistent profile and home context are separate from short-lived dialogue
 state. Conversational calls can receive an optional preferred name, coarse home
 area, timezone, and response preferences, while exact coordinates stay local
-to deterministic weather and astronomy calculations.
+to deterministic weather, location-distance, and astronomy calculations.
 
 Most routine control commands do not require an AI call. This keeps common paths
 faster, cheaper, easier to test, and more predictable.

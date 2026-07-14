@@ -140,7 +140,7 @@ Spotify commands require Spotify API credentials and a playback path your Sonos/
 * `play music in the kitchen`
 * `play KCLU` (when `PINNED_RADIO_STATIONS` contains `kclu`)
 
-## Date, Time, Weather, Astronomy, And Repeat
+## Date, Time, Weather, Location, Astronomy, And Repeat
 
 These are deterministic utility routes rather than AI answers:
 
@@ -163,6 +163,10 @@ These are deterministic utility routes rather than AI answers:
 * `what's the weather this week?`
 * `forecast for next week`
 * `seven-day forecast in Tokyo`
+* `how far away is San Francisco?`
+* `how far is San Francisco from home?`
+* `how far is San Francisco from Los Angeles?`
+* `what direction is San Francisco from home?`
 * `when is sunrise?`
 * `what time is sunset tomorrow?`
 * `when is dawn Thursday?`
@@ -188,6 +192,13 @@ These are deterministic utility routes rather than AI answers:
 Current date and time questions do not use the AI fallback. Without a named
 place they use the Home Suite host's local clock and timezone. A place named
 with `in ...` is geocoded and answered in that location's timezone.
+
+Location-distance questions use keyless Open-Meteo geocoding and local
+great-circle math. Answers are explicitly straight-line distances, not road
+distances. A registered fixed source can use configured home coordinates when
+the origin is omitted. Mobile and unknown sources ask for an origin; replying
+`from home` or `from Los Angeles` completes that pending request within the
+same source-scoped context. Measurement units follow `ASSISTANT_PROFILE`.
 
 Weather questions prefer Home Assistant and fall back to Open-Meteo when home
 coordinates are configured. Tonight and next-hours questions use hourly data;
@@ -325,6 +336,8 @@ AI can answer conversational questions and leave short-lived context breadcrumbs
 * `watch it`
 * `what is this movie about?`
 * `tell me more about that`
+* `how far is that by car?`
+* `how long would that take?`
 
 ## External Interfaces
 

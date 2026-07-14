@@ -190,7 +190,7 @@ Weather settings are shared deployment topology and belong in
 # None auto-discovers the first weather.* entity with a current temperature.
 WEATHER_ENTITY_ID = None
 
-# Home coordinates and IANA timezone for weather and astronomy.
+# Home coordinates and IANA timezone for weather, distance, and astronomy.
 HOME_LOCATION = {
     "city": "Santa Barbara",
     "region": "California",
@@ -221,14 +221,20 @@ the modern `weather.get_forecasts` response for future daily forecasts.
 
 `HOME_LOCATION` supplies a keyless Open-Meteo weather fallback when Home
 Assistant is unavailable or its provider does not return the full requested
-horizon. The same coordinates and timezone drive local Astral Sun/Moon and
-Skyfield planetary calculations. `elevation_m` is optional and improves horizon
-geometry for elevated observing locations. Use an IANA timezone name such as
-`America/Los_Angeles`; `None` uses the host's timezone. Set either coordinate to
-`None` to disable coordinate-based features. Named weather locations are
-geocoded independently, so “weather in Tokyo tomorrow” does not use the home
-coordinates. Astronomy questions currently refer to the configured home
-location.
+horizon. The same coordinates provide the implicit origin for straight-line
+distance questions from registered fixed home sources and drive local Astral
+Sun/Moon and Skyfield planetary calculations. `elevation_m` is optional and
+improves horizon geometry for elevated observing locations. Use an IANA
+timezone name such as `America/Los_Angeles`; `None` uses the host's timezone.
+Set either coordinate to `None` to disable coordinate-based features. Named
+weather and distance locations are geocoded independently. Astronomy questions
+currently refer to the configured home location.
+
+Distance units follow `ASSISTANT_PROFILE["units"]`: use `"imperial"` for miles
+or `"metric"` for kilometers. Mobile and unknown command sources never assume
+that the user is at `HOME_LOCATION`; include `from home` or a named origin.
+Driving distance, routes, traffic, and ETA are not calculated by this handler
+and can use the AI/web-search fallback when that integration is enabled.
 
 Solar schedules such as `turn on the porch lights at sunset` prefer Home
 Assistant's `sun.sun` next-event attributes and normally require no external
@@ -260,11 +266,12 @@ Thursday. `this week`, `next week`, and `seven-day forecast` mean seven days
 starting today. Forecast dates are resolved in the requested location's
 timezone.
 
-Home Assistant remains the preferred local source. Named-place forecasts and
-weather fallback calls require internet access to Open-Meteo, but no Open-Meteo
-account or API key. Astral and Skyfield calculations are local and require
-neither internet access nor credentials. Skyfield's ephemeris is installed with
-the Python dependencies instead of being downloaded during the first query.
+Home Assistant remains the preferred local source. Named-place forecasts,
+weather fallback, and named-place distance geocoding require internet access to
+Open-Meteo, but no Open-Meteo account or API key. Distance and bearing math,
+Astral, and Skyfield calculations are local and require no credentials.
+Skyfield's ephemeris is installed with the Python dependencies instead of being
+downloaded during the first query.
 
 ## Stock Quotes
 

@@ -361,9 +361,10 @@ SOURCES: Dict[str, Dict[str, Any]] = {
 # first weather.* entity with a current temperature.
 WEATHER_ENTITY_ID = None
 
-# Used for Open-Meteo weather fallback and Astral sun/moon calculations. The
-# timezone is an IANA name; None falls back to the host's local timezone. Set
-# either coordinate to None to disable coordinate-based features.
+# Used for Open-Meteo weather fallback, straight-line location distance, and
+# local astronomy calculations. The timezone is an IANA name; None falls back
+# to the host's local timezone. Set either coordinate to None to disable
+# coordinate-based features.
 HOME_LOCATION = {
     # Coarse fields may be shared with the conversational provider. Exact
     # coordinates remain local to deterministic weather/astronomy code.

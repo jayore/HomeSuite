@@ -59,7 +59,7 @@ Home Assistant state queries and successful device actions likewise establish
 a capability-aware device referent for follow-ups such as `turn it off`; the
 entity must still exist in the next live HA snapshot before Home Suite writes.
 
-## Date, Time, Weather, And Astronomy
+## Date, Time, Weather, Location, And Astronomy
 
 Current date and time, current weather, hourly and daily forecasts, and local astronomy
 questions use deterministic handlers rather than conversational guesses. Date
@@ -78,6 +78,14 @@ Planet visibility is an observing estimate, not a claim about actual sky
 conditions. It applies configurable darkness, altitude, magnitude, and minimum
 duration thresholds, then clearly assumes clear skies and an unobstructed local
 horizon.
+
+Named-place questions can also return straight-line distance and initial
+compass direction. Fixed home sources may use `HOME_LOCATION` as an implicit
+origin. Mobile and unknown sources must say `from home` or name another origin;
+an origin clarification is retained only as short-lived, source-scoped dialogue
+state. Distances use `ASSISTANT_PROFILE["units"]`. Driving distance, routes,
+traffic, and travel time remain conversational web-search questions rather
+than being inferred from straight-line geometry.
 
 Forecast data does not currently include severe-weather alerts. Those require a
 separate authoritative alert integration rather than inference from ordinary
@@ -115,7 +123,8 @@ An optional deployment profile gives conversational answers durable context
 such as a preferred name, locale, measurement system, and coarse home area.
 Fixed home sources may use that area for `near me` and local web-search results.
 Mobile and unknown sources are not assumed to be at home, and exact coordinates
-used by deterministic astronomy and weather code are not sent as AI context.
+used by deterministic astronomy, weather, and distance code are not sent as AI
+context.
 
 ## Voice, PTT, And Wake Words
 

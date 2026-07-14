@@ -113,6 +113,12 @@ or unknown source is not assumed to be physically at home. Clients that know
 their user's current geographic location should put it in the natural-language
 request for now rather than changing the configured home coordinates.
 
+The same policy applies to deterministic distance questions. A fixed source
+may ask `how far is San Francisco?`; mobile and unknown sources should ask `how
+far is San Francisco from home?` or name another origin. If the origin is
+omitted, Home Suite asks for it and accepts a short source-scoped follow-up such
+as `from home`.
+
 A successful request returns the interaction result, even when no device action
 occurred:
 

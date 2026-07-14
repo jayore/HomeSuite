@@ -18,6 +18,7 @@ import time
 from app_config import ROOMS
 from astronomy_controls import looks_like_astronomy_query
 from date_controls import looks_like_date_query
+from location_controls import looks_like_location_query
 from stock_quote_controls import looks_like_stock_query
 from weather_utils import looks_like_weather_query
 
@@ -166,6 +167,7 @@ def _looks_local_utility(t: str) -> bool:
     return (
         looks_like_astronomy_query(t)
         or looks_like_date_query(t)
+        or looks_like_location_query(t)
         or looks_like_stock_query(t)
         or looks_like_weather_query(t)
         or any(p.search(t) for p in _LOCAL_UTILITY_PATTERNS)

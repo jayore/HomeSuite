@@ -1156,7 +1156,7 @@ last_interaction_ts = 0
 
 # Joke memory (avoid repeats)
 from collections import deque
-from weather_utils import geocode_location, _ha_local_weather, _open_meteo_weather
+from weather_utils import _ha_local_weather, _open_meteo_weather
 from transport_helpers import (
     get_transport_focus as _get_transport_focus,
     set_transport_focus as _set_transport_focus,

@@ -25,7 +25,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from app_config import LOCATION_ALIASES, WEATHER_ENTITY_ID
+from app_config import WEATHER_ENTITY_ID
+from location_utils import geocode_location
 
 
 try:
@@ -153,14 +154,6 @@ class OpenMeteoReport:
     daily: tuple[DailyForecast, ...]
     hourly: tuple[HourlyForecast, ...]
     timezone: Optional[str]
-
-
-def _location_clean_for_geo(loc: str) -> str:
-    """Normalize a spoken location before geocoding it."""
-    s = (loc or "").strip()
-    s = s.replace("?", " ").replace("!", " ").replace(".", " ").replace(",", " ")
-    s = re.sub(r"\s+", " ", s).strip()
-    return re.sub(r"^(in|at)\s+", "", s, flags=re.IGNORECASE).strip()
 
 
 def _parse_count(value: Optional[str], default: int = 7) -> int:
@@ -440,46 +433,6 @@ def forecast_days_needed(
     targets = weather_query_dates(query, timezone_name=timezone_name, now=now)
     furthest = max((target - today).days for target in targets)
     return max(1, min(16, furthest + 1))
-
-
-def geocode_location(loc: str) -> Optional[dict]:
-    """Use Open-Meteo geocoding and return lat/lon/display/timezone."""
-    loc = _location_clean_for_geo(loc)
-    if not loc:
-        return None
-
-    loc = (LOCATION_ALIASES or {}).get(loc.lower(), loc)
-    params = {"name": loc, "count": 1, "language": "en", "format": "json"}
-    try:
-        response = requests.get(
-            "https://geocoding-api.open-meteo.com/v1/search",
-            params=params,
-            timeout=10,
-        )
-        if response.status_code != 200:
-            return None
-        results = (response.json() or {}).get("results") or []
-        if not results:
-            return None
-        top = results[0]
-        name = top.get("name") or loc
-        admin1 = top.get("admin1") or ""
-        country = top.get("country") or ""
-
-        parts = [str(name).strip()]
-        if admin1 and str(admin1).strip().lower() != str(name).strip().lower():
-            parts.append(str(admin1).strip())
-        if country:
-            parts.append(str(country).strip())
-
-        return {
-            "lat": float(top["latitude"]),
-            "lon": float(top["longitude"]),
-            "display": ", ".join(part for part in parts if part),
-            "timezone": top.get("timezone") or None,
-        }
-    except Exception:
-        return None
 
 
 def ha_get_states():
