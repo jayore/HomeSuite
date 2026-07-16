@@ -539,6 +539,7 @@ class ConsoleServerTests(unittest.TestCase):
                 response = await client.get("/api/setup")
                 self.assertEqual(response.status, 200)
                 self.assertFalse((await response.json())["complete"])
+                setup_manager.record_running_installation.assert_not_called()
                 setup_manager.public_status.assert_called_once_with(runtime_healthy=False)
 
                 with mock.patch.object(
@@ -559,6 +560,38 @@ class ConsoleServerTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertTrue((await response.json())["activation_requested"])
                 setup_manager.request_activation.assert_called_once_with()
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
+    def test_setup_status_persists_completion_for_running_existing_node(self):
+        async def scenario():
+            setup_manager = mock.Mock()
+            setup_manager.public_status.return_value = {
+                "schema_version": 1,
+                "complete": True,
+                "activation_requested": True,
+                "activation_supported": True,
+                "runtime_healthy": True,
+            }
+            health_probe = mock.AsyncMock(return_value=True)
+            app = console_server.create_app(
+                console_key="console-passphrase",
+                api_key="api-key",
+                live_api_url="http://127.0.0.1:8765/command",
+                setup_manager=setup_manager,
+                runtime_health_probe=health_probe,
+            )
+            client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
+            await client.start_server()
+            try:
+                await client.post("/api/login", json={"key": "console-passphrase"})
+                response = await client.get("/api/setup")
+                self.assertEqual(response.status, 200)
+                self.assertTrue((await response.json())["complete"])
+                setup_manager.record_running_installation.assert_called_once_with()
+                setup_manager.public_status.assert_called_once_with(runtime_healthy=True)
             finally:
                 await client.close()
 

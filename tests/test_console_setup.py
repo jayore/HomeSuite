@@ -46,6 +46,18 @@ class ConsoleSetupManagerTests(unittest.TestCase):
             self.assertTrue(status["complete"])
             self.assertFalse(status["activation_requested"])
 
+    def test_running_existing_node_can_persist_completion(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manager = ConsoleSetupManager(root=Path(temp), path_unit=Path(temp) / "missing.path")
+
+            self.assertTrue(manager.record_running_installation())
+            self.assertFalse(manager.record_running_installation())
+            self.assertIn('"source": "existing_runtime"', manager.marker_path.read_text(encoding="utf-8"))
+
+            status = manager.public_status(runtime_healthy=False)
+            self.assertTrue(status["complete"])
+            self.assertTrue(status["activation_requested"])
+
 
 if __name__ == "__main__":
     unittest.main()

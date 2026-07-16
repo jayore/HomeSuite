@@ -614,6 +614,10 @@ def create_app(
             return blocked
         try:
             runtime_healthy = bool(await app[SERVICE_HEALTH_KEY]["probe"]())
+            if runtime_healthy:
+                await asyncio.to_thread(
+                    app[SETUP_MANAGER_KEY].record_running_installation,
+                )
             payload = await asyncio.to_thread(
                 app[SETUP_MANAGER_KEY].public_status,
                 runtime_healthy=runtime_healthy,

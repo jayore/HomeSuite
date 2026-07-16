@@ -2,17 +2,22 @@
   "use strict";
 
   const SETUP_JOURNEY_STORAGE_KEY = "homesuite_setup_journey";
+  const SETUP_JOURNEY_VIEWS = ["integrations", "rooms", "configuration", "audio", "console", "diagnostics"];
 
   function loadSetupJourney() {
     try {
       const saved = JSON.parse(window.sessionStorage.getItem(SETUP_JOURNEY_STORAGE_KEY) || "null");
-      if (!saved || !saved.active) return { active: false, label: "" };
+      if (!saved || !saved.active || !SETUP_JOURNEY_VIEWS.includes(saved.view)) {
+        window.sessionStorage.removeItem(SETUP_JOURNEY_STORAGE_KEY);
+        return { active: false, label: "", view: "" };
+      }
       return {
         active: true,
-        label: String(saved.label || "").slice(0, 80)
+        label: String(saved.label || "").slice(0, 80),
+        view: saved.view
       };
     } catch (_error) {
-      return { active: false, label: "" };
+      return { active: false, label: "", view: "" };
     }
   }
 
@@ -52,6 +57,7 @@
     setupActivationBusy: false,
     setupJourneyActive: initialSetupJourney.active,
     setupJourneyLabel: initialSetupJourney.label,
+    setupJourneyView: initialSetupJourney.view,
     setupTested: false,
     audioCalibration: {
       token: null,
@@ -507,23 +513,27 @@
     const view = currentView();
     const statusKnown = Boolean(state.setup);
     const complete = Boolean(state.setup && state.setup.complete);
+    const onJourneyView = state.setupJourneyActive && state.setupJourneyView === view;
     const setupNav = $("#setup-nav");
-    setupNav.hidden = !statusKnown || (complete && view !== "setup" && !state.setupJourneyActive);
+    setupNav.hidden = !statusKnown || (complete && view !== "setup" && !onJourneyView);
     $("#review-setup").hidden = !statusKnown || !complete;
-    $("#setup-journey-bar").hidden = !statusKnown || !state.setupJourneyActive || view === "setup";
+    $("#setup-journey-bar").hidden = !statusKnown || !onJourneyView || view === "setup";
     $("#setup-journey-label").textContent = state.setupJourneyLabel
       ? "Setup: " + state.setupJourneyLabel
       : "Setup in progress";
   }
 
-  function setSetupJourney(active, label) {
-    state.setupJourneyActive = Boolean(active);
-    state.setupJourneyLabel = active ? String(label || "").slice(0, 80) : "";
+  function setSetupJourney(active, label, view) {
+    const destination = SETUP_JOURNEY_VIEWS.includes(view) ? view : "";
+    state.setupJourneyActive = Boolean(active && destination);
+    state.setupJourneyLabel = state.setupJourneyActive ? String(label || "").slice(0, 80) : "";
+    state.setupJourneyView = state.setupJourneyActive ? destination : "";
     try {
       if (state.setupJourneyActive) {
         window.sessionStorage.setItem(SETUP_JOURNEY_STORAGE_KEY, JSON.stringify({
           active: true,
-          label: state.setupJourneyLabel
+          label: state.setupJourneyLabel,
+          view: state.setupJourneyView
         }));
       } else {
         window.sessionStorage.removeItem(SETUP_JOURNEY_STORAGE_KEY);
@@ -532,8 +542,14 @@
     updateSetupNavigation();
   }
 
-  function beginSetupDetour(label) {
-    setSetupJourney(true, label);
+  function beginSetupDetour(label, view) {
+    setSetupJourney(true, label, view);
+  }
+
+  function resumeSetupJourney() {
+    if (!state.setupJourneyActive || !SETUP_JOURNEY_VIEWS.includes(state.setupJourneyView)) return false;
+    navigate(state.setupJourneyView);
+    return true;
   }
 
   function previewSetupRoles() {
@@ -829,37 +845,37 @@
   async function performSetupAction(action, label) {
     if (state.setupPreview) return;
     if (action === "home_assistant") {
-      beginSetupDetour(label);
+      beginSetupDetour(label, "integrations");
       navigate("integrations");
       await openIntegrationEditor("home_assistant");
       return;
     }
     if (action === "rooms") {
-      beginSetupDetour(label);
+      beginSetupDetour(label, "rooms");
       navigate("rooms");
       const roomId = state.roomConfig && state.roomConfig.default_room;
       if (roomId && state.roomDraft && state.roomDraft[roomId]) openRoomEditor(roomId, "edit");
       return;
     }
     if (action === "roles") {
-      beginSetupDetour(label);
+      beginSetupDetour(label, "configuration");
       navigate("configuration");
       await beginConfigurationEdit();
       return;
     }
     if (action === "audio") {
-      beginSetupDetour(label);
+      beginSetupDetour(label, "audio");
       navigate("audio");
       return;
     }
     if (action === "test") {
-      beginSetupDetour(label);
+      beginSetupDetour(label, "console");
       navigate("console");
       window.setTimeout(function () { $("#chat-input").focus(); }, 0);
       return;
     }
     if (action === "diagnostics") {
-      beginSetupDetour(label);
+      beginSetupDetour(label, "diagnostics");
       navigate("diagnostics");
       await loadDiagnostics(true).catch(function (error) { showToast(error.message); });
       return;
@@ -4393,6 +4409,9 @@
     if (view !== "audio" && state.audioCalibration.token) {
       releaseAudioCalibration("navigation", true);
     }
+    if (state.setupJourneyActive && view !== "setup" && view !== state.setupJourneyView) {
+      setSetupJourney(false);
+    }
     $$(".view").forEach(function (section) { section.classList.toggle("active", section.id === "view-" + view); });
     $$(".nav-item[data-view]").forEach(function (button) { button.classList.toggle("active", button.dataset.view === view); });
     $$("[data-actions-view]").forEach(function (group) {
@@ -4454,7 +4473,7 @@
         $("#console-key").value = "";
         showApp();
         await refreshAll();
-        if (!state.setup || !state.setup.runtime_healthy) navigate("setup");
+        if (!resumeSetupJourney() && (!state.setup || !state.setup.complete)) navigate("setup");
       } catch (exception) {
         error.textContent = exception.message === "invalid_key" ? "That passphrase was not accepted." : exception.message;
         error.hidden = false;
@@ -4510,6 +4529,9 @@
     $("#return-to-setup").addEventListener("click", function () {
       navigate("setup");
       refreshAll(false).catch(function (error) { showToast(error.message); });
+    });
+    $("#exit-setup-journey").addEventListener("click", function () {
+      setSetupJourney(false);
     });
     $("#preview-onboarding").addEventListener("click", function () {
       state.setupPreview = true;
@@ -4647,7 +4669,7 @@
       }
       showApp();
       await refreshAll();
-      if (!state.setup || !state.setup.runtime_healthy) navigate("setup");
+      if (!resumeSetupJourney() && (!state.setup || !state.setup.complete)) navigate("setup");
     } catch (error) {
       if (!$("#login-screen").hidden) return;
       showToast(error.message);

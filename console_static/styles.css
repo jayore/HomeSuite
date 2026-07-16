@@ -28,6 +28,7 @@
   --shadow: 0 2px 8px rgba(20, 37, 44, 0.09);
   --radius: 6px;
   --shell-header-height: 64px;
+  --setup-journey-height: 48px;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 16px;
   letter-spacing: 0;
@@ -203,9 +204,10 @@ button { color: inherit; }
 
 .setup-journey-bar {
   position: sticky;
-  top: var(--shell-header-height);
-  z-index: 19;
-  min-height: 48px;
+  top: 0;
+  z-index: 40;
+  grid-column: 1 / -1;
+  min-height: var(--setup-journey-height);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -218,6 +220,13 @@ button { color: inherit; }
 .setup-journey-copy { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
 .setup-journey-copy .icon { width: 17px; height: 17px; }
 .setup-journey-bar .button { min-height: 34px; margin-left: auto; padding: 6px 11px; font-size: 12px; }
+.setup-journey-exit { width: 34px; height: 34px; color: var(--primary-text); }
+.setup-journey-exit:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); border-color: transparent; }
+.setup-journey-bar:not([hidden]) ~ .sidebar {
+  top: var(--setup-journey-height);
+  height: calc(100vh - var(--setup-journey-height));
+}
+.setup-journey-bar:not([hidden]) ~ .main-column .topbar { top: var(--setup-journey-height); }
 
 .button {
   min-height: 38px;
@@ -851,7 +860,7 @@ details.room-form-section:not([open]) > .room-form-grid { display: none; }
 }
 
 @media (max-width: 760px) {
-  :root { --shell-header-height: 60px; }
+  :root { --shell-header-height: 60px; --setup-journey-height: 56px; }
   .app-shell { display: block; }
   .sidebar { position: fixed; left: 0; transform: translateX(-105%); width: min(290px, calc(100vw - 48px)); transition: transform 160ms ease; box-shadow: 6px 0 18px rgba(0, 0, 0, 0.25); }
   .sidebar.open { transform: translateX(0); }

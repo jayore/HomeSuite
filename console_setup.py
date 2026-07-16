@@ -49,36 +49,48 @@ class ConsoleSetupManager:
             "runtime_healthy": bool(runtime_healthy),
         }
 
+    def record_running_installation(self) -> bool:
+        """Persist completion for a healthy installation that predates setup."""
+        with self._lock:
+            if self.marker_path.is_file():
+                return False
+            self._write_marker(source="existing_runtime")
+            return True
+
     def request_activation(self) -> dict[str, Any]:
         with self._lock:
-            if not self.path_unit.is_file():
-                raise ConsoleSetupError(
-                    "The runtime activation helper is not installed on this node.",
-                    status=409,
-                )
             if self.marker_path.is_file():
                 return {
                     "activation_requested": True,
                     "already_requested": True,
                 }
-            self.marker_path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "schema_version": 1,
-                "completed_at": time.time(),
-            }
-            temporary = self.marker_path.with_name(
-                f".{self.marker_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
-            )
-            try:
-                temporary.write_text(
-                    json.dumps(payload, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8",
+            if not self.path_unit.is_file():
+                raise ConsoleSetupError(
+                    "The runtime activation helper is not installed on this node.",
+                    status=409,
                 )
-                os.chmod(temporary, 0o600)
-                os.replace(temporary, self.marker_path)
-            finally:
-                temporary.unlink(missing_ok=True)
+            self._write_marker(source="activation_request")
             return {
                 "activation_requested": True,
                 "already_requested": False,
             }
+
+    def _write_marker(self, *, source: str) -> None:
+        self.marker_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": 1,
+            "completed_at": time.time(),
+            "source": str(source),
+        }
+        temporary = self.marker_path.with_name(
+            f".{self.marker_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        try:
+            temporary.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, self.marker_path)
+        finally:
+            temporary.unlink(missing_ok=True)
