@@ -28,6 +28,12 @@
     integrationTestBusy: null,
     services: null,
     restartBusy: null,
+    bootstrapRequired: false,
+    setup: null,
+    setupPreview: false,
+    setupPreviewRole: "wakeword",
+    setupActivationBusy: false,
+    setupTested: false,
     audioCalibration: {
       token: null,
       stage: "idle",
@@ -81,6 +87,17 @@
       : Math.random().toString(36).slice(2) + Date.now().toString(36);
     window.sessionStorage.setItem("homesuite_console_session_id", generated);
     return generated;
+  }
+
+  function getSetupTested() {
+    try { return window.localStorage.getItem("homesuite_setup_tested") === "1"; }
+    catch (_error) { return false; }
+  }
+
+  function rememberSetupTested() {
+    state.setupTested = true;
+    try { window.localStorage.setItem("homesuite_setup_tested", "1"); }
+    catch (_error) { /* The setup hint can remain session-only. */ }
   }
 
   function element(tag, className, text) {
@@ -170,19 +187,31 @@
       throw new Error("Your console session ended. Sign in again.");
     }
     if (!response.ok || body.ok === false) {
-      throw new Error(String(body.error || "Request failed"));
+      const error = new Error(String(body.error || "Request failed"));
+      error.payload = body;
+      throw error;
     }
     return body;
   }
 
-  function showLogin() {
+  function showLogin(bootstrapRequired) {
+    if (bootstrapRequired !== undefined) state.bootstrapRequired = Boolean(bootstrapRequired);
     redactEditableSecrets();
     $$(".secret-input input", $("#configuration-groups")).forEach(function (control) {
       control.value = "";
     });
     $("#app-shell").hidden = true;
     $("#login-screen").hidden = false;
-    window.setTimeout(function () { $("#console-key").focus(); }, 0);
+    $("#login-form").hidden = state.bootstrapRequired;
+    $("#bootstrap-form").hidden = !state.bootstrapRequired;
+    $("#login-title").textContent = state.bootstrapRequired ? "Set up your console" : "Management Console";
+    $("#login-intro").hidden = !state.bootstrapRequired;
+    $("#login-intro").textContent = state.bootstrapRequired
+      ? "This is a new Home Suite installation. Create the passphrase that protects configuration and testing on this node."
+      : "";
+    window.setTimeout(function () {
+      $(state.bootstrapRequired ? "#bootstrap-passphrase" : "#console-key").focus();
+    }, 0);
   }
 
   function showApp() {
@@ -442,6 +471,389 @@
       summary.append(holder);
     });
     $("#sidebar-node").replaceChildren(element("strong", "", overview.hostname), element("span", "", overview.revision || "Revision unavailable"));
+  }
+
+  function setupRoleSummary(roles) {
+    const voice = roles.filter(function (role) { return role === "ptt" || role === "wakeword"; });
+    if (voice.length) return voice.map(roleLabel).join(" + ");
+    return roles.includes("api") ? "Text commands + Companion API" : "Text commands";
+  }
+
+  function previewSetupRoles() {
+    const roles = ["text", "api"];
+    if (state.setupPreviewRole === "ptt" || state.setupPreviewRole === "both") roles.push("ptt");
+    if (state.setupPreviewRole === "wakeword" || state.setupPreviewRole === "both") roles.push("wakeword");
+    return roles;
+  }
+
+  function setupModel() {
+    if (state.setupPreview) {
+      const roles = previewSetupRoles();
+      const voiceEnabled = roles.includes("ptt") || roles.includes("wakeword");
+      const steps = [
+        {
+          id: "home_assistant",
+          title: "Connect Home Assistant",
+          description: "Add the Home Assistant URL and a long-lived access token, then test the connection.",
+          detail: "Required for device state and control.",
+          actionLabel: "Connect",
+          action: "home_assistant"
+        },
+        {
+          id: "rooms",
+          title: "Review your first room",
+          description: "Match a room to its Home Assistant area and choose its lighting and media targets.",
+          detail: "The installer includes a starting room that can be edited or replaced.",
+          actionLabel: "Review room",
+          action: "rooms"
+        },
+        {
+          id: "roles",
+          title: "Choose how this node listens",
+          description: "This example is configured for " + setupRoleSummary(roles).toLowerCase() + ".",
+          detail: "PTT and wake-word listening can be enabled together on the same device.",
+          actionLabel: "Choose roles",
+          action: "roles"
+        }
+      ];
+      if (voiceEnabled) {
+        steps.push({
+          id: "audio",
+          title: "Set up voice and audio",
+          description: "Choose the microphone and playback device, then calibrate speech in the real room.",
+          detail: "OpenAI is currently used for hosted speech recognition and conversational replies.",
+          actionLabel: "Set up audio",
+          action: "audio"
+        });
+      }
+      steps.push(
+        {
+          id: "test",
+          title: "Try a command",
+          description: "Use the Test Console to verify understanding without allowing device writes.",
+          detail: "Live mode remains an explicit choice.",
+          actionLabel: "Open test",
+          action: "test"
+        },
+        {
+          id: "activate",
+          title: "Verify and activate",
+          description: "Home Suite Doctor runs required live checks before the runtime is started.",
+          detail: "Warnings do not block activation; required failures do.",
+          actionLabel: "Activate Home Suite",
+          action: "activate"
+        }
+      );
+      return {
+        preview: true,
+        title: "Previewing a new " + setupRoleSummary(roles).toLowerCase() + " node",
+        description: "This is the same guided path a fresh installation sees after creating its console passphrase.",
+        steps: steps,
+        completeCount: 0
+      };
+    }
+
+    const setup = state.setup || {};
+    const overview = state.snapshot ? state.snapshot.overview : {};
+    const roles = overview.roles || ["text"];
+    const voiceEnabled = roles.includes("ptt") || roles.includes("wakeword");
+    const integrations = integrationRows();
+    const homeAssistant = integrations.find(function (row) { return row.id === "home_assistant"; });
+    const openAI = integrations.find(function (row) { return row.id === "openai"; });
+    const homeAssistantReady = Boolean(homeAssistant && homeAssistant.status === "configured");
+    const openAIReady = Boolean(openAI && openAI.status === "configured");
+    const rooms = state.roomConfig ? (state.roomConfig.rooms || {}) : {};
+    const roomCount = Object.keys(rooms).length || Number(overview.room_count || 0);
+    const defaultRoom = state.roomConfig ? state.roomConfig.default_room : overview.default_room;
+    const roomReady = Boolean(defaultRoom && roomCount);
+    const profile = state.audioConfig ? (state.audioConfig.profile || {}) : {};
+    const microphoneReady = Boolean(
+      String(profile.device_match || "").trim()
+      || (profile.device_index !== null && profile.device_index !== undefined)
+    );
+    const audioReady = !voiceEnabled || (microphoneReady && openAIReady);
+    const diagnosticsReady = Boolean(state.diagnostics && state.diagnostics.ok);
+    const requiredFailures = state.diagnostics
+      ? state.diagnostics.checks.filter(function (check) { return check.status === "FAIL" && check.required; }).length
+      : 0;
+    const runtimeHealthy = Boolean(setup.runtime_healthy);
+    const activationRequested = Boolean(setup.activation_requested);
+    const activationSupported = setup.activation_supported !== false;
+    const steps = [
+      {
+        id: "home_assistant",
+        title: "Connect Home Assistant",
+        complete: homeAssistantReady,
+        description: homeAssistantReady
+          ? "Home Assistant credentials are configured on this node."
+          : "Add the Home Assistant URL and a long-lived access token, then test the connection.",
+        detail: "Required for device state and control.",
+        actionLabel: homeAssistantReady ? "Manage" : "Connect",
+        action: "home_assistant"
+      },
+      {
+        id: "rooms",
+        title: "Review your first room",
+        complete: roomReady,
+        description: roomReady
+          ? (roomCount + " room" + (roomCount === 1 ? " is" : "s are") + " configured; " + (defaultRoom || "none") + " is the default here.")
+          : "Match a room to its Home Assistant area and choose its lighting and media targets.",
+        detail: "Rooms are shared deployment settings; the default room remains specific to this node.",
+        actionLabel: "Review rooms",
+        action: "rooms"
+      },
+      {
+        id: "roles",
+        title: "Choose how this node listens",
+        complete: Boolean(state.snapshot),
+        description: "This node currently supports " + setupRoleSummary(roles).toLowerCase() + ".",
+        detail: "PTT and wake-word listening can be enabled together on the same device.",
+        actionLabel: "Manage roles",
+        action: "roles"
+      }
+    ];
+    if (voiceEnabled) {
+      steps.push({
+        id: "audio",
+        title: "Set up voice and audio",
+        complete: audioReady,
+        description: audioReady
+          ? "A microphone profile and the current hosted speech provider are configured."
+          : "Choose the microphone and playback device, configure OpenAI, then calibrate speech in the real room.",
+        detail: setupRoleSummary(roles) + " is enabled on this node.",
+        actionLabel: audioReady ? "Review audio" : "Set up audio",
+        action: "audio"
+      });
+    }
+    steps.push({
+      id: "test",
+      title: "Try a command",
+      complete: Boolean(state.setupTested || runtimeHealthy),
+      description: state.setupTested || runtimeHealthy
+        ? "A browser command has been tested, or this runtime is already active."
+        : "Use the Test Console to verify understanding without allowing device writes.",
+      detail: "Live mode remains an explicit choice.",
+      actionLabel: "Open test",
+      action: "test"
+    });
+
+    let activationDescription;
+    let activationAction;
+    let activationLabel;
+    let activationReady = false;
+    let activationDisabled = false;
+    if (runtimeHealthy) {
+      activationDescription = "The Home Suite runtime is healthy and ready for commands.";
+      activationAction = "overview";
+      activationLabel = "Open overview";
+    } else if (activationRequested) {
+      activationDescription = "Runtime startup has been requested. Open Diagnostics if it does not become healthy shortly.";
+      activationAction = "refresh_setup";
+      activationLabel = "Check status";
+      activationReady = true;
+    } else if (!activationSupported) {
+      activationDescription = "The bounded runtime activation helper is not installed on this node.";
+      activationAction = "diagnostics";
+      activationLabel = "Open diagnostics";
+      activationDisabled = false;
+    } else if (diagnosticsReady) {
+      activationDescription = "Required local checks pass. Activation will repeat them with live network checks.";
+      activationAction = "activate";
+      activationLabel = state.setupActivationBusy ? "Activating" : "Activate Home Suite";
+      activationReady = true;
+    } else {
+      activationDescription = requiredFailures
+        ? requiredFailures + " required " + (requiredFailures === 1 ? "issue needs" : "issues need") + " attention before activation."
+        : "Run Home Suite Doctor and address any required setup checks before activation.";
+      activationAction = "diagnostics";
+      activationLabel = "Review checks";
+    }
+    steps.push({
+      id: "activate",
+      title: "Verify and activate",
+      complete: runtimeHealthy,
+      ready: activationReady,
+      disabled: activationDisabled,
+      description: activationDescription,
+      detail: "Warnings do not block activation; required failures do.",
+      actionLabel: activationLabel,
+      action: activationAction
+    });
+
+    let title = "Finish setup, then activate Home Suite";
+    let description = "Each step opens the existing management surface for that part of the system.";
+    if (runtimeHealthy) {
+      title = "Home Suite is running";
+      description = "Setup is complete. Revisit any step whenever this node, its microphone, or an integration changes.";
+    } else if (activationRequested) {
+      title = "Home Suite is starting";
+      description = "The activation request is saved; this page will reflect the runtime as soon as it becomes healthy.";
+    }
+    return {
+      preview: false,
+      title: title,
+      description: description,
+      steps: steps,
+      completeCount: steps.filter(function (step) { return step.complete; }).length
+    };
+  }
+
+  function renderSetupStep(step, index, preview) {
+    const row = element("div", "setup-step" + (step.complete ? " complete" : ""));
+    const number = element("span", "setup-step-number", step.complete ? "" : index + 1);
+    if (step.complete) number.append(icon("circle-check"));
+    const copy = element("div", "setup-step-copy");
+    const title = element("div", "setup-step-title");
+    title.append(element("h3", "", step.title));
+    if (preview) title.append(badge("SKIP", "Preview"));
+    else if (step.complete) title.append(badge("OK", "Complete"));
+    else if (step.ready) title.append(badge("WARN", "Ready"));
+    else title.append(badge("FAIL", "Needs setup"));
+    copy.append(title, element("p", "", step.description));
+    if (step.detail) copy.append(element("small", "", step.detail));
+    const action = element("button", "button " + (step.action === "activate" && step.ready ? "primary" : "secondary") + " setup-step-action");
+    action.type = "button";
+    action.disabled = Boolean(preview || step.disabled || (step.action === "activate" && state.setupActivationBusy));
+    action.title = preview ? "Actions are disabled in onboarding preview" : step.actionLabel;
+    action.append(icon(step.action === "activate" ? "power" : "arrow-right"), element("span", "", step.actionLabel));
+    action.addEventListener("click", function () { performSetupAction(step.action); });
+    row.append(number, copy, action);
+    return row;
+  }
+
+  function renderSetup() {
+    if (!state.setup || !state.snapshot) return;
+    const model = setupModel();
+    const preview = model.preview;
+    $("#setup-preview-banner").hidden = !preview;
+    $("#preview-onboarding").hidden = preview || !state.setup.runtime_healthy;
+    $("#exit-onboarding-preview").hidden = !preview;
+
+    const total = model.steps.length;
+    const complete = model.completeCount;
+    const progress = total ? Math.round((complete / total) * 100) : 0;
+    const summary = $("#setup-summary");
+    summary.classList.remove("loading-block");
+    summary.replaceChildren();
+    const copy = element("div", "setup-summary-copy");
+    copy.append(element("strong", "", model.title), element("p", "", model.description));
+    const progressHolder = element("div", "setup-progress");
+    const progressCopy = element("div");
+    progressCopy.append(
+      element("strong", "", preview ? "Preview" : complete + " of " + total),
+      element("span", "", preview ? "No device changes" : "steps complete")
+    );
+    const track = element("div", "setup-progress-track");
+    track.style.setProperty("--setup-progress", preview ? "0%" : progress + "%");
+    track.append(element("span"));
+    progressHolder.append(progressCopy, track);
+    summary.append(copy, progressHolder);
+
+    $("#setup-progress-label").textContent = preview ? "Preview only" : complete + " of " + total + " complete";
+    const steps = $("#setup-steps");
+    steps.classList.remove("loading-block");
+    steps.replaceChildren();
+    model.steps.forEach(function (step, index) { steps.append(renderSetupStep(step, index, preview)); });
+    window.renderLucideIcons($("#view-setup"));
+  }
+
+  function showSetupResult(status, message) {
+    const holder = $("#setup-result");
+    holder.hidden = false;
+    holder.className = "config-result setup-result " + status;
+    holder.replaceChildren(
+      icon(status === "fail" ? "triangle-alert" : (status === "warn" ? "info" : "circle-check")),
+      element("span", "", message)
+    );
+    window.renderLucideIcons(holder);
+  }
+
+  async function performSetupAction(action) {
+    if (state.setupPreview) return;
+    if (action === "home_assistant") {
+      navigate("integrations");
+      await openIntegrationEditor("home_assistant");
+      return;
+    }
+    if (action === "rooms") {
+      navigate("rooms");
+      const roomId = state.roomConfig && state.roomConfig.default_room;
+      if (roomId && state.roomDraft && state.roomDraft[roomId]) openRoomEditor(roomId, "edit");
+      return;
+    }
+    if (action === "roles") {
+      navigate("configuration");
+      await beginConfigurationEdit();
+      return;
+    }
+    if (action === "audio") {
+      navigate("audio");
+      return;
+    }
+    if (action === "test") {
+      navigate("console");
+      window.setTimeout(function () { $("#chat-input").focus(); }, 0);
+      return;
+    }
+    if (action === "diagnostics") {
+      navigate("diagnostics");
+      await loadDiagnostics(true).catch(function (error) { showToast(error.message); });
+      return;
+    }
+    if (action === "refresh_setup") {
+      await refreshAll(false);
+      return;
+    }
+    if (action === "overview") {
+      navigate("overview");
+      return;
+    }
+    if (action === "activate") await activateHomeSuite();
+  }
+
+  function wait(milliseconds) {
+    return new Promise(function (resolve) { window.setTimeout(resolve, milliseconds); });
+  }
+
+  async function activateHomeSuite() {
+    if (state.setupActivationBusy) return;
+    state.setupActivationBusy = true;
+    $("#setup-result").hidden = true;
+    renderSetup();
+    try {
+      const result = await api("/api/setup/activate", { method: "POST", body: {} });
+      state.diagnostics = result.report;
+      state.setup = Object.assign({}, state.setup, {
+        complete: true,
+        activation_requested: true
+      });
+      renderDiagnostics();
+      renderSetup();
+      showSetupResult("warn", "Activation requested. Waiting for the Home Suite runtime to become healthy...");
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await wait(1000);
+        await loadSetup();
+        if (state.setup.runtime_healthy) break;
+      }
+      if (state.setup.runtime_healthy) {
+        await Promise.all([
+          loadDiagnostics(false).catch(function () {}),
+          loadServices().catch(function () {})
+        ]);
+        showSetupResult("ok", "Home Suite is active and healthy.");
+      } else {
+        showSetupResult("warn", "Activation was requested, but the runtime is not healthy yet. Open Diagnostics for the current checks.");
+      }
+    } catch (error) {
+      if (error.payload && error.payload.report) {
+        state.diagnostics = error.payload.report;
+        renderDiagnostics();
+      }
+      showSetupResult("fail", error.message);
+    } finally {
+      state.setupActivationBusy = false;
+      renderSetup();
+    }
   }
 
   function renderConfiguration() {
@@ -3801,6 +4213,8 @@
       if (result.source) parts.push(result.source.replace(/_/g, " "));
       if (result.elapsed_ms !== undefined) parts.push(result.elapsed_ms + " ms");
       pending.meta = parts.join(" · ");
+      rememberSetupTested();
+      renderSetup();
     } catch (error) {
       pending.pending = false;
       pending.error = true;
@@ -3821,12 +4235,21 @@
     renderRooms();
     renderIntegrations();
     renderChatRooms();
+    renderSetup();
+  }
+
+  async function loadSetup() {
+    const data = await api("/api/setup");
+    state.setup = data;
+    renderSetup();
+    return data;
   }
 
   async function loadIntegrations() {
     const data = await api("/api/integrations");
     state.integrations = data;
     renderIntegrations();
+    renderSetup();
     return data;
   }
 
@@ -3838,6 +4261,7 @@
     state.roomPreview = null;
     renderRooms();
     renderChatRooms();
+    renderSetup();
   }
 
   async function loadAudio() {
@@ -3845,6 +4269,7 @@
     state.audioConfig = data;
     state.audioLoadError = null;
     renderAudio();
+    renderSetup();
   }
 
   async function loadDiagnostics(live) {
@@ -3855,6 +4280,7 @@
       const data = await api("/api/diagnostics?live=" + (live ? "1" : "0"));
       state.diagnostics = data.report;
       renderDiagnostics();
+      renderSetup();
     } finally {
       buttons.forEach(function (button) { button.disabled = false; });
     }
@@ -3865,6 +4291,7 @@
     button.disabled = true;
     try {
       await Promise.all([
+        loadSetup(),
         loadSnapshot(),
         loadIntegrations().catch(function () {
           state.integrations = null;
@@ -3888,6 +4315,7 @@
       ]);
       renderConfiguration();
       renderRooms();
+      renderSetup();
       if (notify) showToast("Overview refreshed");
     } catch (error) {
       showToast(error.message);
@@ -3908,6 +4336,7 @@
     });
     const section = $("#view-" + view);
     $("#topbar-title").textContent = section ? section.dataset.title : "Home Suite";
+    if (view === "setup") renderSetup();
     closeSidebar();
     window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -3923,6 +4352,29 @@
   }
 
   function bindEvents() {
+    $("#bootstrap-form").addEventListener("submit", async function (event) {
+      event.preventDefault();
+      const passphrase = $("#bootstrap-passphrase").value;
+      const confirmation = $("#bootstrap-confirmation").value;
+      const error = $("#bootstrap-error");
+      error.hidden = true;
+      try {
+        await api("/api/bootstrap", {
+          method: "POST",
+          body: { passphrase: passphrase, confirmation: confirmation }
+        });
+        $("#bootstrap-passphrase").value = "";
+        $("#bootstrap-confirmation").value = "";
+        state.bootstrapRequired = false;
+        showApp();
+        await refreshAll();
+        navigate("setup");
+      } catch (exception) {
+        error.textContent = exception.message;
+        error.hidden = false;
+      }
+    });
+
     $("#login-form").addEventListener("submit", async function (event) {
       event.preventDefault();
       const key = $("#console-key").value;
@@ -3933,6 +4385,7 @@
         $("#console-key").value = "";
         showApp();
         await refreshAll();
+        if (!state.setup || !state.setup.runtime_healthy) navigate("setup");
       } catch (exception) {
         error.textContent = exception.message === "invalid_key" ? "That passphrase was not accepted." : exception.message;
         error.hidden = false;
@@ -3970,12 +4423,30 @@
       state.integrationTestBusy = null;
       state.services = null;
       state.restartBusy = null;
+      state.setup = null;
+      state.setupPreview = false;
+      state.setupPreviewRole = "wakeword";
+      state.setupActivationBusy = false;
       state.audioCalibration = { token: null, stage: "idle", noise: null, speech: null, busy: false, error: null };
       renderServiceRestartAction();
       showConfigurationEditMode(false);
-      showLogin();
+      showLogin(false);
     });
     $$(".nav-item[data-view]").forEach(function (button) { button.addEventListener("click", function () { navigate(button.dataset.view); }); });
+    $("#preview-onboarding").addEventListener("click", function () {
+      state.setupPreview = true;
+      state.setupPreviewRole = $("#setup-preview-role").value;
+      $("#setup-result").hidden = true;
+      renderSetup();
+    });
+    $("#exit-onboarding-preview").addEventListener("click", function () {
+      state.setupPreview = false;
+      renderSetup();
+    });
+    $("#setup-preview-role").addEventListener("change", function (event) {
+      state.setupPreviewRole = event.currentTarget.value;
+      renderSetup();
+    });
     $("#header-status").addEventListener("click", function () { navigate("diagnostics"); });
     $("#open-menu").addEventListener("click", openSidebar);
     $("#close-menu").addEventListener("click", closeSidebar);
@@ -4087,16 +4558,18 @@
 
   async function boot() {
     window.renderLucideIcons(document);
+    state.setupTested = getSetupTested();
     bindEvents();
     setMode("test");
     try {
       const session = await api("/api/session");
       if (!session.authenticated) {
-        showLogin();
+        showLogin(session.bootstrap_required);
         return;
       }
       showApp();
       await refreshAll();
+      if (!state.setup || !state.setup.runtime_healthy) navigate("setup");
     } catch (error) {
       if (!$("#login-screen").hidden) return;
       showToast(error.message);

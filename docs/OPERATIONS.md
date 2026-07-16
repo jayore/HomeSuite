@@ -97,5 +97,8 @@ apply, Home Suite copies every affected file into a private timestamped
 directory under `backups/console/`, then performs validated atomic writes. If a
 multi-file write fails, it attempts to restore files from the pre-write
 contents. The console reports which services need a restart but never restarts
-them automatically, so voice capture and active timers are not interrupted by
-an edit.
+them automatically as a side effect of an edit, so voice capture and active
+timers are not interrupted unexpectedly. The separate first-run **Activate
+Home Suite** action is explicit: it reruns required live checks, writes one
+fixed marker, and lets `homesuite-runtime.path` start the runtime. It cannot
+accept a shell command or arbitrary service name.

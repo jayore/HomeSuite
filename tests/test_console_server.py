@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -9,12 +11,121 @@ from aiohttp import CookieJar
 from aiohttp.test_utils import TestClient, TestServer
 
 import console_server
+from console_bootstrap import ConsoleBootstrap
 
 
 class ConsoleServerTests(unittest.TestCase):
+    def test_pending_bootstrap_gets_process_local_startup_key(self):
+        with mock.patch.object(console_server.secrets, "token_urlsafe", return_value="temporary-key"):
+            self.assertEqual(
+                console_server._startup_console_key(
+                    "",
+                    "",
+                    bootstrap_pending=True,
+                ),
+                "temporary-key",
+            )
+            self.assertEqual(
+                console_server._startup_console_key(
+                    "",
+                    "legacy-api-key",
+                    bootstrap_pending=True,
+                ),
+                "temporary-key",
+            )
+
+    def test_startup_console_key_keeps_legacy_fallback_after_setup(self):
+        self.assertEqual(
+            console_server._startup_console_key(
+                "",
+                "legacy-api-key",
+                bootstrap_pending=False,
+            ),
+            "legacy-api-key",
+        )
+        with self.assertRaisesRegex(ValueError, "HOMESUITE_CONSOLE_KEY"):
+            console_server._startup_console_key("", "", bootstrap_pending=False)
+
     def test_blank_console_key_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "console_key"):
             console_server.create_app(console_key="", api_key="api", live_api_url="http://localhost/command")
+
+    def test_fresh_install_can_claim_passphrase_once(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / "state").mkdir()
+                (root / "state" / "console_bootstrap_pending").write_text("pending\n", encoding="utf-8")
+                (root / "private_config.py").write_text(
+                    'HOMESUITE_HTTP_API_KEY = "generated-api-key"\n'
+                    'HOMESUITE_CONSOLE_KEY = ""\n',
+                    encoding="utf-8",
+                )
+                app = console_server.create_app(
+                    console_key="generated-api-key",
+                    api_key="generated-api-key",
+                    live_api_url="http://127.0.0.1:8765/command",
+                    bootstrap_manager=ConsoleBootstrap(root=root),
+                    config_refresher=lambda: None,
+                )
+                client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
+                await client.start_server()
+                try:
+                    session = await (await client.get("/api/session")).json()
+                    self.assertFalse(session["authenticated"])
+                    self.assertTrue(session["bootstrap_required"])
+                    self.assertEqual(
+                        (await client.post("/api/login", json={"key": "generated-api-key"})).status,
+                        409,
+                    )
+                    self.assertEqual(
+                        (
+                            await client.post(
+                                "/api/bootstrap",
+                                json={"passphrase": "short", "confirmation": "short"},
+                            )
+                        ).status,
+                        400,
+                    )
+
+                    response = await client.post(
+                        "/api/bootstrap",
+                        json={
+                            "passphrase": "correct horse battery",
+                            "confirmation": "correct horse battery",
+                        },
+                    )
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.headers["X-HomeSuite-Bootstrap"], "claimed")
+                    self.assertNotIn("correct horse battery", await response.text())
+                    session = await (await client.get("/api/session")).json()
+                    self.assertTrue(session["authenticated"])
+                    self.assertFalse(session["bootstrap_required"])
+                    self.assertEqual(
+                        (
+                            await client.post(
+                                "/api/bootstrap",
+                                json={
+                                    "passphrase": "another long passphrase",
+                                    "confirmation": "another long passphrase",
+                                },
+                            )
+                        ).status,
+                        409,
+                    )
+                    await client.post("/api/logout")
+                    self.assertEqual(
+                        (await client.post("/api/login", json={"key": "generated-api-key"})).status,
+                        403,
+                    )
+                    self.assertEqual(
+                        (await client.post("/api/login", json={"key": "correct horse battery"})).status,
+                        200,
+                    )
+                finally:
+                    await client.close()
+
+        asyncio.run(scenario())
 
     def test_login_protects_snapshot_and_command_routes(self):
         async def scenario():
@@ -121,6 +232,7 @@ class ConsoleServerTests(unittest.TestCase):
             }
             service_manager = mock.Mock()
             service_manager.mark_required.return_value = {}
+            config_refresher = mock.Mock()
             app = console_server.create_app(
                 console_key="console-passphrase",
                 api_key="api-key",
@@ -129,6 +241,7 @@ class ConsoleServerTests(unittest.TestCase):
                 editor=editor,
                 room_editor=room_editor,
                 service_manager=service_manager,
+                config_refresher=config_refresher,
             )
             client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
             await client.start_server()
@@ -185,6 +298,7 @@ class ConsoleServerTests(unittest.TestCase):
                 room_editor.preview.assert_called_once_with(rooms)
                 room_editor.apply.assert_called_once_with(rooms, "rooms-abc")
                 self.assertEqual(service_manager.mark_required.call_count, 2)
+                self.assertEqual(config_refresher.call_count, 2)
             finally:
                 await client.close()
 
@@ -272,6 +386,7 @@ class ConsoleServerTests(unittest.TestCase):
             audio_runtime.test_output = mock.AsyncMock(return_value={"ok": True, "device": "default"})
             service_manager = mock.Mock()
             service_manager.mark_required.return_value = {}
+            config_refresher = mock.Mock()
             app = console_server.create_app(
                 console_key="console-passphrase",
                 api_key="api-key",
@@ -280,6 +395,7 @@ class ConsoleServerTests(unittest.TestCase):
                 audio_editor=audio_editor,
                 audio_runtime=audio_runtime,
                 service_manager=service_manager,
+                config_refresher=config_refresher,
             )
             client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
             await client.start_server()
@@ -319,6 +435,7 @@ class ConsoleServerTests(unittest.TestCase):
                 audio_runtime.capture.assert_awaited_once()
                 audio_runtime.release.assert_awaited_once_with(token="lease-token", reason="complete")
                 service_manager.mark_required.assert_called_once()
+                config_refresher.assert_called_once_with()
             finally:
                 await client.close()
 
@@ -386,6 +503,62 @@ class ConsoleServerTests(unittest.TestCase):
                     "homesuite.service",
                     delay_seconds=0.0,
                 )
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
+    def test_authenticated_setup_status_and_activation_routes(self):
+        async def scenario():
+            setup_manager = mock.Mock()
+            setup_manager.public_status.return_value = {
+                "schema_version": 1,
+                "complete": False,
+                "activation_requested": False,
+                "activation_supported": True,
+                "runtime_healthy": False,
+            }
+            setup_manager.request_activation.return_value = {
+                "activation_requested": True,
+                "already_requested": False,
+            }
+            health_probe = mock.AsyncMock(return_value=False)
+            app = console_server.create_app(
+                console_key="console-passphrase",
+                api_key="api-key",
+                live_api_url="http://127.0.0.1:8765/command",
+                setup_manager=setup_manager,
+                runtime_health_probe=health_probe,
+            )
+            client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
+            await client.start_server()
+            try:
+                self.assertEqual((await client.get("/api/setup")).status, 401)
+                await client.post("/api/login", json={"key": "console-passphrase"})
+
+                response = await client.get("/api/setup")
+                self.assertEqual(response.status, 200)
+                self.assertFalse((await response.json())["complete"])
+                setup_manager.public_status.assert_called_once_with(runtime_healthy=False)
+
+                with mock.patch.object(
+                    console_server,
+                    "build_doctor_report",
+                    return_value={"ok": False, "checks": []},
+                ):
+                    response = await client.post("/api/setup/activate", json={})
+                self.assertEqual(response.status, 409)
+                setup_manager.request_activation.assert_not_called()
+
+                with mock.patch.object(
+                    console_server,
+                    "build_doctor_report",
+                    return_value={"ok": True, "checks": []},
+                ):
+                    response = await client.post("/api/setup/activate", json={})
+                self.assertEqual(response.status, 200)
+                self.assertTrue((await response.json())["activation_requested"])
+                setup_manager.request_activation.assert_called_once_with()
             finally:
                 await client.close()
 

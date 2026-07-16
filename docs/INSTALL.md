@@ -20,35 +20,37 @@ For a shorter walkthrough, start with [GETTING_STARTED.md](GETTING_STARTED.md).
 On a Raspberry Pi or Debian-like host:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
 ```
 
-To install and enable the runtime and management-console systemd services in
-the same pass:
+This is the normal fresh-install path. It installs and starts the management
+console, prints its browser address, and leaves an unconfigured live runtime
+stopped until browser setup passes required checks.
+
+To install and enable the units without starting either process, use:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
 ```
 
-To install, enable, and start the services, use `--start`. The console starts
-first so common node settings and credentials can be reviewed or edited; the
-installer runs `homesuite doctor` before starting the live runtime:
+To install only the checkout, Python environment, and shortcuts without
+systemd units, omit both service flags:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
+curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash
 ```
 
 To install from a fork or alternate remote, download the script first and set `HOMESUITE_REPO_URL`:
 
 ```bash
 curl -fsSLo install-homesuite.sh https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh
-HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash install-homesuite.sh --systemd
+HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash install-homesuite.sh --start
 ```
 
 From an existing local checkout, you can also run:
 
 ```bash
-HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.sh --systemd
+HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.sh --start
 ```
 
 ## What the installer does
@@ -64,12 +66,20 @@ HOMESUITE_REPO_URL=https://github.com/owner/HomeSuite.git bash scripts/install.s
 * installs Python packages from `requirements.txt`
 * copies `private_config.example.py` to `private_config.py` if missing
 * generates a random `HOMESUITE_HTTP_API_KEY` for a fresh private config
+* creates a one-time browser-claim marker only for that fresh private config
 * copies `deployment_config.example.py` to `deployment_config.py` on fresh installs
 * copies `local_prefs.example.py` to `local_prefs.py` if missing
 * creates `logs/`, `state/`, and `backups/`
 * installs convenience shortcuts into `$HOME/.local/bin`
-* optionally installs `/etc/systemd/system/homesuite.service` from the service
-  template
+* with `--systemd` or `--start`, installs the runtime service, management
+  console service, and bounded runtime-activation path unit
+* with `--start`, starts the console and path watcher, runs an initial Doctor
+  check, and starts the runtime immediately only when it is already healthy
+
+After `--start`, open the printed `http://<host>.local:8766` address. A fresh
+node asks for a console passphrase and then presents the adaptive **Setup**
+path. Home Assistant credentials, rooms, node roles, audio, testing, and final
+runtime activation can all be handled there without another terminal command.
 
 Experimental applets are separate from this core install. In particular, Note
 Lights needs a heavier pitch-analysis stack and is not supported on the current
@@ -124,6 +134,7 @@ The public service templates are:
 ```text
 deploy/systemd/homesuite.service.template
 deploy/systemd/homesuite-console.service.template
+deploy/systemd/homesuite-runtime.path.template
 ```
 
 The installer replaces these placeholders:
@@ -142,7 +153,12 @@ unit users should install.
 
 ## Validation
 
-After editing config, run the doctor and test command routing before starting the live service:
+The normal browser path runs local Doctor checks continuously and repeats them
+with live network checks before activation. The commands below are equivalent
+advanced or recovery tools, not required first-run steps.
+
+After editing config manually, run the doctor and test command routing before
+starting the live service:
 
 ```bash
 cd ~/homesuite
@@ -178,9 +194,9 @@ curl -sS http://localhost:8765/health
 
 ## Current beta-readiness gaps
 
-The installer is intentionally conservative. It sets up the native runtime, but
-users still need to configure their own Home Assistant entities, rooms, media
-services, audio devices, and optional hardware.
+The browser now covers the normal first-run path, but each user still needs to
+identify their own Home Assistant areas and entities, choose audio hardware,
+and authorize any optional providers they want to use.
 
 Known areas that still need more public-release polish:
 

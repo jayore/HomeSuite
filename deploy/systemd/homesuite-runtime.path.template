@@ -1,0 +1,11 @@
+[Unit]
+Description=Home Suite Runtime Activation
+Wants=network-online.target
+After=network-online.target
+
+[Path]
+PathExists=@HOMESUITE_DIR@/state/setup_complete.json
+Unit=homesuite.service
+
+[Install]
+WantedBy=multi-user.target

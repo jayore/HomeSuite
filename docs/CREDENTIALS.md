@@ -181,19 +181,22 @@ and browser-client authentication.
 
 ### Home Suite Management Console
 
-Optionally set a separate browser-console passphrase:
+The normal fresh-install flow asks you to create a separate browser-console
+passphrase on the first visit. To set or replace it manually, use:
 
 ```python
 HOMESUITE_CONSOLE_KEY = "another-long-random-value"
 ```
 
-Leave it blank to reuse `HOMESUITE_HTTP_API_KEY`. A separate value reduces the
-need to type the command API credential into a browser on shared networks. The
+Leave it blank to reuse `HOMESUITE_HTTP_API_KEY` on an existing or manually
+managed installation. A fresh native installer creates a one-time claim marker
+and accepts the first passphrase only while that marker exists and this field
+is blank. Keep an unclaimed node and port `8766` on a trusted LAN or VPN. The
 console stores an opaque HTTP-only session cookie after sign-in and never sends
-configured credential values during ordinary read-only use. Keep port `8766`
-on a trusted LAN or VPN. See [CONSOLE.md](CONSOLE.md).
+configured credential values during ordinary read-only use. See
+[CONSOLE.md](CONSOLE.md).
 
-After signing in, **Configuration > Edit settings** can set, replace, or clear
+After signing in, **Configuration > Edit configuration** can set, replace, or clear
 supported credentials. Entering Edit mode loads existing values into masked
 fields through an authenticated same-origin request; use the eye button to
 inspect one. Every field includes a short description, an example or format

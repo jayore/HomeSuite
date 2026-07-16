@@ -30,8 +30,8 @@ Environment overrides:
   HOMESUITE_BRANCH     Branch to checkout. Default: main
 
 Examples:
+  curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
   curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
 USAGE
 }
 
@@ -97,6 +97,8 @@ require_supported_python .venv/bin/python
 .venv/bin/python -m pip install --upgrade pip wheel "setuptools<81"
 .venv/bin/python -m pip install -r requirements.txt
 
+mkdir -p logs state backups
+
 if [[ ! -f private_config.py ]]; then
   cp private_config.example.py private_config.py
   generated_api_key="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
@@ -105,6 +107,9 @@ if [[ ! -f private_config.py ]]; then
   chmod 0600 private_config.py
   echo "Created private_config.py from private_config.example.py"
   echo "Generated HOMESUITE_HTTP_API_KEY in private_config.py"
+  printf '%s\n' 'pending' > state/console_bootstrap_pending
+  chmod 0600 state/console_bootstrap_pending
+  echo "Enabled one-time browser console claiming"
 fi
 
 if [[ ! -f local_prefs.py ]]; then
@@ -124,8 +129,6 @@ if [[ ! -f deployment_config.py ]]; then
   fi
 fi
 
-mkdir -p logs state backups
-
 HOMESUITE_DIR="$INSTALL_DIR" scripts/install_shortcuts.sh
 
 if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
@@ -137,47 +140,88 @@ if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
     echo "Missing deploy/systemd/homesuite-console.service.template" >&2
     exit 1
   fi
+  if [[ ! -f deploy/systemd/homesuite-runtime.path.template ]]; then
+    echo "Missing deploy/systemd/homesuite-runtime.path.template" >&2
+    exit 1
+  fi
   tmp_unit="$(mktemp)"
   tmp_console_unit="$(mktemp)"
+  tmp_runtime_path="$(mktemp)"
   sed     -e "s#@HOMESUITE_USER@#$(id -un)#g"     -e "s#@HOMESUITE_DIR@#$INSTALL_DIR#g"     deploy/systemd/homesuite.service.template > "$tmp_unit"
   sed     -e "s#@HOMESUITE_USER@#$(id -un)#g"     -e "s#@HOMESUITE_DIR@#$INSTALL_DIR#g"     deploy/systemd/homesuite-console.service.template > "$tmp_console_unit"
+  sed     -e "s#@HOMESUITE_DIR@#$INSTALL_DIR#g"     deploy/systemd/homesuite-runtime.path.template > "$tmp_runtime_path"
   $SUDO install -m 0644 "$tmp_unit" /etc/systemd/system/homesuite.service
   $SUDO install -m 0644 "$tmp_console_unit" /etc/systemd/system/homesuite-console.service
-  rm -f "$tmp_unit" "$tmp_console_unit"
+  $SUDO install -m 0644 "$tmp_runtime_path" /etc/systemd/system/homesuite-runtime.path
+  rm -f "$tmp_unit" "$tmp_console_unit" "$tmp_runtime_path"
   $SUDO systemctl daemon-reload
-  $SUDO systemctl enable homesuite.service homesuite-console.service
+  $SUDO systemctl enable homesuite-console.service homesuite-runtime.path
   if [[ "$START_SERVICE" == "1" ]]; then
+    $SUDO systemctl restart homesuite-runtime.path
     $SUDO systemctl restart homesuite-console.service
     $SUDO systemctl --no-pager --full status homesuite-console.service || true
     echo "Validating configuration before service start..."
     if ! .venv/bin/python tools/doctor.py; then
-      echo "Refusing to start homesuite.service until required configuration checks pass." >&2
-      echo "The read-only console remains available for inspecting setup." >&2
-      exit 1
+      echo "Home Suite is installed and waiting for guided browser setup."
+      echo "The runtime will remain stopped until required checks pass."
+    else
+      .venv/bin/python -c 'from pathlib import Path; from console_setup import ConsoleSetupManager; ConsoleSetupManager(root=Path(".")).request_activation()'
+      $SUDO systemctl restart homesuite.service
+      $SUDO systemctl --no-pager --full status homesuite.service || true
     fi
-    $SUDO systemctl restart homesuite.service
-    $SUDO systemctl --no-pager --full status homesuite.service || true
   fi
 fi
+
+node_name="$(hostname -s 2>/dev/null || hostname)"
+if [[ "$node_name" == *.local ]]; then
+  console_url="http://$node_name:8766"
+else
+  console_url="http://$node_name.local:8766"
+fi
+ip_address="$(hostname -I 2>/dev/null | awk '{print $1}')"
 
 cat <<EOF
 
 Home Suite install complete.
 
 Next steps:
-  1. Edit $INSTALL_DIR/private_config.py with your Home Assistant/OpenAI/service credentials.
-  2. Edit $INSTALL_DIR/local_prefs.py for this device's room, audio, and hardware role.
-  3. Edit $INSTALL_DIR/deployment_config.py for shared rooms, mappings, and catalogs
-     (fresh installs only; existing installs may continue using app_config.py).
-  4. Check setup and test command routing:
-       homesuite doctor
-       homesuite test "service status"
-  5. Open the console in a foreground process, or start its installed service:
-       homesuite console
+EOF
+
+if [[ "$START_SERVICE" == "1" ]]; then
+  cat <<EOF
+  1. Open the Home Suite Console:
+       $console_url
+EOF
+elif [[ "$INSTALL_SYSTEMD" == "1" ]]; then
+  cat <<EOF
+  1. Start the management console:
        sudo systemctl start homesuite-console.service
-       http://<this-node>:8766
-  6. Start or restart the voice/runtime service when ready:
-       sudo systemctl restart homesuite.service
+  2. Open:
+       $console_url
+EOF
+else
+  cat <<EOF
+  1. Start the management console in the foreground:
+       homesuite console
+  2. Open:
+       $console_url
+EOF
+fi
+
+if [[ -n "$ip_address" ]]; then
+  cat <<EOF
+     If .local names are unavailable, use http://$ip_address:8766
+EOF
+fi
+
+cat <<EOF
+  - On a fresh install, create the console passphrase in your browser.
+  - Follow Setup to connect Home Assistant, choose this node's role, test it,
+     and activate the runtime. No additional terminal commands are required.
+
+Manual fallback:
+       homesuite console
+       homesuite doctor --live
 
 For later updates, use:
        cd $INSTALL_DIR

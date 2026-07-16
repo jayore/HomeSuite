@@ -58,6 +58,12 @@ security guidance, see [CREDENTIALS.md](CREDENTIALS.md).
 
 ## Minimum Useful Setup
 
+For a fresh native install, the normal path is the browser console's **Setup**
+view: connect Home Assistant, review a room, select the node roles, configure
+audio only when a voice role needs it, test a command, and activate. The values
+below document the equivalent file-managed configuration and remain useful for
+advanced deployment or recovery.
+
 For deterministic text control with the companion API enabled, set:
 
 ```python

@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hmac
+import importlib
 import logging
 import os
 import secrets
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
@@ -20,6 +23,7 @@ from aiohttp import web
 from audio_config_editor import AudioConfigEditor, normalize_audio_profile
 from config_editor import ConfigEditError, ConfigEditor
 from console_audio_runtime import ConsoleAudioRuntime, ConsoleAudioRuntimeError
+from console_bootstrap import ConsoleBootstrap, ConsoleBootstrapError
 from console_integrations import ConsoleIntegrationError, ConsoleIntegrationManager
 from console_runtime import ConsoleCommandRuntime, ConsoleRuntimeError
 from console_service_manager import (
@@ -28,6 +32,7 @@ from console_service_manager import (
     ConsoleServiceError,
     ConsoleServiceManager,
 )
+from console_setup import ConsoleSetupError, ConsoleSetupManager
 from console_snapshot import build_doctor_report, build_snapshot
 from console_support import ConsoleSupportError, build_console_support_bundle
 from room_config_editor import RoomConfigEditor
@@ -39,6 +44,41 @@ DOCS_DIR = ROOT / "docs"
 SESSION_COOKIE = "homesuite_console_session"
 SESSION_SECONDS = 12 * 60 * 60
 log = logging.getLogger("console_server")
+_CONFIG_REFRESH_LOCK = threading.RLock()
+
+
+def _startup_console_key(
+    configured_key: str,
+    api_key: str,
+    *,
+    bootstrap_pending: bool,
+) -> str:
+    value = str(configured_key or "").strip()
+    if value:
+        return value
+    if bootstrap_pending:
+        # Login is disabled until the one-time claim replaces this process-local key.
+        return secrets.token_urlsafe(32)
+    legacy_value = str(api_key or "").strip()
+    if legacy_value:
+        return legacy_value
+    raise ValueError(
+        "Set HOMESUITE_CONSOLE_KEY or HOMESUITE_HTTP_API_KEY in private_config.py before starting the console."
+    )
+
+
+def _refresh_config_modules() -> None:
+    """Reload the console's configuration view after a validated file write."""
+
+    with _CONFIG_REFRESH_LOCK:
+        importlib.invalidate_caches()
+        for name in ("private_config", "deployment_config", "local_prefs"):
+            module = sys.modules.get(name)
+            if module is not None:
+                importlib.reload(module)
+        app_module = sys.modules.get("app_config")
+        if app_module is not None:
+            importlib.reload(app_module)
 
 
 def _load_settings() -> tuple[str, int, str, str, str]:
@@ -58,12 +98,11 @@ def _load_settings() -> tuple[str, int, str, str, str]:
         or getattr(private_config, "PIPHONE_HTTP_API_KEY", "")
         or ""
     ).strip()
-    if not console_key:
-        console_key = api_key
-    if not console_key:
-        raise ValueError(
-            "Set HOMESUITE_CONSOLE_KEY or HOMESUITE_HTTP_API_KEY in private_config.py before starting the console."
-        )
+    console_key = _startup_console_key(
+        console_key,
+        api_key,
+        bootstrap_pending=(not console_key and ConsoleBootstrap(root=ROOT).pending()),
+    )
     api_port = int(getattr(app_config, "UNIFIED_SERVER_PORT", 8765) or 8765)
     return host, port, console_key, api_key, f"http://127.0.0.1:{api_port}/command"
 
@@ -102,7 +141,7 @@ class SessionStore:
                 self._sessions.pop(token, None)
 
 
-CONSOLE_KEY = web.AppKey("console_key", str)
+CONSOLE_KEY = web.AppKey("console_key", dict)
 SESSIONS_KEY = web.AppKey("sessions", SessionStore)
 RUNTIME_KEY = web.AppKey("runtime", ConsoleCommandRuntime)
 EDITOR_KEY = web.AppKey("editor", dict)
@@ -113,6 +152,9 @@ SERVICE_MANAGER_KEY = web.AppKey("service_manager", ConsoleServiceManager)
 SERVICE_HEALTH_KEY = web.AppKey("service_health", dict)
 INTEGRATION_MANAGER_KEY = web.AppKey("integration_manager", dict)
 SUPPORT_BUNDLE_KEY = web.AppKey("support_bundle_builder", dict)
+BOOTSTRAP_KEY = web.AppKey("console_bootstrap", ConsoleBootstrap)
+BOOTSTRAP_LOCK_KEY = web.AppKey("console_bootstrap_lock", asyncio.Lock)
+SETUP_MANAGER_KEY = web.AppKey("console_setup", ConsoleSetupManager)
 
 
 def _same_origin(request: web.Request) -> bool:
@@ -153,25 +195,35 @@ def create_app(
     runtime_health_probe: Optional[Callable[[], Awaitable[bool]]] = None,
     integration_manager: Optional[ConsoleIntegrationManager] = None,
     support_bundle_builder: Optional[Callable[..., object]] = None,
+    bootstrap_manager: Optional[ConsoleBootstrap] = None,
+    setup_manager: Optional[ConsoleSetupManager] = None,
+    config_refresher: Optional[Callable[[], None]] = None,
 ) -> web.Application:
     if not str(console_key or "").strip():
         raise ValueError("console_key must not be blank")
     app = web.Application(middlewares=[_security_headers], client_max_size=256 * 1024)
-    app[CONSOLE_KEY] = str(console_key).strip()
+    app[CONSOLE_KEY] = {"value": str(console_key).strip()}
     app[SESSIONS_KEY] = SessionStore()
     app[RUNTIME_KEY] = runtime or ConsoleCommandRuntime(api_key=api_key, live_api_url=live_api_url)
-    app[EDITOR_KEY] = {"value": editor}
-    app[ROOM_EDITOR_KEY] = {"value": room_editor}
-    app[AUDIO_EDITOR_KEY] = {"value": audio_editor}
+    app[EDITOR_KEY] = {"value": editor, "injected": editor is not None}
+    app[ROOM_EDITOR_KEY] = {"value": room_editor, "injected": room_editor is not None}
+    app[AUDIO_EDITOR_KEY] = {"value": audio_editor, "injected": audio_editor is not None}
     app[AUDIO_RUNTIME_KEY] = audio_runtime or ConsoleAudioRuntime(
         api_key=api_key,
         live_api_url=live_api_url,
     )
     app[SERVICE_MANAGER_KEY] = service_manager or ConsoleServiceManager(root=ROOT)
-    app[INTEGRATION_MANAGER_KEY] = {"value": integration_manager}
+    app[INTEGRATION_MANAGER_KEY] = {
+        "value": integration_manager,
+        "injected": integration_manager is not None,
+    }
     app[SUPPORT_BUNDLE_KEY] = {
         "value": support_bundle_builder or build_console_support_bundle,
     }
+    app[BOOTSTRAP_KEY] = bootstrap_manager or ConsoleBootstrap(root=ROOT)
+    app[BOOTSTRAP_LOCK_KEY] = asyncio.Lock()
+    app[SETUP_MANAGER_KEY] = setup_manager or ConsoleSetupManager(root=ROOT)
+    refresh_modules = config_refresher or _refresh_config_modules
 
     async def default_runtime_health_probe() -> bool:
         base_url = str(live_api_url or "").strip().rstrip("/").rsplit("/", 1)[0]
@@ -220,6 +272,18 @@ def create_app(
             current = ConsoleIntegrationManager(editor=config_editor())
             holder["value"] = current
         return current
+
+    def refresh_config_context() -> None:
+        refresh_modules()
+        for key in (
+            EDITOR_KEY,
+            ROOM_EDITOR_KEY,
+            AUDIO_EDITOR_KEY,
+            INTEGRATION_MANAGER_KEY,
+        ):
+            holder = app[key]
+            if not holder["injected"]:
+                holder["value"] = None
 
     def restart_reasons(payload: dict, fallback: str) -> list[str]:
         reasons: list[str] = []
@@ -278,6 +342,34 @@ def create_app(
     def authenticated(request: web.Request) -> bool:
         return app[SESSIONS_KEY].valid(request.cookies.get(SESSION_COOKIE))
 
+    def bootstrap_pending() -> bool:
+        try:
+            return bool(app[BOOTSTRAP_KEY].pending())
+        except Exception:
+            log.exception("CONSOLE_BOOTSTRAP_STATUS_FAIL")
+            return False
+
+    def authenticated_response(request: web.Request) -> web.Response:
+        token = app[SESSIONS_KEY].create()
+        response = web.json_response({"ok": True, "authenticated": True})
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=SESSION_SECONDS,
+            httponly=True,
+            samesite="Strict",
+            secure=(
+                request.secure
+                or str(request.headers.get("X-Forwarded-Proto", ""))
+                .split(",", 1)[0]
+                .strip()
+                .lower()
+                == "https"
+            ),
+            path="/",
+        )
+        return response
+
     async def require_auth(request: web.Request) -> Optional[web.Response]:
         if not authenticated(request):
             return web.json_response({"ok": False, "error": "authentication_required"}, status=401)
@@ -311,7 +403,48 @@ def create_app(
         return web.Response(status=204)
 
     async def session_status(request: web.Request) -> web.Response:
-        return web.json_response({"ok": True, "authenticated": authenticated(request)})
+        return web.json_response(
+            {
+                "ok": True,
+                "authenticated": authenticated(request),
+                "bootstrap_required": bootstrap_pending(),
+            }
+        )
+
+    async def bootstrap_claim(request: web.Request) -> web.Response:
+        if not _same_origin(request):
+            return web.json_response({"ok": False, "error": "origin_mismatch"}, status=403)
+        if not bootstrap_pending():
+            return web.json_response(
+                {"ok": False, "error": "This console has already been claimed."},
+                status=409,
+            )
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        if not isinstance(data, dict):
+            return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+        try:
+            async with app[BOOTSTRAP_LOCK_KEY]:
+                payload = await asyncio.to_thread(
+                    app[BOOTSTRAP_KEY].claim,
+                    data.get("passphrase"),
+                    data.get("confirmation"),
+                )
+                app[CONSOLE_KEY]["value"] = str(payload.pop("console_key"))
+                await asyncio.to_thread(refresh_config_context)
+        except ConsoleBootstrapError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=exc.status)
+        except Exception:
+            log.exception("CONSOLE_BOOTSTRAP_CLAIM_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "The console passphrase could not be saved."},
+                status=500,
+            )
+        response = authenticated_response(request)
+        response.headers["X-HomeSuite-Bootstrap"] = "claimed"
+        return response
 
     async def login(request: web.Request) -> web.Response:
         if not _same_origin(request):
@@ -320,30 +453,17 @@ def create_app(
             data = await request.json()
         except Exception:
             return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        if bootstrap_pending():
+            return web.json_response(
+                {"ok": False, "error": "Create the console passphrase before signing in."},
+                status=409,
+            )
         supplied = str(data.get("key", "") if isinstance(data, dict) else "").strip()
-        expected = app[CONSOLE_KEY]
+        expected = app[CONSOLE_KEY]["value"]
         if not supplied or not hmac.compare_digest(supplied, expected):
             await asyncio.sleep(0.25)
             return web.json_response({"ok": False, "error": "invalid_key"}, status=403)
-        token = app[SESSIONS_KEY].create()
-        response = web.json_response({"ok": True, "authenticated": True})
-        response.set_cookie(
-            SESSION_COOKIE,
-            token,
-            max_age=SESSION_SECONDS,
-            httponly=True,
-            samesite="Strict",
-            secure=(
-                request.secure
-                or str(request.headers.get("X-Forwarded-Proto", ""))
-                .split(",", 1)[0]
-                .strip()
-                .lower()
-                == "https"
-            ),
-            path="/",
-        )
-        return response
+        return authenticated_response(request)
 
     async def logout(request: web.Request) -> web.Response:
         blocked = await require_auth(request)
@@ -488,6 +608,50 @@ def create_app(
             )
         return web.json_response({"ok": True, **payload})
 
+    async def setup_status(request: web.Request) -> web.Response:
+        blocked = await require_auth(request)
+        if blocked is not None:
+            return blocked
+        try:
+            runtime_healthy = bool(await app[SERVICE_HEALTH_KEY]["probe"]())
+            payload = await asyncio.to_thread(
+                app[SETUP_MANAGER_KEY].public_status,
+                runtime_healthy=runtime_healthy,
+            )
+        except Exception:
+            log.exception("CONSOLE_SETUP_STATUS_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "Setup status is unavailable. Check console logs."},
+                status=500,
+            )
+        return web.json_response({"ok": True, **payload})
+
+    async def setup_activate(request: web.Request) -> web.Response:
+        blocked = await require_auth(request)
+        if blocked is not None:
+            return blocked
+        try:
+            report = await asyncio.to_thread(build_doctor_report, live=True)
+            if not report.get("ok"):
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": "Finish the required setup checks before activating Home Suite.",
+                        "report": report,
+                    },
+                    status=409,
+                )
+            payload = await asyncio.to_thread(app[SETUP_MANAGER_KEY].request_activation)
+        except ConsoleSetupError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=exc.status)
+        except Exception:
+            log.exception("CONSOLE_SETUP_ACTIVATE_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "Home Suite activation could not be requested."},
+                status=500,
+            )
+        return web.json_response({"ok": True, "report": report, **payload})
+
     async def service_restart(request: web.Request) -> web.Response:
         blocked = await require_auth(request)
         if blocked is not None:
@@ -605,6 +769,8 @@ def create_app(
                 {"ok": False, "error": "Configuration update failed. Check console logs."},
                 status=500,
             )
+        if payload.get("applied"):
+            await asyncio.to_thread(refresh_config_context)
         await track_required_restarts(payload, "Configuration")
         return web.json_response({"ok": True, **payload})
 
@@ -693,6 +859,8 @@ def create_app(
                 {"ok": False, "error": "Room configuration update failed. Check console logs."},
                 status=500,
             )
+        if payload.get("applied"):
+            await asyncio.to_thread(refresh_config_context)
         await track_required_restarts(payload, "Room configuration")
         return web.json_response({"ok": True, **payload})
 
@@ -766,6 +934,8 @@ def create_app(
                 {"ok": False, "error": "Audio configuration update failed. Check console logs."},
                 status=500,
             )
+        if payload.get("applied"):
+            await asyncio.to_thread(refresh_config_context)
         await track_required_restarts(payload, "Audio configuration")
         return web.json_response({"ok": True, **payload})
 
@@ -875,6 +1045,7 @@ def create_app(
     app.router.add_get("/health", health)
     app.router.add_get("/docs/{name}", documentation)
     app.router.add_get("/api/session", session_status)
+    app.router.add_post("/api/bootstrap", bootstrap_claim)
     app.router.add_post("/api/login", login)
     app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/snapshot", snapshot)
@@ -885,6 +1056,8 @@ def create_app(
     app.router.add_get("/api/support-bundle", support_bundle)
     app.router.add_get("/api/services", service_status)
     app.router.add_post("/api/services/restart", service_restart)
+    app.router.add_get("/api/setup", setup_status)
+    app.router.add_post("/api/setup/activate", setup_activate)
     app.router.add_get("/api/config", editable_config)
     app.router.add_post("/api/config/edit-state", editable_config_with_secrets)
     app.router.add_post("/api/config/preview", config_preview)

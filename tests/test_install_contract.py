@@ -28,7 +28,31 @@ class InstallContractTests(unittest.TestCase):
 
         self.assertIn("homesuite-console.service.template", script)
         self.assertIn("/etc/systemd/system/homesuite-console.service", script)
-        self.assertIn("enable homesuite.service homesuite-console.service", script)
+        self.assertIn("homesuite-runtime.path.template", script)
+        self.assertIn("/etc/systemd/system/homesuite-runtime.path", script)
+        self.assertIn(
+            "enable homesuite-console.service homesuite-runtime.path",
+            script,
+        )
+        self.assertNotIn("enable homesuite.service homesuite-console.service", script)
+
+    def test_fresh_install_enables_one_time_browser_claiming(self):
+        script = (ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("state/console_bootstrap_pending", script)
+        self.assertIn("create the console passphrase in your browser", script)
+
+    def test_runtime_activation_path_has_one_fixed_target(self):
+        unit = (
+            ROOT / "deploy" / "systemd" / "homesuite-runtime.path.template"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PathExists=@HOMESUITE_DIR@/state/setup_complete.json",
+            unit,
+        )
+        self.assertIn("Unit=homesuite.service", unit)
+        self.assertNotIn("Exec", unit)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@
       <div>
         <p class="product-name">Home Suite</p>
         <h1 id="login-title">Management Console</h1>
+        <p id="login-intro" class="login-intro" hidden></p>
       </div>
       <form id="login-form" class="login-form">
         <input class="sr-only" name="username" type="text" value="homesuite-console" autocomplete="username" tabindex="-1">
@@ -22,6 +23,15 @@
         <input id="console-key" name="key" type="password" autocomplete="current-password" required autofocus>
         <p id="login-error" class="form-error" role="alert" hidden></p>
         <button class="button primary full-width" type="submit">Sign in</button>
+      </form>
+      <form id="bootstrap-form" class="login-form" hidden>
+        <label for="bootstrap-passphrase">Create a console passphrase</label>
+        <input id="bootstrap-passphrase" name="passphrase" type="password" autocomplete="new-password" minlength="12" required>
+        <label for="bootstrap-confirmation">Confirm passphrase</label>
+        <input id="bootstrap-confirmation" name="confirmation" type="password" autocomplete="new-password" minlength="12" required>
+        <p class="field-note">Use at least 12 characters. You will use this passphrase whenever you open the console.</p>
+        <p id="bootstrap-error" class="form-error" role="alert" hidden></p>
+        <button class="button primary full-width" type="submit">Create passphrase</button>
       </form>
       <p class="login-footnote">Available on this Home Suite node</p>
     </main>
@@ -41,6 +51,9 @@
       </div>
 
       <nav class="nav-list">
+        <button class="nav-item" type="button" data-view="setup">
+          <span class="icon" data-icon="list-checks"></span><span>Setup</span>
+        </button>
         <button class="nav-item active" type="button" data-view="overview">
           <span class="icon" data-icon="layout-dashboard"></span><span>Overview</span>
         </button>
@@ -84,6 +97,14 @@
           <strong id="topbar-title">Overview</strong>
         </div>
         <div id="topbar-actions" class="topbar-actions" aria-label="Page actions">
+          <div class="topbar-action-group button-row" data-actions-view="setup" hidden>
+            <button id="preview-onboarding" class="button secondary" type="button" title="Preview onboarding" aria-label="Preview onboarding" hidden>
+              <span class="icon" data-icon="eye"></span><span>Preview onboarding</span>
+            </button>
+            <button id="exit-onboarding-preview" class="button secondary" type="button" title="Exit onboarding preview" aria-label="Exit onboarding preview" hidden>
+              <span class="icon" data-icon="x"></span><span>Exit preview</span>
+            </button>
+          </div>
           <div class="topbar-action-group button-row" data-actions-view="overview">
             <button id="refresh-overview" class="icon-button" type="button" title="Refresh overview" aria-label="Refresh overview">
               <span class="icon" data-icon="refresh-cw"></span>
@@ -138,6 +159,38 @@
       </header>
 
       <main class="content">
+        <section id="view-setup" class="view" data-title="Setup">
+          <div class="page-heading">
+            <div><h1>Setup</h1><p>A short path to the first useful command</p></div>
+          </div>
+          <div id="setup-preview-banner" class="setup-preview-banner" hidden>
+            <span class="icon" data-icon="shield-check" aria-hidden="true"></span>
+            <div>
+              <strong>Onboarding preview</strong>
+              <span>This walkthrough uses sample progress. Its actions cannot change this device.</span>
+            </div>
+            <label for="setup-preview-role">Example node</label>
+            <div class="select-control">
+              <select id="setup-preview-role">
+                <option value="text">Text and API</option>
+                <option value="ptt">Push-to-talk</option>
+                <option value="wakeword" selected>Wake word</option>
+                <option value="both">PTT and wake word</option>
+              </select>
+              <span class="icon select-control-icon" data-icon="chevron-down" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div id="setup-result" class="config-result" role="status" hidden></div>
+          <div id="setup-summary" class="setup-summary loading-block"></div>
+          <section class="panel setup-panel" aria-labelledby="setup-path-title">
+            <div class="panel-heading setup-panel-heading">
+              <h2 id="setup-path-title">Setup path</h2>
+              <span id="setup-progress-label"></span>
+            </div>
+            <div id="setup-steps" class="setup-steps loading-block"></div>
+          </section>
+        </section>
+
         <section id="view-overview" class="view active" data-title="Overview">
           <div class="page-heading">
             <div><h1>Overview</h1><p id="overview-subtitle">Node overview</p></div>

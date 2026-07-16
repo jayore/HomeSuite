@@ -4,9 +4,9 @@ This guide takes a fresh Home Suite install to the first useful command. Start
 small: get Home Assistant and deterministic text commands working, then add
 conversation, voice, media, and homelab services one at a time.
 
-The goal of first setup is not to configure everything. The goal is to make
-`homesuite doctor` pass its core checks, open `homesuite repl`, and get one
-safe plain-English phrase returning a sensible result.
+The goal of first setup is not to configure everything. The goal is to claim
+the browser console, pass the required checks, and get one safe plain-English
+phrase returning a sensible result before the live runtime starts.
 
 ## Before You Start
 
@@ -16,7 +16,6 @@ You should already have:
 * CPython 3.9 or newer (the installer checks this before creating or reusing its virtual environment)
 * Home Assistant running and reachable from that host
 * a Home Assistant long-lived access token
-* basic comfort editing files over SSH
 
 An OpenAI API key is optional for deterministic text commands. It is required
 for the current conversational and hosted speech-to-text paths.
@@ -28,25 +27,94 @@ Optional services such as Plex, Spotify, Uptime Kuma, qBittorrent, Seerr, Telegr
 On a Raspberry Pi or Debian-like host:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
 ```
 
-To install and enable the systemd service without starting an unconfigured
-runtime:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
-```
-
-The installer creates `~/homesuite`, a Python virtual environment, local config files, state folders, convenience shortcuts, and optionally separate `homesuite.service` and `homesuite-console.service` units.
+The installer creates `~/homesuite`, a Python virtual environment, local config
+files, state folders, convenience shortcuts, and separate management-console
+and runtime services. It starts the console immediately. The runtime remains
+stopped on an unconfigured node and is activated from the browser only after
+required checks pass.
 
 Fresh installs receive a randomly generated `HOMESUITE_HTTP_API_KEY` in
 `private_config.py`; the value is not printed. Reuse that key only in trusted
 companion clients.
 
-The canonical node command is `homesuite`:
+At the end, the installer prints a browser address such as:
+
+```text
+http://homesuite-host.local:8766
+```
+
+It also prints an IP-address fallback when one is available.
+
+## 2. Protect The Console
+
+Open the printed address. A fresh installation asks you to create a console
+passphrase of at least 12 characters and signs that browser in immediately.
+The passphrase is written atomically to the ignored `private_config.py`, a
+private backup is retained under `backups/console/`, and the one-time claim is
+then disabled.
+
+First-visit claiming is intentionally limited to installer-created fresh
+nodes. Keep the new Pi on a trusted home LAN while claiming it: the first
+person who reaches an unclaimed console can set its passphrase. Existing
+installations and manually blank credentials do not silently enter claim mode.
+
+## 3. Follow Setup
+
+The **Setup** view adapts to the selected node roles and reuses the console's
+normal editors. It does not maintain a second configuration store.
+
+1. **Connect Home Assistant**: enter `HA_URL` and a long-lived `HA_TOKEN`, then
+   run the read-only connection test.
+2. **Review your first room**: match it to a Home Assistant area and select the
+   lighting, media, and optional helper targets that exist in your home.
+3. **Choose how this node listens**: keep text/API only, enable PTT, enable
+   wake-word listening, or enable PTT and wake word together.
+4. **Set up voice and audio**: this appears only for a voice role. Choose the
+   microphone and playback device, configure OpenAI for the current hosted
+   speech path, and run microphone calibration in the real room.
+5. **Try a command**: open the Test Console and verify a phrase before allowing
+   writes.
+6. **Verify and activate**: run the required live checks and start the runtime.
+
+Optional providers such as Plex, Spotify, Telegram, Alpaca, Uptime Kuma, and
+YouTube can wait. Configure them later from **Integrations** as you need them.
+
+## 4. Try A Safe Command
+
+The Test Console always opens in **Test** mode. It reads real state so routing
+is realistic, but it blocks device writes and persistent actions. Try:
+
+```text
+what lights are on?
+service status
+```
+
+**Live** remains an explicit, confirmed toggle. It is useful after activation
+for end-to-end testing and can control real devices.
+
+## 5. Activate Home Suite
+
+Return to **Setup** and choose **Activate Home Suite**. The console repeats
+Home Suite Doctor with bounded live network checks. Required failures block
+activation and appear in Diagnostics with links to the owning setup surface;
+warnings do not block it.
+
+Activation writes one fixed private marker consumed by an installer-owned
+systemd path unit. The browser cannot supply a command, service name, or shell
+argument. Once the marker is accepted, the page waits for the local runtime
+health endpoint and reports when Home Suite is active.
+
+No additional terminal command is required for the normal path.
+
+## 6. CLI Fallback
+
+The canonical node command remains available for advanced setup and recovery:
 
 * `homesuite doctor` - check configuration and enabled node roles
+* `homesuite doctor --live` - include bounded provider and Home Assistant checks
 * `homesuite test "phrase"` - run one safe command against real HA state
 * `homesuite repl` - open the safe interactive command shell
 * `homesuite console` - run the browser management and text console
@@ -56,130 +124,6 @@ The canonical node command is `homesuite`:
 `pptest`, `pplive`, `ppchattest`, and `ppchat` remain available as familiar
 compatibility aliases. `pptest` maps to the safe REPL with no arguments and to
 the safe one-shot test command when given a phrase.
-
-## 2. Edit Local Config
-
-```bash
-cd ~/homesuite
-nano private_config.py
-nano deployment_config.py
-nano local_prefs.py
-```
-
-Minimum useful `private_config.py` values:
-
-```python
-OPENAI_API_KEY = ""  # Add for conversation or voice.
-HA_URL = "http://homeassistant.local:8123"
-HA_TOKEN = "..."
-HOMESUITE_HTTP_API_KEY = "choose-a-long-random-local-key"
-```
-
-Minimum useful `local_prefs.py` values for a simple non-PTT test device:
-
-```python
-DEFAULT_ROOM = "living_room"
-ASSISTANT_AUDIO_OUTPUT_MODE = "local"
-WAKEWORD_ENABLED = False
-PTT_ENABLED = False
-```
-
-Leave optional service keys blank until you actually connect those services. For optional integrations, blank is better than fake. Fake hostnames can make diagnostics look configured when nothing is actually reachable.
-
-Missing optional integrations should produce a clear not-configured response instead of blocking the whole app.
-
-Room names and Home Assistant targets are shared deployment configuration in
-the ignored `deployment_config.py`. Start with one room, explicitly set unsupported capabilities
-to `None`, and use empty lists or mappings for optional collections. See
-[Room Configuration](ROOM_CONFIGURATION.md) before adding more rooms.
-
-## 3. Run Doctor
-
-Check your local setup:
-
-```bash
-homesuite doctor
-```
-
-Run safe network checks for configured services:
-
-```bash
-homesuite doctor --live
-```
-
-Fix any `FAIL` items first. `WARN` items are usually useful follow-ups. `SKIP` items usually mean optional services are intentionally blank.
-
-## 4. Try a Command
-
-Use the safe test shell before starting live audio or hardware flows:
-
-```bash
-homesuite repl
-```
-
-Then type phrases such as:
-
-```text
-what lights are on?
-service status
-```
-
-For a one-shot check from the normal shell, use
-`homesuite test "service status"`.
-
-For chat-style text testing without live device effects:
-
-```bash
-ppchattest
-```
-
-The browser console provides the same kind of setup loop with configuration
-and Doctor context alongside it:
-
-```bash
-sudo systemctl start homesuite-console.service
-```
-
-Open `http://<homesuite-host>:8766` and sign in with
-`HOMESUITE_CONSOLE_KEY`, or `HOMESUITE_HTTP_API_KEY` when the separate console
-key is blank. **Configuration > Edit settings** provides guided fields for
-common node settings and credentials, including descriptions, examples, and
-setup guidance. **Audio** discovers local microphones and outputs, supports
-safe playback testing and guided calibration, and keeps PTT and wake-word
-profiles device-specific. **Rooms** manages shared room topology. The console
-always opens its text surface in Test mode.
-
-## 5. Decide When To Go Live
-
-`homesuite repl` and `homesuite test` read real Home Assistant state but block
-writes. Use `homesuite repl --live`, `homesuite test --live "exact phrase"`,
-`ppchat`, or the systemd service only when you are ready for commands to affect
-real devices.
-
-## 6. Start or Restart the Service
-
-If you installed the systemd unit:
-
-```bash
-sudo systemctl restart homesuite-console.service
-sudo systemctl restart homesuite.service
-sudo systemctl status homesuite-console.service --no-pager -l
-sudo systemctl status homesuite.service --no-pager -l
-```
-
-Check the local HTTP health endpoint when the server is enabled:
-
-```bash
-curl -sS http://localhost:8765/health
-```
-
-The server is enabled by default. Every route except the `/health` and
-`/healthz` monitoring aliases requires `HOMESUITE_HTTP_API_KEY`; startup fails
-closed for the API component when that key is blank.
-
-The management console is a separate authenticated listener on port `8766`.
-See [CONSOLE.md](CONSOLE.md) for its guided configuration editor, backup and
-restart behavior, text-mode contract, and security model.
 
 ## 7. Add Optional Integrations
 

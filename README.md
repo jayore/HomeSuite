@@ -138,32 +138,21 @@ faster, cheaper, easier to test, and more predictable.
 On a Raspberry Pi or Debian-like host:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
+curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
 ```
 
-Configure the generated local files, then run the setup doctor and safe command
-shell:
+The installer prints the management-console address, usually
+`http://<homesuite-host>.local:8766`. Open it, create the first console
+passphrase, and follow **Setup** to connect Home Assistant, review a room,
+choose this node's roles, configure audio when needed, try a safe text command,
+and activate the runtime. The live service remains stopped until required
+Home Suite Doctor checks pass.
 
-```bash
-cd ~/homesuite
-nano private_config.py
-nano deployment_config.py
-nano local_prefs.py
-homesuite doctor
-homesuite repl
-sudo systemctl start homesuite-console.service
-sudo systemctl start homesuite.service
-```
-
-Inside `homesuite repl`, try `service status`, or run
-`homesuite test "service status"` as a one-shot check. The safe command modes
-read real Home Assistant state but block writes; add `--live` only when you
-intend a test to control devices.
-
-The separate management console is available at
-`http://<homesuite-host>:8766`. It provides guided editing for common node,
-credential, shared room, and GPIO command-button settings, while its text
-surface opens in Test mode. See
+Existing configured nodes open normally and show Setup as complete. They can
+use **Preview onboarding** to inspect the fresh-install journey without writing
+configuration or operating services. The terminal editor and CLI Doctor remain
+available as advanced fallback paths, but they are not required for a normal
+fresh install. See
 [Management console](docs/CONSOLE.md) for authentication, configuration
 backups, service operation, and the Test/Live contract.
 

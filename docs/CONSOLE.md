@@ -25,7 +25,8 @@ Then open:
 http://<homesuite-host>:8766
 ```
 
-When installed through `scripts/install.sh --systemd`, use the separate unit:
+When installed through `scripts/install.sh --start` or `--systemd`, use the
+separate unit:
 
 ```bash
 sudo systemctl start homesuite-console.service
@@ -45,11 +46,25 @@ The console uses this optional private setting:
 HOMESUITE_CONSOLE_KEY = "a-separate-long-random-value"
 ```
 
-When it is blank, the console reuses `HOMESUITE_HTTP_API_KEY`. Fresh native
-installs already generate that API key. The passphrase is exchanged for an
-HTTP-only, same-site browser session cookie; browser responses never contain
-the configured passphrase or integration credential values during ordinary
-read-only use. Restarting the console signs out existing browser sessions.
+Outside the one-time claim flow, a blank console key reuses
+`HOMESUITE_HTTP_API_KEY` for compatibility with existing and manually managed
+installations. Fresh native installs create a one-time claim marker. While that
+marker is present, normal login is disabled and the process uses an ephemeral
+internal key until the first visit creates a passphrase of at least 12
+characters. The console writes it to
+`HOMESUITE_CONSOLE_KEY` with the same validated backup and atomic-write path as
+other console edits, removes the marker, and signs that browser in. It does not
+return the passphrase in the response.
+
+First-visit claiming is available only when the installer-created marker and a
+blank saved console key are both present. Existing installations do not become
+claimable merely because a field is blank. Keep a fresh unclaimed node on a
+trusted LAN: the first browser to reach it can choose the passphrase.
+
+The passphrase is exchanged for an HTTP-only, same-site browser session cookie;
+browser responses never contain the configured passphrase or integration
+credential values during ordinary read-only use. Restarting the console signs
+out existing browser sessions.
 
 `HOMESUITE_CONSOLE_KEY` and `HOMESUITE_HTTP_API_KEY` environment variables take
 precedence over the corresponding private-config values when a service manager
@@ -67,6 +82,11 @@ reverse proxy with HTTPS if remote browser access is required.
 
 ## Current Views
 
+* **Setup** guides a fresh node through Home Assistant, its first room, node
+  roles, conditional voice/audio work, a safe test command, and guarded runtime
+  activation. On a configured node, **Preview onboarding** shows the same
+  journey with synthetic status and disabled actions; it never writes config or
+  operates services.
 * **Overview** shows hostname, revision, enabled node roles, room count,
   integration count, and local Doctor readiness.
 * **Configuration** shows a curated set of effective node settings in labeled
@@ -87,6 +107,27 @@ reverse proxy with HTTPS if remote browser access is required.
   and topology checks, places warnings and failures first, routes unhealthy
   checks to the relevant setup view, and downloads a privacy-validated support
   bundle.
+
+## Guided Setup And Activation
+
+Setup is an orchestrator over the existing Configuration, Integrations, Rooms,
+Audio, Test Console, and Diagnostics surfaces. It does not duplicate their
+values or write a separate onboarding configuration. PTT and wake-word roles
+remain independent and can both be enabled; the audio step appears whenever
+either role is active.
+
+The final activation request has a narrow server contract:
+
+1. run Home Suite Doctor with bounded live checks
+2. reject the request when any required check fails and return that report
+3. write the fixed private `state/setup_complete.json` marker
+4. let the installer-owned `homesuite-runtime.path` unit start
+   `homesuite.service`
+5. poll the local health endpoint and report whether the runtime became healthy
+
+The browser cannot provide a shell command, arbitrary file path, or service
+name. A configured node whose runtime is already healthy is treated as setup
+complete even when it predates the activation marker.
 
 Primary page actions such as **Edit configuration**, **Edit audio**, **Add room**,
 and page refresh live in the sticky top bar. Provider setup and connection
