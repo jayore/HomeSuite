@@ -206,7 +206,6 @@ button { color: inherit; }
   position: sticky;
   top: 0;
   z-index: 40;
-  grid-column: 1 / -1;
   min-height: var(--setup-journey-height);
   display: flex;
   align-items: center;
@@ -222,11 +221,7 @@ button { color: inherit; }
 .setup-journey-bar .button { min-height: 34px; margin-left: auto; padding: 6px 11px; font-size: 12px; }
 .setup-journey-exit { width: 34px; height: 34px; color: var(--primary-text); }
 .setup-journey-exit:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); border-color: transparent; }
-.setup-journey-bar:not([hidden]) ~ .sidebar {
-  top: var(--setup-journey-height);
-  height: calc(100vh - var(--setup-journey-height));
-}
-.setup-journey-bar:not([hidden]) ~ .main-column .topbar { top: var(--setup-journey-height); }
+.setup-journey-bar:not([hidden]) ~ .topbar { top: var(--setup-journey-height); }
 
 .button {
   min-height: 38px;

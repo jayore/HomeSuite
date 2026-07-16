@@ -118,12 +118,13 @@ either role is active.
 
 While initial setup is incomplete, **Setup** remains in the primary navigation.
 Opening a setup step uses the full management view for that task and leaves a
-slim sticky setup bar above the normal page header. The bar names the current
-step and provides **Back to setup** plus an explicit exit control. It appears
-only on the management view opened by that step and survives an ordinary page
-reload within the browser session. Choosing another primary navigation item or
-closing the bar ends that guided detour instead of carrying setup context across
-unrelated pages.
+slim sticky setup bar at the top of the management pane, above the normal page
+header and alongside the unchanged primary navigation. The bar names the
+current step and provides **Back to setup** plus an explicit exit control. It
+appears only on the management view opened by that step and survives an ordinary
+page reload within the browser session. Choosing another primary navigation
+item or closing the bar ends that guided detour instead of carrying setup
+context across unrelated pages.
 
 Setup becomes complete when activation writes `state/setup_complete.json`.
 Existing installations whose runtime is already healthy are also recognized as

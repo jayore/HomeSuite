@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#03a9f4">
   <title>Home Suite Console</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260716c">
+  <link rel="stylesheet" href="/static/styles.css?v=20260716d">
 </head>
 <body>
   <div id="login-screen" class="login-screen" hidden>
@@ -38,19 +38,6 @@
   </div>
 
   <div id="app-shell" class="app-shell" hidden>
-    <div id="setup-journey-bar" class="setup-journey-bar" hidden>
-      <div class="setup-journey-copy">
-        <span class="icon" data-icon="list-checks" aria-hidden="true"></span>
-        <span id="setup-journey-label">Setup in progress</span>
-      </div>
-      <button id="return-to-setup" class="button primary" type="button" title="Back to setup" aria-label="Back to setup">
-        <span class="icon" data-icon="arrow-left"></span><span>Back to setup</span>
-      </button>
-      <button id="exit-setup-journey" class="icon-button setup-journey-exit" type="button" title="Exit setup mode" aria-label="Exit setup mode">
-        <span class="icon" data-icon="x"></span>
-      </button>
-    </div>
-
     <aside id="sidebar" class="sidebar" aria-label="Primary navigation">
       <div class="sidebar-brand">
         <div class="brand-mark small" aria-hidden="true"><span>HS</span></div>
@@ -101,6 +88,19 @@
     <div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
 
     <div class="main-column">
+      <div id="setup-journey-bar" class="setup-journey-bar" hidden>
+        <div class="setup-journey-copy">
+          <span class="icon" data-icon="list-checks" aria-hidden="true"></span>
+          <span id="setup-journey-label">Setup in progress</span>
+        </div>
+        <button id="return-to-setup" class="button primary" type="button" title="Back to setup" aria-label="Back to setup">
+          <span class="icon" data-icon="arrow-left"></span><span>Back to setup</span>
+        </button>
+        <button id="exit-setup-journey" class="icon-button setup-journey-exit" type="button" title="Exit setup mode" aria-label="Exit setup mode">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+
       <header class="topbar">
         <button id="open-menu" class="icon-button mobile-menu" type="button" title="Open navigation" aria-label="Open navigation">
           <span class="icon" data-icon="menu"></span>
@@ -561,7 +561,7 @@
   <div id="room-datalists" hidden></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <script src="/static/icons.js?v=20260716c"></script>
-  <script src="/static/app.js?v=20260716c"></script>
+  <script src="/static/icons.js?v=20260716d"></script>
+  <script src="/static/app.js?v=20260716d"></script>
 </body>
 </html>
