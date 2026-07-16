@@ -42,6 +42,9 @@
     messages: []
   };
 
+  const INTEGRATION_TEST_SUCCESS_TTL_MS = 5000;
+  const integrationTestDismissTimers = new Map();
+
   const BUTTON_MAP_KEYS = ["PHYSICAL_BUTTON_PINS", "PHYSICAL_BUTTON_ACTIONS"];
   const BUTTON_GESTURES = [
     { key: "press", label: "Single press", aliases: ["press", "single_press", "single"] },
@@ -3078,6 +3081,30 @@
     return documentationLink(path, "Guide");
   }
 
+  function clearIntegrationTestDismissTimer(integrationId) {
+    const timer = integrationTestDismissTimers.get(integrationId);
+    if (timer !== undefined) window.clearTimeout(timer);
+    integrationTestDismissTimers.delete(integrationId);
+  }
+
+  function clearIntegrationTestDismissTimers() {
+    integrationTestDismissTimers.forEach(function (timer) { window.clearTimeout(timer); });
+    integrationTestDismissTimers.clear();
+  }
+
+  function scheduleIntegrationTestDismiss(integrationId) {
+    clearIntegrationTestDismissTimer(integrationId);
+    const result = state.integrationTests[integrationId];
+    if (!result || result.status !== "success") return;
+    const timer = window.setTimeout(function () {
+      integrationTestDismissTimers.delete(integrationId);
+      if (state.integrationTests[integrationId] !== result) return;
+      delete state.integrationTests[integrationId];
+      renderIntegrations();
+    }, INTEGRATION_TEST_SUCCESS_TTL_MS);
+    integrationTestDismissTimers.set(integrationId, timer);
+  }
+
   function renderIntegrations() {
     const holder = $("#integration-list");
     if (!state.snapshot && !state.integrations) return;
@@ -3375,6 +3402,7 @@
       redactIntegrationConfig();
       state.integrationConfig = null;
       state.integrationPreview = null;
+      clearIntegrationTestDismissTimer(integration.id);
       delete state.integrationTests[integration.id];
       await Promise.all([
         loadIntegrations(),
@@ -3398,6 +3426,8 @@
 
   async function testIntegrationConnection(integrationId) {
     if (state.integrationTestBusy) return;
+    clearIntegrationTestDismissTimer(integrationId);
+    delete state.integrationTests[integrationId];
     state.integrationTestBusy = integrationId;
     renderIntegrations();
     try {
@@ -3417,6 +3447,7 @@
     } finally {
       state.integrationTestBusy = null;
       renderIntegrations();
+      scheduleIntegrationTestDismiss(integrationId);
     }
   }
 
@@ -3765,6 +3796,7 @@
       state.integrations = null;
       state.integrationConfig = null;
       state.integrationPreview = null;
+      clearIntegrationTestDismissTimers();
       state.integrationTests = {};
       state.integrationTestBusy = null;
       state.services = null;

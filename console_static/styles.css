@@ -556,11 +556,12 @@ details.room-form-section:not([open]) > .room-form-grid { display: none; }
 .audio-hardware-list { display: grid; }
 .audio-hardware-group + .audio-hardware-group { border-top: 1px solid var(--border); }
 .audio-hardware-group > h3 { margin: 0; padding: 12px 17px; background: var(--surface-soft); color: var(--text-soft); font-size: 11px; text-transform: uppercase; }
-.audio-hardware-row { min-height: 64px; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(170px, 0.75fr) auto; align-items: center; gap: 14px; padding: 10px 17px; border-top: 1px solid var(--border); }
+.audio-hardware-row { min-height: 64px; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(170px, 0.75fr) 132px; align-items: center; gap: 14px; padding: 10px 17px; border-top: 1px solid var(--border); }
 .audio-hardware-row:first-of-type { border-top: 0; }
 .audio-hardware-row strong, .audio-hardware-row span { display: block; overflow-wrap: anywhere; }
 .audio-hardware-row strong { font-size: 12px; }
 .audio-hardware-row span { margin-top: 3px; color: var(--text-soft); font-size: 10px; }
+.audio-hardware-row > .status-badge { justify-self: end; }
 .audio-hardware-device { color: var(--text-faint); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .audio-edit-fields { grid-row: 3; min-height: 0; overflow-y: auto; }
 .audio-edit-dialog { width: min(880px, calc(100vw - 32px)); }
@@ -774,6 +775,7 @@ details.room-form-section:not([open]) > .room-form-grid { display: none; }
   .audio-calibration-intro { grid-template-columns: 1fr; }
   .audio-calibration-intro .button { width: 100%; }
   .audio-hardware-row { grid-template-columns: 1fr; gap: 5px; }
+  .audio-hardware-row > .status-badge { justify-self: start; }
   .audio-guidance-heading { display: grid; gap: 3px; }
   .audio-adjustment-row { grid-template-columns: 20px minmax(0, 1fr); }
   .audio-adjustment-row .button { grid-column: 2; width: fit-content; }
