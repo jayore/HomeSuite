@@ -602,7 +602,7 @@ details.room-form-section:not([open]) > .room-form-grid { display: none; }
 .integration-form-control { min-width: 0; display: grid; align-content: start; gap: 7px; }
 .integration-form-control > input,
 .integration-form-control > textarea,
-.integration-form-control > select,
+.integration-form-control select,
 .integration-form-control .secret-input input { width: 100%; min-width: 0; min-height: 40px; }
 .integration-field-note { color: var(--text-faint); font-size: 10px; line-height: 1.4; }
 
@@ -611,6 +611,24 @@ details.room-form-section:not([open]) > .room-form-grid { display: none; }
 .field-inline { display: flex; align-items: center; gap: 8px; }
 .field-inline label { color: var(--text-soft); font-size: 12px; font-weight: 650; }
 .field-inline select { min-width: 150px; height: 36px; padding: 5px 28px 5px 9px; }
+.select-control { position: relative; min-width: 0; }
+.select-control > select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+}
+.select-control-icon {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  color: var(--text-soft);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.select-control:focus-within .select-control-icon { color: var(--primary); }
+.select-control > select:disabled + .select-control-icon { opacity: 0.62; }
 .segmented-control { display: inline-grid; grid-template-columns: repeat(2, minmax(68px, 1fr)); height: 36px; padding: 3px; margin-left: auto; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 5px; }
 .segmented-control button { border: 0; border-radius: 3px; background: transparent; color: var(--text-soft); font-size: 12px; font-weight: 700; cursor: pointer; }
 .segmented-control button.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 3px rgba(20, 37, 44, 0.14); }

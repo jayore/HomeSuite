@@ -94,6 +94,15 @@
     return node;
   }
 
+  function selectControl(control) {
+    const wrapper = element("div", "select-control");
+    const indicator = icon("chevron-down");
+    indicator.classList.add("select-control-icon");
+    indicator.setAttribute("aria-hidden", "true");
+    wrapper.append(control, indicator);
+    return wrapper;
+  }
+
   function integrationProviderIcon(integration) {
     const visual = INTEGRATION_VISUALS[integration.id] || { icon: "plug", color: "#7c8a91" };
     const holder = element("span", "integration-provider-icon");
@@ -612,6 +621,7 @@
       : (field.placeholder || "");
     const eventName = field.type === "choice" ? "change" : "input";
     control.addEventListener(eventName, function () { setConfigValueDraft(field, control); });
+    if (control.tagName === "SELECT") return { holder: selectControl(control), control: control };
     if (!field.secret) return { holder: control, control: control };
 
     const wrapper = element("div", "secret-input");
@@ -1650,7 +1660,7 @@
     if (opts.list) control.setAttribute("list", opts.list);
     if (opts.required) control.required = true;
     if (opts.disabled) control.disabled = true;
-    field.append(label, control);
+    field.append(label, control.tagName === "SELECT" ? selectControl(control) : control);
     if (opts.description) field.append(element("small", "", opts.description));
     return { field: field, control: control };
   }
@@ -1690,7 +1700,7 @@
       }
       control.dataset.roomColumn = column.key;
       control.value = values && values[column.key] ? values[column.key] : (column.defaultValue || "");
-      field.append(control);
+      field.append(control.tagName === "SELECT" ? selectControl(control) : control);
       row.append(field);
     });
     const remove = roomActionButton("trash-2", "Remove row", function () { row.remove(); });
@@ -3158,6 +3168,7 @@
     control.dataset.integrationControl = field.key;
     control.placeholder = field.placeholder || (field.secret ? "Paste credential here" : "");
     if (field.required) control.required = true;
+    if (control.tagName === "SELECT") return { holder: selectControl(control), control: control };
     if (!field.secret) return { holder: control, control: control };
 
     const wrapper = element("div", "secret-input");
