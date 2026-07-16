@@ -5,7 +5,7 @@ Start here if you are installing, evaluating, or operating Home Suite.
 ## First Hour
 
 1. [Getting started](GETTING_STARTED.md) for the shortest install-to-command path.
-2. [Choose a node role](DEPLOYMENT_ROLES.md): text/API, PTT handset, or wakeword.
+2. [Choose a node role](DEPLOYMENT_ROLES.md): text/API, PTT, or wakeword.
 3. [First-run acceptance checks](ACCEPTANCE.md) to prove that role safely.
 4. [Operations and privacy](OPERATIONS.md) for status, logs, and support bundles.
 5. [Updating a node](UPDATING.md) for the safe post-install path.
@@ -25,7 +25,8 @@ Start here if you are installing, evaluating, or operating Home Suite.
 
 ## Voice Hardware
 
-* [PTT handset guide](PTT.md)
+* [PTT guide](PTT.md)
+* [Additional GPIO buttons](GPIO_BUTTONS.md)
 * [Wakeword audio guide](WAKEWORD.md)
 
 ## Contribute

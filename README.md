@@ -59,6 +59,7 @@ Current capabilities include:
 * optional persistent user profile and coarse home context for conversational answers
 * optional web search for current questions such as news and recent events
 * HTTP and WebSocket APIs for companion clients
+* an authenticated browser console for configuration visibility, diagnostics, and test/live text interaction
 
 See [Features](docs/FEATURES.md) for the broader overview and
 [Integrations](docs/INTEGRATIONS.md) for service-specific behavior.
@@ -71,7 +72,7 @@ isolated so tuning wake-word behavior does not silently alter PTT.
 
 The voice stack includes:
 
-* persistent, per-device microphone profiles and a repeatable calibration tool
+* persistent, per-device microphone profiles with guided browser or CLI calibration
 * continuous wake-word capture with same-stream command handoff
 * streaming speech-to-text with bounded fallback behavior
 * VAD-based speech start and endpoint detection
@@ -150,6 +151,7 @@ nano deployment_config.py
 nano local_prefs.py
 homesuite doctor
 homesuite repl
+sudo systemctl start homesuite-console.service
 sudo systemctl start homesuite.service
 ```
 
@@ -157,6 +159,13 @@ Inside `homesuite repl`, try `service status`, or run
 `homesuite test "service status"` as a one-shot check. The safe command modes
 read real Home Assistant state but block writes; add `--live` only when you
 intend a test to control devices.
+
+The separate management console is available at
+`http://<homesuite-host>:8766`. It provides guided editing for common node,
+credential, shared room, and GPIO command-button settings, while its text
+surface opens in Test mode. See
+[Management console](docs/CONSOLE.md) for authentication, configuration
+backups, service operation, and the Test/Live contract.
 
 Start with [Getting started](docs/GETTING_STARTED.md) for the guided path or
 [Install](docs/INSTALL.md) for all installer and systemd options.
@@ -198,6 +207,7 @@ The same command brain can be reached through:
 
 * a local Raspberry Pi PTT or wake-word voice appliance
 * the `homesuite` command (`doctor`, `test`, `repl`, `logs`, and support tools)
+* the authenticated management and text console on port `8766`
 * `pptest`, `pplive`, `ppchattest`, and `ppchat` legacy compatibility aliases
 * HTTP `POST /command` and WebSocket `/ws`
 * Telegram
@@ -255,6 +265,7 @@ Important entry points:
 * `command_dispatch.py` - deterministic natural-language routing pipeline
 * `interaction_flow.py` - shared interaction and response policy
 * `unified_server.py` - in-process HTTP and WebSocket server
+* `console_server.py` - separate authenticated management and text console
 * `tools/homesuite_cli.py` - canonical node CLI behind the `homesuite` command
 * `command_repl.py` and `tools/test_commands.py` - safe and live command harnesses
 
@@ -264,6 +275,7 @@ Documentation:
 * [Install](docs/INSTALL.md)
 * [Configuration](docs/CONFIGURATION.md)
 * [Credentials](docs/CREDENTIALS.md)
+* [Management console](docs/CONSOLE.md)
 * [Integrations](docs/INTEGRATIONS.md)
 * [Features](docs/FEATURES.md)
 * [Commands](docs/COMMANDS.md)

@@ -23,14 +23,16 @@ On a Raspberry Pi or Debian-like host:
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash
 ```
 
-To install and enable the systemd service in the same pass:
+To install and enable the runtime and management-console systemd services in
+the same pass:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
 ```
 
-To install, enable, and start the service after required configuration already
-exists (the installer runs `homesuite doctor` first):
+To install, enable, and start the services, use `--start`. The console starts
+first so common node settings and credentials can be reviewed or edited; the
+installer runs `homesuite doctor` before starting the live runtime:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --start
@@ -115,12 +117,13 @@ Existing Home Suite deployments that intentionally keep topology in tracked
 during update. See [Room configuration](ROOM_CONFIGURATION.md) for a deliberate
 migration path that avoids replacing working room mappings.
 
-## Native service
+## Native services
 
-The public service template is:
+The public service templates are:
 
 ```text
 deploy/systemd/homesuite.service.template
+deploy/systemd/homesuite-console.service.template
 ```
 
 The installer replaces these placeholders:
@@ -165,8 +168,11 @@ Home Assistant topology, or provider account. Run the role-specific steps in
 For service checks:
 
 ```bash
+sudo systemctl restart homesuite-console.service
 sudo systemctl restart homesuite.service
+sudo systemctl status homesuite-console.service --no-pager -l
 sudo systemctl status homesuite.service --no-pager -l
+curl -sS http://localhost:8766/health
 curl -sS http://localhost:8765/health
 ```
 
@@ -178,7 +184,6 @@ services, audio devices, and optional hardware.
 
 Known areas that still need more public-release polish:
 
-* first-run interactive configuration
 * generated Home Assistant/entity mapping helpers
 * clearer OAuth setup helpers for media services
 * a server-only mode with fewer local audio/GPIO assumptions

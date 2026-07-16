@@ -278,8 +278,19 @@ independently of room-focus grouping. The local PTT and wakeword paths both use
 
 ## Applying Changes
 
-After editing `deployment_config.py` (or tracked `app_config.py` in a private
-source-of-truth deployment):
+The management console at `http://<homesuite-host>:8766` provides a
+purpose-built editor for the shared `ROOMS` mapping. It offers HA area/entity
+suggestions when available, accepts manual IDs, validates target domains and
+spoken-name collisions, preserves unedited fields, and creates an atomic
+backup before writing. Existing proxy targets remain proxies unless the user
+explicitly chooses another brightness strategy.
+
+The console edits room definitions, not the node's default-room override. If a
+room is currently the effective `DEFAULT_ROOM`, select another default under
+Configuration before removing it.
+
+After using the Rooms editor, editing `deployment_config.py` directly, or
+editing tracked `app_config.py` in a private source-of-truth deployment:
 
 1. Check syntax and configuration with `homesuite-doctor`.
 2. Use `pptest` for safe parsing checks.

@@ -1,7 +1,7 @@
 """Translate configured GPIO button gestures into serialized HomeSuite commands.
 
 The pigpio callbacks enqueue edge events and return quickly. A worker thread
-handles debounce, press/hold/repeat state, handset policy, and command execution
+handles debounce, press/hold/repeat state, PTT-session policy, and command execution
 outside pigpio's callback thread. Configuration comes from ``app_config`` and
 the subsystem remains inert unless physical buttons are enabled.
 """
@@ -23,7 +23,7 @@ except Exception:
 
 
 _COMMAND_EXECUTOR = None
-_HANDSET_IS_UP = None
+_PTT_IS_ACTIVE = None
 _STARTED = False
 _STOP_EVENT = threading.Event()
 _EVENT_Q: "queue.Queue[dict]" = queue.Queue()
@@ -97,8 +97,8 @@ def _pull_up() -> bool:
     return bool(_prefs("PHYSICAL_BUTTON_PULL_UP", True))
 
 
-def _ignore_while_handset_up() -> bool:
-    return bool(_prefs("PHYSICAL_BUTTON_IGNORE_WHILE_HANDSET_UP", False))
+def _ignore_while_ptt_active() -> bool:
+    return bool(_prefs("PHYSICAL_BUTTON_IGNORE_WHILE_PTT_ACTIVE", False))
 
 
 def _now() -> float:
@@ -211,10 +211,10 @@ def set_command_executor(fn):
     _COMMAND_EXECUTOR = fn
 
 
-def _handset_up() -> bool:
-    if callable(_HANDSET_IS_UP):
+def _ptt_is_active() -> bool:
+    if callable(_PTT_IS_ACTIVE):
         try:
-            return bool(_HANDSET_IS_UP())
+            return bool(_PTT_IS_ACTIVE())
         except Exception:
             return False
     return False
@@ -477,8 +477,8 @@ def _pigpio_callback(pin: int, level: int, tick: int) -> None:
 
 
 def _execute_button_action(button: int, gesture: str) -> None:
-    if _ignore_while_handset_up() and _handset_up():
-        logging.info("BUTTON_IGNORED_HANDSET_UP button=%s gesture=%s", button, gesture)
+    if _ignore_while_ptt_active() and _ptt_is_active():
+        logging.info("BUTTON_IGNORED_PTT_ACTIVE button=%s gesture=%s", button, gesture)
         return
 
     action = _gesture_action(button, gesture)
@@ -573,9 +573,10 @@ def _worker() -> None:
 def start_physical_buttons(
     *,
     command_executor,
+    ptt_is_active: Optional[Callable[[], bool]] = None,
     handset_is_up: Optional[Callable[[], bool]] = None,
 ) -> bool:
-    global _STARTED, _WORKER_THREAD, _COMMAND_EXECUTOR, _HANDSET_IS_UP, _PI
+    global _STARTED, _WORKER_THREAD, _COMMAND_EXECUTOR, _PTT_IS_ACTIVE, _PI
 
     if _STARTED:
         logging.info("PHYSICAL_BUTTONS_ALREADY_STARTED")
@@ -608,7 +609,8 @@ def start_physical_buttons(
 
     _PI = pi
     _COMMAND_EXECUTOR = command_executor
-    _HANDSET_IS_UP = handset_is_up
+    # handset_is_up remains a compatibility alias for external call sites.
+    _PTT_IS_ACTIVE = ptt_is_active or handset_is_up
     _STOP_EVENT.clear()
 
     glitch_us = int(float(_prefs("PHYSICAL_BUTTON_DEBOUNCE_MS", 40)) * 1000.0)

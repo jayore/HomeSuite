@@ -29,6 +29,8 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+from runtime_mode import allow_real_effects
+
 log = logging.getLogger(__name__)
 
 
@@ -710,6 +712,12 @@ def _drive_lifecycle(action: str, name: str) -> str:
     was_running = is_running(name)
     log.info("APPLET_NL_LIFECYCLE action=%s name=%s was_running=%s",
              action, name, was_running)
+
+    if not allow_real_effects():
+        preview_action = action
+        if action == "toggle":
+            preview_action = "stop" if was_running else "start"
+        return f"Test preview: would {preview_action} {display}."
 
     try:
         if action == "start":

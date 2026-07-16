@@ -635,18 +635,15 @@ INTERACTION_CANCEL_PHRASES = (
     "nevermind",
 )
 
-# --- Handset Feedback ---
-# Handset-to-ear delay BEFORE the start chime. Only relevant on devices
-# with a physical handset (HANDSET_PRESENT=True). Override in each
-# device's local_prefs.py.
-# Pi 3B with handset hardware: 0.65 (set in local prefs).
-# Default 0.0 = no extra delay for devices without a handset.
+# --- PTT feedback ---
+# Optional delay before the first PTT cue. A held button normally uses zero;
+# a telephone receiver may need a small device-specific delay.
 START_CHIME_DELAY_SECONDS = 0.0
 
 # --- Realtime STT keep-warm policy ---
 # Warm streaming on boot
 RT_WARMUP_ON_BOOT_ENABLED = True
-#Check if warm when handset lifted, rewarm if not already warm
+# Legacy-named fallback warmup when PTT activates.
 RT_OFFHOOK_WARMUP_ENABLED = False #NOTE: currently True makes system fall back to whisper
 
 
@@ -699,6 +696,11 @@ AUDIO_INPUT_PROFILE = {
     "aec_mode": "none",
 }
 
+# Optional node-local ALSA playback target. Leave unset to honor the
+# HOMESUITE_ALSA_DEVICE service environment, then ALSA's default device.
+# A stable card ID is preferable to a numeric index after USB changes.
+HOMESUITE_ALSA_DEVICE = None
+
 
 # =============================
 # Wake-word / far-field runtime config
@@ -742,8 +744,11 @@ WAKEWORD_ACTIVATION_WINDOW_FRAMES = 3
 WAKEWORD_DEACTIVATION_THRESHOLD = 0.20
 WAKEWORD_DEACTIVATION_FRAMES = 3
 
-# Conservative default: only listen for wake word while handset is on-hook.
-WAKEWORD_ONLY_ONHOOK = True
+# Conservative default: suppress wake-word listening while PTT is active.
+WAKEWORD_SUPPRESS_WHILE_PTT = True
+
+# Deprecated compatibility name from the original handset-only implementation.
+WAKEWORD_ONLY_ONHOOK = WAKEWORD_SUPPRESS_WHILE_PTT
 
 # Optional ready/listen chime after wake-word detection.
 WAKEWORD_CHIME = True
@@ -770,9 +775,9 @@ WAKEWORD_STREAM_CUE_GUARD_MS = 1000
 WAKEWORD_CHIME_SOUND_FILE = "assets/Blow.mp3"
 WAKEWORD_CHIME_VOLUME = 1.0
 
-# Wakeword capture should be more forgiving than handset PTT.
+# Wakeword capture should be more forgiving than close-range PTT.
 # In wakeword mode the user may naturally pause after the chime or between words,
-# and there is no lifted-handset state to indicate "still in session".
+# and there is no maintained PTT state to indicate "still in session".
 WAKEWORD_STREAM_SILENCE_END_MS = 550   # matches PTT's SILENCE_END_MS (main.py:931)
 WAKEWORD_STREAM_MIN_SPEECH_MS = 250   # matches PTT's MIN_SPEECH_MS (main.py:933)
 # Wakeword-only endpointing tolerates occasional false-positive speech frames
@@ -849,21 +854,25 @@ WAKEWORD_SUPPRESS_DURING_SFX = True
 # set this to zero alongside WAKEWORD_SUPPRESS_DURING_SFX=False.
 WAKEWORD_REARM_SFX_DRAIN_MAX_SEC = 1.0
 
-# Hardware: whether this device has a physical handset wired to GPIO.
-# Set False on devices that have no handset (e.g. the wakeword-only Pi 4 rig,
-# or a future push-and-hold-button-only device). When False, the runtime
-# treats the handset as always "lifted" so spoken responses are not suppressed
-# and wakeword/push-and-hold UX works normally. Setting it True preserves the
-# original Pi 3 handset behavior. Fresh installs default to no handset hardware.
-HANDSET_PRESENT = False
+# GPIO input for the push-to-talk control, using BCM numbering. Home Suite
+# listens while the pin reads PTT_LISTEN_LEVEL and stops when it changes to the
+# opposite level. This supports held PTT buttons, handset hooks, foot switches,
+# and other maintained-contact controls without assigning them separate roles.
+PTT_GPIO_PIN = 11
+PTT_LISTEN_LEVEL = "low"
+# A handset hang-up should cancel partial speech. A conventional held PTT
+# button normally submits captured speech when released.
+PTT_END_BEHAVIOR = "cancel"
 
-# Active-low handset hook input in BCM numbering. Keep this in configuration so
-# a different handset wiring does not require editing the runtime.
-HANDSET_GPIO_PIN = 11
-
-# Hardware input paths are opt-in per device. Fresh installs begin as safe text
-# command nodes until local_prefs.py explicitly enables a handset or wakeword.
+# Enables the physical push-to-talk interaction path. Entering the configured
+# input state starts a multi-utterance listening session; leaving it ends
+# capture and stops local speech. Fresh installs begin as safe text nodes.
 PTT_ENABLED = False
+
+# Deprecated compatibility aliases for installations and integrations that
+# still use the original telephone-handset names.
+HANDSET_GPIO_PIN = PTT_GPIO_PIN
+HANDSET_PRESENT = PTT_ENABLED
 
 # Assistant audio output policy for normal assistant responses.
 # Supported values:
@@ -1633,7 +1642,7 @@ APPLE_TV_REMOTE = _default_room_setting("tv_remote")
 # =============================
 # Physical command buttons
 # =============================
-# Auxiliary physical buttons, separate from the handset hook/PTT switch.
+# Auxiliary physical buttons, separate from the PTT input.
 #
 # Backend:
 #   "pigpio" = use the local pigpiod daemon already running on this Pi
@@ -1664,7 +1673,10 @@ PHYSICAL_BUTTON_LONG_PRESS_MS = 800
 PHYSICAL_BUTTON_HOLD_REPEAT_INTERVAL_MS = 350
 PHYSICAL_BUTTON_HOLD_REPEAT_MAX_REPEATS = 30
 
-PHYSICAL_BUTTON_IGNORE_WHILE_HANDSET_UP = False
+PHYSICAL_BUTTON_IGNORE_WHILE_PTT_ACTIVE = False
+
+# Deprecated compatibility name for existing local_prefs.py files.
+PHYSICAL_BUTTON_IGNORE_WHILE_HANDSET_UP = PHYSICAL_BUTTON_IGNORE_WHILE_PTT_ACTIVE
 
 # Turn off raw debug mode for normal operation.
 PHYSICAL_BUTTON_DEBUG_RAW_MODE = False
@@ -1689,6 +1701,12 @@ PHYSICAL_BUTTON_ACTIONS = {}
 # blank; the rest of the Home Suite runtime continues without a network API.
 UNIFIED_SERVER_ENABLED = True
 UNIFIED_SERVER_PORT = 8765
+
+# Separate authenticated configuration and test console. It intentionally runs
+# outside homesuite.service so management remains available independently of
+# the voice runtime. Keep it on a trusted network; do not expose it publicly.
+CONSOLE_HOST = "0.0.0.0"
+CONSOLE_PORT = 8766
 
 
 # =============================================================================
@@ -1860,14 +1878,13 @@ except ModuleNotFoundError as _deployment_error:
         raise
 
 # Each physical device then applies its own local overrides.
-# Each physical device (e.g. Pi 3B with PTT-only handset, Pi 4 with wakeword)
+# Each physical device (e.g. Pi 3B with PTT, Pi 4 with wakeword)
 # places its own `local_prefs.py` at the project root with ONLY the
 # values that differ from the defaults defined above. That file is gitignored
 # so device-specific configuration never enters version control.
 #
 # Typical contents of local_prefs.py:
 #     WAKEWORD_ENABLED = True
-#     HANDSET_PRESENT  = False
 #     PTT_ENABLED      = True
 #
 # We iterate keys explicitly (rather than `from local_prefs import *`)
@@ -1887,10 +1904,39 @@ try:
 except ImportError:
     pass
 
+_CONFIG_OVERRIDE_KEYS = set(DEPLOYMENT_CONFIG_KEYS) | set(LOCAL_PREFS_KEYS)
+
+# Existing handset-only deployments become canonical PTT nodes at the config
+# boundary. New code and new configuration should use PTT_ENABLED directly.
+if "PTT_ENABLED" not in _CONFIG_OVERRIDE_KEYS and "HANDSET_PRESENT" in _CONFIG_OVERRIDE_KEYS:
+    PTT_ENABLED = bool(HANDSET_PRESENT)
+
+# Honor the original handset pin when an existing deployment overrides it, but
+# keep PTT_GPIO_PIN canonical for all new configuration and runtime code.
+if "PTT_GPIO_PIN" not in _CONFIG_OVERRIDE_KEYS and "HANDSET_GPIO_PIN" in _CONFIG_OVERRIDE_KEYS:
+    PTT_GPIO_PIN = HANDSET_GPIO_PIN
+HANDSET_GPIO_PIN = PTT_GPIO_PIN
+
+if (
+    "PHYSICAL_BUTTON_IGNORE_WHILE_PTT_ACTIVE" not in _CONFIG_OVERRIDE_KEYS
+    and "PHYSICAL_BUTTON_IGNORE_WHILE_HANDSET_UP" in _CONFIG_OVERRIDE_KEYS
+):
+    PHYSICAL_BUTTON_IGNORE_WHILE_PTT_ACTIVE = PHYSICAL_BUTTON_IGNORE_WHILE_HANDSET_UP
+PHYSICAL_BUTTON_IGNORE_WHILE_HANDSET_UP = PHYSICAL_BUTTON_IGNORE_WHILE_PTT_ACTIVE
+
+if (
+    "WAKEWORD_SUPPRESS_WHILE_PTT" not in _CONFIG_OVERRIDE_KEYS
+    and "WAKEWORD_ONLY_ONHOOK" in _CONFIG_OVERRIDE_KEYS
+):
+    WAKEWORD_SUPPRESS_WHILE_PTT = WAKEWORD_ONLY_ONHOOK
+WAKEWORD_ONLY_ONHOOK = WAKEWORD_SUPPRESS_WHILE_PTT
+
+# Keep the legacy role name coherent even when an old local_prefs.py sets it.
+HANDSET_PRESENT = bool(PTT_ENABLED)
+
 # Recompute room-derived compatibility views after local preferences load.
 # Explicit legacy overrides remain honored for installations that still set
 # these names directly.
-_CONFIG_OVERRIDE_KEYS = set(DEPLOYMENT_CONFIG_KEYS) | set(LOCAL_PREFS_KEYS)
 if "DEFAULT_SONOS_ROOM" not in _CONFIG_OVERRIDE_KEYS:
     DEFAULT_SONOS_ROOM = _derive_default_sonos_room()
 if "SONOS_PLAYERS" not in _CONFIG_OVERRIDE_KEYS:

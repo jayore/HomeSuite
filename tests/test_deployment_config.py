@@ -9,16 +9,94 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class DeploymentConfigTests(unittest.TestCase):
-    def test_handset_pin_has_a_portable_default(self):
-        values = runpy.run_path(str(ROOT / "app_config.py"))
+    def test_ptt_input_has_portable_defaults_and_legacy_aliases(self):
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "deployment_config": ModuleType("deployment_config"),
+                "local_prefs": ModuleType("local_prefs"),
+            },
+        ):
+            values = runpy.run_path(str(ROOT / "app_config.py"))
 
+        self.assertEqual(values["PTT_GPIO_PIN"], 11)
+        self.assertEqual(values["PTT_LISTEN_LEVEL"], "low")
+        self.assertEqual(values["PTT_END_BEHAVIOR"], "cancel")
         self.assertEqual(values["HANDSET_GPIO_PIN"], 11)
+        self.assertFalse(values["PTT_ENABLED"])
+        self.assertEqual(values["HANDSET_PRESENT"], values["PTT_ENABLED"])
+        self.assertEqual(
+            values["WAKEWORD_ONLY_ONHOOK"],
+            values["WAKEWORD_SUPPRESS_WHILE_PTT"],
+        )
+
+    def test_legacy_handset_pin_override_feeds_the_canonical_ptt_pin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "local_prefs.py").write_text(
+                "PTT_ENABLED = True\nHANDSET_GPIO_PIN = 17\n",
+                encoding="utf-8",
+            )
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(ROOT)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import json, app_config; "
+                        "print(json.dumps({"
+                        "'pin': app_config.PTT_GPIO_PIN, "
+                        "'legacy_pin': app_config.HANDSET_GPIO_PIN, "
+                        "'enabled': app_config.PTT_ENABLED}))"
+                    ),
+                ],
+                cwd=tmp,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            payload = json.loads(result.stdout.strip())
+
+        self.assertEqual(payload, {"pin": 17, "legacy_pin": 17, "enabled": True})
+
+    def test_legacy_handset_role_enables_canonical_ptt_when_ptt_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "local_prefs.py").write_text(
+                "HANDSET_PRESENT = True\n",
+                encoding="utf-8",
+            )
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(ROOT)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import json, app_config; "
+                        "print(json.dumps({"
+                        "'ptt': app_config.PTT_ENABLED, "
+                        "'handset': app_config.HANDSET_PRESENT}))"
+                    ),
+                ],
+                cwd=tmp,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            payload = json.loads(result.stdout.strip())
+
+        self.assertEqual(payload, {"ptt": True, "handset": True})
 
     def test_public_example_neutralizes_home_specific_catalogs(self):
         values = runpy.run_path(str(ROOT / "deployment_config.example.py"))

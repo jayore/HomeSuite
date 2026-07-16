@@ -24,6 +24,7 @@ from homelab_clients import (
     summarize_torrents,
     uptime_kuma_snapshot,
 )
+from runtime_mode import allow_real_effects
 
 
 MaybeSay = Callable[[str], str]
@@ -342,6 +343,8 @@ def _pause_completed_response(t: str) -> Optional[str]:
         return None
     if not re.search(r"\b(download|downloads|torrent|torrents)\b", t):
         return None
+    if not allow_real_effects():
+        return "Test preview: would pause completed qBittorrent downloads."
     result = qbittorrent_pause_completed()
     if result.ok:
         paused = int((result.value or {}).get("paused") or 0)

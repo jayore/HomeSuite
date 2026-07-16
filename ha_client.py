@@ -338,6 +338,20 @@ def ha_refresh_registry_cache(force: bool = False, ttl_s: float = 300.0) -> bool
         return False
 
 
+def ha_get_registry_snapshot(
+    *,
+    force: bool = False,
+    ttl_s: float = 300.0,
+) -> Optional[Dict[str, List[dict]]]:
+    """Return a detached HA area/device/entity registry snapshot."""
+    if not ha_refresh_registry_cache(force=force, ttl_s=ttl_s):
+        return None
+    return {
+        key: [dict(row) for row in (_REGISTRY_CACHE.get(key) or []) if isinstance(row, dict)]
+        for key in ("areas", "devices", "entities")
+    }
+
+
 def _ha_get_area_entities_from_template(area_id: str) -> Optional[List[str]]:
     """Use HA's template API for a fast, read-only area membership lookup."""
     if not _HA_URL:

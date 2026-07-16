@@ -51,6 +51,14 @@ _DEFAULT_PROFILE: Dict[str, Any] = {
 }
 
 
+def complete_audio_input_profile(configured: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return a profile with every supported field populated from defaults."""
+    profile = dict(_DEFAULT_PROFILE)
+    if isinstance(configured, dict):
+        profile.update(configured)
+    return profile
+
+
 def _as_bool(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
@@ -72,8 +80,7 @@ def _env_value(name: str) -> Optional[str]:
 
 def get_audio_input_profile() -> Dict[str, Any]:
     """Return the effective profile after local preference and env overrides."""
-    """Return the active profile with environment overrides applied."""
-    profile = dict(_DEFAULT_PROFILE)
+    profile = complete_audio_input_profile()
     try:
         import app_config
 
@@ -253,7 +260,6 @@ def enforce_capture_settings(
     reason: str = "runtime",
     force: bool = False,
 ) -> bool:
-    """Apply and verify the profile's ALSA mixer value when one is configured."""
     """Apply and verify the configured hardware capture level when present."""
     profile = profile or get_audio_input_profile()
     log = logger or logging.getLogger(__name__)
@@ -294,7 +300,6 @@ def enforce_capture_settings(
 
 
 class CaptureSettingsGuardian:
-    """Periodically restore a configured mixer value in a daemon thread."""
     """Reassert a hardware capture level if another audio manager changes it."""
 
     def __init__(self, profile: Optional[Dict[str, Any]] = None, *, logger=None):

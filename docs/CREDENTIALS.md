@@ -27,6 +27,7 @@ gitignored; only their `.example.py` templates should be committed.
 | Google Calendar through Home Assistant | Home Assistant integration OAuth | Google account authorized in Home Assistant | Calendar agendas and guarded event creation; no extra Home Suite secret |
 | Alpaca Market Data | API account | Alpaca account; Basic IEX data is sufficient | Read-only stock quotes and U.S. market hours |
 | Home Suite HTTP API | Locally generated key | None | Satellites, Raycast, menu-bar and custom clients |
+| Home Suite Console | Locally generated key or HTTP API key fallback | None | Authenticated browser management and text testing |
 | Plex | Existing-service token | Plex account and Plex Media Server | Library-grounded matching and playback |
 | Spotify | OAuth developer app | Spotify Premium currently required for development-mode apps | Search, private playlists, library and playlist operations |
 | Telegram | Bot token plus allowlists | Telegram account | Remote text frontend |
@@ -161,7 +162,6 @@ Set:
 
 ```python
 HOMESUITE_HTTP_API_KEY = "a-long-random-value"
-PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
 This is not obtained from a provider. Generate it yourself:
@@ -178,6 +178,28 @@ The server is enabled by default and requires this key for every route except
 the `/health` and `/healthz` monitoring aliases. WebSocket clients use the same
 key; there is no separate WebSocket passphrase. See [API.md](API.md) for header
 and browser-client authentication.
+
+### Home Suite Management Console
+
+Optionally set a separate browser-console passphrase:
+
+```python
+HOMESUITE_CONSOLE_KEY = "another-long-random-value"
+```
+
+Leave it blank to reuse `HOMESUITE_HTTP_API_KEY`. A separate value reduces the
+need to type the command API credential into a browser on shared networks. The
+console stores an opaque HTTP-only session cookie after sign-in and never sends
+configured credential values during ordinary read-only use. Keep port `8766`
+on a trusted LAN or VPN. See [CONSOLE.md](CONSOLE.md).
+
+After signing in, **Configuration > Edit settings** can set, replace, or clear
+supported credentials. Entering Edit mode loads existing values into masked
+fields through an authenticated same-origin request; use the eye button to
+inspect one. Every field includes a short description, an example or format
+hint, and the relevant setup-document path. Review the proposed changes before
+applying them, then restart only the services named by the result. Replacing
+the HTTP API key also requires updating trusted clients that use it.
 
 ### Alpaca Market Data
 

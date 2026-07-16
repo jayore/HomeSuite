@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import unittest
 from unittest import mock
 from types import SimpleNamespace
@@ -89,6 +90,86 @@ class DoctorModeTests(unittest.TestCase):
         openai = next(check for check in doctor.checks if check.label == "OpenAI API key")
         self.assertEqual(openai.status, "FAIL")
         self.assertTrue(openai.required)
+
+    def test_ptt_readiness_uses_canonical_gpio_settings(self):
+        doctor = _doctor(
+            pref_values={
+                "PTT_ENABLED": True,
+                "HANDSET_PRESENT": False,
+                "PTT_GPIO_PIN": 17,
+                "PTT_LISTEN_LEVEL": "high",
+            }
+        )
+        doctor.module_available = mock.Mock(return_value=True)
+
+        doctor.check_ptt_runtime()
+
+        self.assertEqual(len(doctor.checks), 1)
+        self.assertEqual(doctor.checks[0].label, "PTT GPIO input")
+        self.assertEqual(doctor.checks[0].status, "OK")
+        self.assertIn("BCM GPIO 17", doctor.checks[0].detail)
+        self.assertIn("while high", doctor.checks[0].detail)
+
+    def test_ptt_readiness_rejects_an_invalid_listen_level(self):
+        doctor = _doctor(
+            pref_values={
+                "PTT_ENABLED": True,
+                "PTT_GPIO_PIN": 11,
+                "PTT_LISTEN_LEVEL": "pressed",
+            }
+        )
+        doctor.module_available = mock.Mock(return_value=True)
+
+        doctor.check_ptt_runtime()
+
+        self.assertEqual(doctor.checks[0].status, "FAIL")
+        self.assertTrue(doctor.checks[0].required)
+
+    def test_busy_alsa_capture_device_warns_instead_of_failing(self):
+        doctor = _doctor(
+            pref_values={
+                "AUDIO_INPUT_PROFILE": {
+                    "device_match": "MOVO X1 MINI",
+                    "sample_rate": 16000,
+                    "channels": 1,
+                }
+            }
+        )
+        sounddevice = SimpleNamespace(
+            query_devices=lambda: [
+                {
+                    "name": "MOVO X1 MINI: USB Audio (hw:3,0)",
+                    "max_input_channels": 0,
+                }
+            ]
+        )
+        doctor._alsa_capture_card = mock.Mock(return_value=3)
+
+        with mock.patch.dict(sys.modules, {"sounddevice": sounddevice}):
+            doctor.check_audio_input_profile(("wakeword",))
+
+        self.assertEqual(doctor.checks[0].status, "WARN")
+        self.assertFalse(doctor.checks[0].required)
+        self.assertIn("ALSA card 3", doctor.checks[0].detail)
+
+    def test_missing_audio_device_remains_a_required_failure(self):
+        doctor = _doctor(
+            pref_values={
+                "AUDIO_INPUT_PROFILE": {
+                    "device_match": "missing microphone",
+                    "sample_rate": 16000,
+                    "channels": 1,
+                }
+            }
+        )
+        sounddevice = SimpleNamespace(query_devices=lambda: [])
+        doctor._alsa_capture_card = mock.Mock(return_value=None)
+
+        with mock.patch.dict(sys.modules, {"sounddevice": sounddevice}):
+            doctor.check_audio_input_profile(("wakeword",))
+
+        self.assertEqual(doctor.checks[0].status, "FAIL")
+        self.assertTrue(doctor.checks[0].required)
 
     def test_enabled_server_requires_shared_api_key(self):
         doctor = _doctor(

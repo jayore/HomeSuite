@@ -38,7 +38,7 @@ runtime:
 curl -fsSL https://raw.githubusercontent.com/jayore/HomeSuite/main/scripts/install.sh | bash -s -- --systemd
 ```
 
-The installer creates `~/homesuite`, a Python virtual environment, local config files, state folders, convenience shortcuts, and optionally a `homesuite.service` unit.
+The installer creates `~/homesuite`, a Python virtual environment, local config files, state folders, convenience shortcuts, and optionally separate `homesuite.service` and `homesuite-console.service` units.
 
 Fresh installs receive a randomly generated `HOMESUITE_HTTP_API_KEY` in
 `private_config.py`; the value is not printed. Reuse that key only in trusted
@@ -49,6 +49,7 @@ The canonical node command is `homesuite`:
 * `homesuite doctor` - check configuration and enabled node roles
 * `homesuite test "phrase"` - run one safe command against real HA state
 * `homesuite repl` - open the safe interactive command shell
+* `homesuite console` - run the browser management and text console
 * `homesuite logs` - show the bounded runtime log
 * `homesuite support-bundle` - create a redacted diagnostic bundle
 
@@ -72,17 +73,15 @@ OPENAI_API_KEY = ""  # Add for conversation or voice.
 HA_URL = "http://homeassistant.local:8123"
 HA_TOKEN = "..."
 HOMESUITE_HTTP_API_KEY = "choose-a-long-random-local-key"
-PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
-Minimum useful `local_prefs.py` values for a simple non-handset test device:
+Minimum useful `local_prefs.py` values for a simple non-PTT test device:
 
 ```python
 DEFAULT_ROOM = "living_room"
 ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 WAKEWORD_ENABLED = False
 PTT_ENABLED = False
-HANDSET_PRESENT = False
 ```
 
 Leave optional service keys blank until you actually connect those services. For optional integrations, blank is better than fake. Fake hostnames can make diagnostics look configured when nothing is actually reachable.
@@ -134,6 +133,22 @@ For chat-style text testing without live device effects:
 ppchattest
 ```
 
+The browser console provides the same kind of setup loop with configuration
+and Doctor context alongside it:
+
+```bash
+sudo systemctl start homesuite-console.service
+```
+
+Open `http://<homesuite-host>:8766` and sign in with
+`HOMESUITE_CONSOLE_KEY`, or `HOMESUITE_HTTP_API_KEY` when the separate console
+key is blank. **Configuration > Edit settings** provides guided fields for
+common node settings and credentials, including descriptions, examples, and
+setup guidance. **Audio** discovers local microphones and outputs, supports
+safe playback testing and guided calibration, and keeps PTT and wake-word
+profiles device-specific. **Rooms** manages shared room topology. The console
+always opens its text surface in Test mode.
+
 ## 5. Decide When To Go Live
 
 `homesuite repl` and `homesuite test` read real Home Assistant state but block
@@ -146,7 +161,9 @@ real devices.
 If you installed the systemd unit:
 
 ```bash
+sudo systemctl restart homesuite-console.service
 sudo systemctl restart homesuite.service
+sudo systemctl status homesuite-console.service --no-pager -l
 sudo systemctl status homesuite.service --no-pager -l
 ```
 
@@ -159,6 +176,10 @@ curl -sS http://localhost:8765/health
 The server is enabled by default. Every route except the `/health` and
 `/healthz` monitoring aliases requires `HOMESUITE_HTTP_API_KEY`; startup fails
 closed for the API component when that key is blank.
+
+The management console is a separate authenticated listener on port `8766`.
+See [CONSOLE.md](CONSOLE.md) for its guided configuration editor, backup and
+restart behavior, text-mode contract, and security model.
 
 ## 7. Add Optional Integrations
 

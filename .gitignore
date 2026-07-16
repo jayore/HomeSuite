@@ -63,6 +63,7 @@ state/alarms.json
 state/temporary_actions.json
 state/source_rooms.json
 state/youtube_*.json
+state/console_restart_required.json
 .scheduler.lock
 
 # ============================================================================

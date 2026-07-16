@@ -9,12 +9,10 @@ Run it when homesuite is stopped, or the service may already own the microphone.
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import re
 import subprocess
 import sys
-import time
 import wave
 from pathlib import Path
 from typing import Iterable, Optional
@@ -28,12 +26,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-INT16_MAX = 32768.0
-
-
-def _dbfs(value: float) -> float:
-    value = max(float(value or 0.0), 1.0)
-    return 20.0 * math.log10(value / INT16_MAX)
+from audio_calibration import (
+    audio_metrics,
+    calibration_recommendations,
+    read_audio_stream_segment,
+)
 
 
 def _pick_device(device: Optional[str], match: str) -> Optional[int]:
@@ -65,10 +62,15 @@ def _device_card_index(info: dict) -> Optional[int]:
     return None
 
 
-def _record(label: str, *, seconds: float, sample_rate: int, device: Optional[int], block_ms: int) -> np.ndarray:
-    frames = []
+def _record(
+    label: str,
+    *,
+    seconds: float,
+    sample_rate: int,
+    device: Optional[int],
+    block_ms: int,
+) -> tuple[np.ndarray, int]:
     block_samples = max(1, int(round(sample_rate * block_ms / 1000.0)))
-    deadline = time.monotonic() + float(seconds)
     print(f"\n{label}: recording {seconds:.1f}s...")
     with sd.InputStream(
         samplerate=sample_rate,
@@ -77,62 +79,15 @@ def _record(label: str, *, seconds: float, sample_rate: int, device: Optional[in
         dtype="int16",
         blocksize=block_samples,
     ) as stream:
-        while time.monotonic() < deadline:
-            data, overflowed = stream.read(block_samples)
-            if overflowed:
-                print("WARN: input overflow")
-            frames.append(np.asarray(data).reshape(-1).copy())
-    if not frames:
-        return np.zeros(0, dtype=np.int16)
-    return np.concatenate(frames).astype(np.int16, copy=False)
-
-
-def _block_rms(samples: np.ndarray, sample_rate: int, block_ms: int) -> np.ndarray:
-    block = max(1, int(round(sample_rate * block_ms / 1000.0)))
-    if len(samples) < block:
-        return np.array([], dtype=np.float64)
-    usable = samples[: len(samples) - (len(samples) % block)]
-    if usable.size == 0:
-        return np.array([], dtype=np.float64)
-    shaped = usable.astype(np.float64).reshape(-1, block)
-    return np.sqrt(np.mean(shaped * shaped, axis=1))
-
-
-def _metrics(samples: np.ndarray, sample_rate: int, block_ms: int) -> dict:
-    if samples.size == 0:
-        return {
-            "duration": 0.0,
-            "peak": 0,
-            "peak_dbfs": -120.0,
-            "rms": 0.0,
-            "rms_dbfs": -120.0,
-            "clip_count": 0,
-            "clip_pct": 0.0,
-            "p20_dbfs": -120.0,
-            "p90_dbfs": -120.0,
-        }
-    abs_samples = np.abs(samples.astype(np.int32))
-    peak = int(abs_samples.max(initial=0))
-    rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
-    clipped = int(np.count_nonzero(abs_samples >= 32760))
-    block_rms = _block_rms(samples, sample_rate, block_ms)
-    if block_rms.size:
-        p20 = float(np.percentile(block_rms, 20))
-        p90 = float(np.percentile(block_rms, 90))
-    else:
-        p20 = rms
-        p90 = rms
-    return {
-        "duration": float(samples.size) / float(sample_rate),
-        "peak": peak,
-        "peak_dbfs": _dbfs(peak),
-        "rms": rms,
-        "rms_dbfs": _dbfs(rms),
-        "clip_count": clipped,
-        "clip_pct": 100.0 * clipped / max(1, int(samples.size)),
-        "p20_dbfs": _dbfs(p20),
-        "p90_dbfs": _dbfs(p90),
-    }
+        samples, overflow_count = read_audio_stream_segment(
+            stream,
+            sample_rate=sample_rate,
+            seconds=seconds,
+            block_ms=block_ms,
+        )
+    if overflow_count:
+        print(f"WARN: input overflow ({overflow_count} blocks)")
+    return samples, overflow_count
 
 
 def _print_metrics(name: str, metrics: dict) -> None:
@@ -143,31 +98,6 @@ def _print_metrics(name: str, metrics: dict) -> None:
     print(f"  block p20:  {metrics['p20_dbfs']:6.1f} dBFS")
     print(f"  block p90:  {metrics['p90_dbfs']:6.1f} dBFS")
     print(f"  clipping:   {metrics['clip_count']} samples ({metrics['clip_pct']:.4f}%)")
-
-
-def _recommend(noise: Optional[dict], speech: dict) -> list[str]:
-    out = []
-    peak = speech["peak_dbfs"]
-    p90 = speech["p90_dbfs"]
-    clip_pct = speech["clip_pct"]
-    noise_p20 = noise["p20_dbfs"] if noise else None
-
-    if clip_pct > 0.001 or peak > -1.0:
-        out.append("Lower capture gain: speech is clipping or too close to 0 dBFS.")
-    elif peak < -18.0 or p90 < -32.0:
-        out.append("Raise capture gain or move the mic closer: speech is arriving quiet.")
-    elif -12.0 <= peak <= -3.0 and p90 > -30.0:
-        out.append("Speech level looks healthy for wakeword/STT.")
-    else:
-        out.append("Speech level is usable, but try to land loud speech peaks around -12 to -3 dBFS.")
-
-    if noise_p20 is not None:
-        if noise_p20 > -38.0:
-            out.append("Noise floor is high; lowering gain or reducing room noise may help wakeword false hits.")
-        elif noise_p20 < -58.0 and peak < -12.0:
-            out.append("Room is quiet and speech is modest; a small gain increase may be safe.")
-
-    return out
 
 
 def _write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
@@ -258,13 +188,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     noise = None
     if not args.non_interactive:
         input("\nStay quiet near the mic, then press Enter...")
-        silence = _record("Silence/noise floor", seconds=args.silence_seconds, sample_rate=sample_rate, device=device, block_ms=args.block_ms)
-        noise = _metrics(silence, sample_rate, args.block_ms)
+        silence, silence_overflows = _record("Silence/noise floor", seconds=args.silence_seconds, sample_rate=sample_rate, device=device, block_ms=args.block_ms)
+        noise = audio_metrics(silence, sample_rate, args.block_ms)
         _print_metrics("Noise floor", noise)
         input("\nSay several real commands at normal distance, then press Enter...")
 
-    speech = _record("Speech", seconds=args.speech_seconds, sample_rate=sample_rate, device=device, block_ms=args.block_ms)
-    speech_m = _metrics(speech, sample_rate, args.block_ms)
+    speech, speech_overflows = _record("Speech", seconds=args.speech_seconds, sample_rate=sample_rate, device=device, block_ms=args.block_ms)
+    speech_m = audio_metrics(speech, sample_rate, args.block_ms)
     _print_metrics("Speech", speech_m)
 
     if args.wav_out:
@@ -272,7 +202,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         print(f"\nWrote {args.wav_out}")
 
     print("\nRecommendation")
-    for line in _recommend(noise, speech_m):
+    total_overflows = speech_overflows + (silence_overflows if not args.non_interactive else 0)
+    for line in calibration_recommendations(noise, speech_m, overflow_count=total_overflows):
         print(f"  - {line}")
 
     if card is not None:

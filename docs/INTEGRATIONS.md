@@ -8,6 +8,13 @@ credential acquisition, and supported speech alternatives, see
 [CREDENTIALS.md](CREDENTIALS.md). For individual setting behavior, see
 [CONFIGURATION.md](CONFIGURATION.md).
 
+On an installed node, the management console's **Integrations** view is the
+recommended way to maintain the device-local credentials described below. Each
+provider opens a focused editor with setup guidance, review-before-save, and a
+manual connection test when the provider offers a safe validation endpoint.
+Direct file editing remains supported for headless administration and advanced
+deployment settings.
+
 As a rule, start with Home Assistant integrations when they expose enough state and control. Add direct API credentials only when Home Suite can do something meaningfully richer with them, such as qBittorrent download actions, Seerr request summaries, Plex library matching, or Spotify library operations.
 
 ## Core
@@ -123,6 +130,16 @@ ALPACA_API_KEY_ID = "..."
 ALPACA_API_SECRET_KEY = "..."
 ```
 
+Integration readiness is evaluated on the node processing the request. Add the
+credentials to every Home Suite node that should answer stock questions
+directly; configuring a Telegram/PTT node does not implicitly configure a
+separate wake-word node. The console labels this as configuration "here" to
+make that scope explicit.
+
+Home Suite also accepts Alpaca's standard `APCA_API_KEY_ID` and
+`APCA_API_SECRET_KEY` names, including environment variables. Runtime quote
+requests, Doctor, and the console use the same resolver.
+
 For a personal Home Suite deployment, choose Alpaca's Trading API and create
 keys in the paper-trading web dashboard. A free Paper Only account on the Basic
 plan is enough; Broker API, a paid market-data plan, Alpaca's SDK, and terminal
@@ -154,7 +171,6 @@ Config keys:
 
 ```python
 HOMESUITE_HTTP_API_KEY = "choose-a-long-random-local-key"
-PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
 Use the same key in any client that calls Home Suite. Treat it like a local control token because a client with this key can send commands to your home.
@@ -384,7 +400,6 @@ WAKEWORD_MODEL_PATHS = [
     "/home/your-user/wake_models/your_model.onnx",
 ]
 PTT_ENABLED = False
-HANDSET_PRESENT = False
 ```
 
 Use a named `AUDIO_INPUT_PROFILE` so microphone selection and gain survive
@@ -409,7 +424,6 @@ Device behavior belongs in `local_prefs.py`:
 WAKEWORD_ENABLED = True
 WAKEWORD_ENGINE = "porcupine"
 PTT_ENABLED = False
-HANDSET_PRESENT = False
 ```
 
 Start with text or capture-mode command tests before enabling live wake-word or

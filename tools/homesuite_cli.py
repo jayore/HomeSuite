@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         ("repl", "open the safe interactive command shell"),
         ("calibrate-mic", "measure a microphone profile"),
         ("wakeword-lab", "capture or replay wakeword samples"),
+        ("console", "run the browser configuration and test console"),
         ("logs", "show runtime or structured event diagnostics"),
         ("support-bundle", "create a redacted diagnostic bundle"),
     ):
@@ -67,14 +68,18 @@ def main(argv: list[str] | None = None) -> int:
 
     # Subcommands intentionally forward their own flags (for example
     # ``homesuite repl --live``) to the established tool implementations.
-    args, unknown = parser.parse_known_args(raw_argv)
-    forwarded = list(getattr(args, "args", []) or []) + list(unknown)
+    args, _unknown = parser.parse_known_args(raw_argv)
+    # argparse may split unknown options from REMAINDER positionals and thereby
+    # reorder pairs such as ``--port 9000``. Every delegated subcommand owns
+    # its arguments, so preserve the exact order supplied after the command.
+    forwarded = raw_argv[1:]
     scripts = {
         "doctor": ROOT / "tools" / "doctor.py",
         "test": ROOT / "tools" / "test_commands.py",
         "repl": ROOT / "command_repl.py",
         "calibrate-mic": ROOT / "tools" / "calibrate_mic.py",
         "wakeword-lab": ROOT / "tools" / "wakeword_lab.py",
+        "console": ROOT / "console_server.py",
         "support-bundle": ROOT / "tools" / "support_bundle.py",
     }
     if args.command in scripts:

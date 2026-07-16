@@ -22,7 +22,7 @@ Home Suite already includes:
   homelab queries, plus confirmed Home Assistant calendar event creation and
   conversational web-enabled AI fallback
 * continuous OpenWakeWord detection, one-breath command handoff, streaming STT,
-  microphone profiles, calibration tooling, and local-TTS barge-in
+  microphone profiles, guided browser/CLI calibration, and local-TTS barge-in
 * a public installer, example configuration, operating documentation, and a
   sanitized public GitHub export
 * portable GitHub Actions coverage of the unit and command-contract suite on

@@ -13,8 +13,11 @@ HA_TOKEN = ""
 # value with a random key on a fresh install. Manual installs should generate
 # one with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 HOMESUITE_HTTP_API_KEY = ""
-# Legacy alias accepted by older deployments and clients.
-PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
+
+# Optional separate passphrase for the browser management console. Leave blank
+# to reuse HOMESUITE_HTTP_API_KEY. A separate value is preferable on shared
+# networks because the console can inspect configuration and issue live text.
+HOMESUITE_CONSOLE_KEY = ""
 
 # Plex
 PLEX_URL = ""

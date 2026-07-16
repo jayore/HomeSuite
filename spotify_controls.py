@@ -19,6 +19,8 @@ import logging
 from typing import Optional, Dict, Tuple
 import requests
 
+from runtime_mode import allow_real_effects
+
 try:
     from private_config import (
         SPOTIFY_CLIENT_ID,
@@ -506,6 +508,8 @@ def handle_spotify_controls(tl: str, *, maybe_say) -> Optional[str]:
     if re.search(r"\b(like this|save this|favorite this|add this to library|save this song|like this song)\b", t):
         if not spotify_web_configured():
             return friendly_missing("Spotify", missing("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"))
+        if not allow_real_effects():
+            return maybe_say("Test preview: would save the current track.")
         ok = like_current_track()
         return maybe_say("Saved.") if ok else maybe_say("I couldn't save that with Spotify.")
 
@@ -515,6 +519,8 @@ def handle_spotify_controls(tl: str, *, maybe_say) -> Optional[str]:
         if not spotify_web_configured():
             return friendly_missing("Spotify", missing("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"))
         name = m.group(1).strip()
+        if not allow_real_effects():
+            return maybe_say(f"Test preview: would add the current track to {name}.")
         ok = add_current_track_to_playlist(name)
         return maybe_say(f"Added to {name}.") if ok else maybe_say(f"I couldn't add that to {name} with Spotify.")
 

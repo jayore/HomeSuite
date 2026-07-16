@@ -23,8 +23,11 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 
 ```python
 HOMESUITE_HTTP_API_KEY = "your-generated-value"
-PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY  # Legacy compatibility alias.
 ```
+
+Older installations may still use `PIPHONE_HTTP_API_KEY`. Rename that
+assignment to `HOMESUITE_HTTP_API_KEY`; the runtime fallback remains only to
+keep upgrades working while the configuration is migrated.
 
 The API component fails closed when the server is enabled and the key is blank.
 Home Suite's local runtime continues, but no network listener is started.

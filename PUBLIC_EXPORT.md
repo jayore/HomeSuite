@@ -2,7 +2,7 @@
 
 This repository is a sanitized public snapshot generated from the private HomeSuite development repo.
 
-Source commit: `cfaebc4` (`cfaebc441b0335515eee37198dae9ef8a46b1397`)
+Source commit: `f8fa51c` (`f8fa51c006b9e7d6549fab83d2c22e1bf6071714`)
 
 Excluded from this public snapshot:
 

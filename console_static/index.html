@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#03a9f4">
+  <title>Home Suite Console</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div id="login-screen" class="login-screen" hidden>
+    <main class="login-panel" aria-labelledby="login-title">
+      <div class="brand-mark" aria-hidden="true"><span>HS</span></div>
+      <div>
+        <p class="product-name">Home Suite</p>
+        <h1 id="login-title">Management Console</h1>
+      </div>
+      <form id="login-form" class="login-form">
+        <input class="sr-only" name="username" type="text" value="homesuite-console" autocomplete="username" tabindex="-1">
+        <label for="console-key">Console passphrase</label>
+        <input id="console-key" name="key" type="password" autocomplete="current-password" required autofocus>
+        <p id="login-error" class="form-error" role="alert" hidden></p>
+        <button class="button primary full-width" type="submit">Sign in</button>
+      </form>
+      <p class="login-footnote">Available on this Home Suite node</p>
+    </main>
+  </div>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <aside id="sidebar" class="sidebar" aria-label="Primary navigation">
+      <div class="sidebar-brand">
+        <div class="brand-mark small" aria-hidden="true"><span>HS</span></div>
+        <div>
+          <strong>Home Suite</strong>
+          <span>Console</span>
+        </div>
+        <button id="close-menu" class="icon-button sidebar-close" type="button" title="Close navigation" aria-label="Close navigation">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+
+      <nav class="nav-list">
+        <button class="nav-item active" type="button" data-view="overview">
+          <span class="icon" data-icon="layout-dashboard"></span><span>Overview</span>
+        </button>
+        <button class="nav-item" type="button" data-view="configuration">
+          <span class="icon" data-icon="sliders-horizontal"></span><span>Configuration</span>
+        </button>
+        <button class="nav-item" type="button" data-view="audio">
+          <span class="icon" data-icon="mic"></span><span>Audio</span>
+        </button>
+        <button class="nav-item" type="button" data-view="rooms">
+          <span class="icon" data-icon="map-pin"></span><span>Rooms</span>
+        </button>
+        <button class="nav-item" type="button" data-view="integrations">
+          <span class="icon" data-icon="plug"></span><span>Integrations</span>
+        </button>
+        <button class="nav-item" type="button" data-view="console">
+          <span class="icon" data-icon="message-square"></span><span>Test Console</span>
+        </button>
+        <button class="nav-item" type="button" data-view="diagnostics">
+          <span class="icon" data-icon="activity"></span><span>Diagnostics</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div id="sidebar-node" class="sidebar-node"></div>
+        <button id="logout-button" class="nav-item" type="button">
+          <span class="icon" data-icon="log-out"></span><span>Sign out</span>
+        </button>
+      </div>
+    </aside>
+
+    <div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
+
+    <div class="main-column">
+      <header class="topbar">
+        <button id="open-menu" class="icon-button mobile-menu" type="button" title="Open navigation" aria-label="Open navigation">
+          <span class="icon" data-icon="menu"></span>
+        </button>
+        <div>
+          <span class="topbar-product">Home Suite Console</span>
+          <strong id="topbar-title">Overview</strong>
+        </div>
+        <div id="topbar-actions" class="topbar-actions" aria-label="Page actions">
+          <div class="topbar-action-group button-row" data-actions-view="overview">
+            <button id="refresh-overview" class="icon-button" type="button" title="Refresh overview" aria-label="Refresh overview">
+              <span class="icon" data-icon="refresh-cw"></span>
+            </button>
+          </div>
+          <div class="topbar-action-group button-row" data-actions-view="configuration" hidden>
+            <button id="edit-configuration" class="button primary" type="button" title="Edit settings" aria-label="Edit settings">
+              <span class="icon" data-icon="pencil"></span><span>Edit settings</span>
+            </button>
+            <button id="cancel-configuration-edit" class="button secondary" type="button" title="Cancel editing" aria-label="Cancel editing" hidden>
+              <span class="icon" data-icon="x"></span><span>Cancel</span>
+            </button>
+          </div>
+          <div class="topbar-action-group button-row" data-actions-view="audio" hidden>
+            <button id="refresh-audio" class="icon-button" type="button" title="Refresh audio hardware" aria-label="Refresh audio hardware">
+              <span class="icon" data-icon="refresh-cw"></span>
+            </button>
+            <button id="edit-audio" class="button primary" type="button" title="Edit audio" aria-label="Edit audio">
+              <span class="icon" data-icon="pencil"></span><span>Edit audio</span>
+            </button>
+          </div>
+          <div class="topbar-action-group button-row" data-actions-view="rooms" hidden>
+            <button id="add-room" class="button primary" type="button" title="Add room" aria-label="Add room" disabled>
+              <span class="icon" data-icon="plus"></span><span>Add room</span>
+            </button>
+          </div>
+          <div class="topbar-action-group button-row" data-actions-view="integrations" hidden>
+            <button id="refresh-integrations" class="icon-button" type="button" title="Refresh integrations" aria-label="Refresh integrations">
+              <span class="icon" data-icon="refresh-cw"></span>
+            </button>
+          </div>
+          <div class="topbar-action-group button-row" data-actions-view="diagnostics" hidden>
+            <button id="run-local-diagnostics" class="button secondary" type="button" title="Run checks" aria-label="Run checks">
+              <span class="icon" data-icon="refresh-cw"></span><span>Run checks</span>
+            </button>
+            <button id="run-live-diagnostics" class="button primary" type="button" title="Run live checks" aria-label="Run live checks">
+              <span class="icon" data-icon="activity"></span><span>Run live checks</span>
+            </button>
+            <button id="download-support-bundle" class="button secondary" type="button" title="Download redacted support bundle" aria-label="Download redacted support bundle">
+              <span class="icon" data-icon="download"></span><span>Support bundle</span>
+            </button>
+          </div>
+          <button id="open-service-restart" class="button warning restart-required-button" type="button" title="Saved changes need a restart" aria-label="Saved changes need a restart" hidden>
+            <span class="icon" data-icon="rotate-ccw"></span><span>Restart required</span>
+          </button>
+        </div>
+        <div id="header-status" class="header-status">
+          <span class="status-dot neutral"></span><span>Loading</span>
+        </div>
+      </header>
+
+      <main class="content">
+        <section id="view-overview" class="view active" data-title="Overview">
+          <div class="page-heading">
+            <div><h1>Overview</h1><p id="overview-subtitle">Node overview</p></div>
+          </div>
+          <div id="overview-metrics" class="metric-grid loading-block"></div>
+          <div class="overview-grid">
+            <section class="panel" aria-labelledby="readiness-title">
+              <div class="panel-heading"><h2 id="readiness-title">Role readiness</h2></div>
+              <div id="role-readiness" class="role-list loading-block"></div>
+            </section>
+            <section class="panel" aria-labelledby="node-summary-title">
+              <div class="panel-heading"><h2 id="node-summary-title">This node</h2></div>
+              <dl id="node-summary" class="summary-list loading-block"></dl>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-configuration" class="view" data-title="Configuration">
+          <div class="page-heading">
+            <div><h1>Configuration</h1><p>Review and manage this device's settings</p></div>
+          </div>
+          <div id="config-result" class="config-result" role="status" hidden></div>
+          <div id="config-coverage" class="config-coverage loading-block"></div>
+          <form id="configuration-editor" class="configuration-editor">
+            <div id="configuration-groups" class="config-sections loading-block"></div>
+            <div id="config-editor-actions" class="config-editor-actions" hidden>
+              <span id="config-change-count">No pending changes</span>
+              <button id="review-config-changes" class="button primary" type="submit" disabled>
+                <span class="icon" data-icon="save"></span><span>Review changes</span>
+              </button>
+            </div>
+          </form>
+          <div id="config-inventory" class="config-inventory loading-block"></div>
+        </section>
+
+        <section id="view-audio" class="view" data-title="Audio">
+          <div class="page-heading">
+            <div><h1>Audio</h1><p>Microphone, local playback, and guided calibration</p></div>
+          </div>
+          <div id="audio-result" class="config-result" role="status" hidden></div>
+          <div id="audio-runtime-notice" class="mode-notice" hidden></div>
+          <div class="audio-summary-grid">
+            <section class="panel" aria-labelledby="audio-input-title">
+              <div class="panel-heading"><h2 id="audio-input-title">Microphone input</h2></div>
+              <dl id="audio-input-summary" class="summary-list loading-block"></dl>
+            </section>
+            <section class="panel" aria-labelledby="audio-output-title">
+              <div class="panel-heading">
+                <h2 id="audio-output-title">Local playback</h2>
+                <button id="test-audio-output" class="button secondary compact-button" type="button" disabled>
+                  <span class="icon" data-icon="play"></span><span>Test</span>
+                </button>
+              </div>
+              <dl id="audio-output-summary" class="summary-list loading-block"></dl>
+            </section>
+          </div>
+          <section class="panel audio-calibration-panel" aria-labelledby="audio-calibration-title">
+            <div class="panel-heading"><h2 id="audio-calibration-title">Microphone calibration</h2></div>
+            <div id="audio-calibration" class="audio-calibration loading-block"></div>
+          </section>
+          <section class="panel audio-hardware-panel" aria-labelledby="audio-hardware-title">
+            <div class="panel-heading"><h2 id="audio-hardware-title">Detected hardware</h2></div>
+            <div id="audio-hardware" class="audio-hardware-list loading-block"></div>
+          </section>
+        </section>
+
+        <section id="view-rooms" class="view" data-title="Rooms">
+          <div class="page-heading">
+            <div><h1>Rooms</h1><p id="rooms-subtitle">Configured room registry</p></div>
+          </div>
+          <div id="room-result" class="config-result" role="status" hidden></div>
+          <div id="rooms-list" class="room-list loading-block"></div>
+          <div id="room-editor-actions" class="config-editor-actions room-editor-actions" hidden>
+            <div>
+              <strong id="room-change-count">No pending room changes</strong>
+              <button id="discard-room-changes" class="text-button" type="button">Discard</button>
+            </div>
+            <button id="review-room-changes" class="button primary" type="button">
+              <span class="icon" data-icon="save"></span><span>Review changes</span>
+            </button>
+          </div>
+        </section>
+
+        <section id="view-integrations" class="view" data-title="Integrations">
+          <div class="page-heading">
+            <div><h1>Integrations</h1><p>Credentials and capabilities available on this device</p></div>
+          </div>
+          <div id="integration-result" class="config-result" role="status" hidden></div>
+          <div id="integration-list" class="integration-grid loading-block"></div>
+        </section>
+
+        <section id="view-console" class="view" data-title="Test Console">
+          <div class="page-heading compact">
+            <div><h1>Test Console</h1><p>Text interaction surface</p></div>
+          </div>
+          <section id="chat-workspace" class="chat-workspace" aria-label="Home Suite text console">
+            <div class="chat-toolbar">
+              <div class="field-inline">
+                <label for="chat-room">Room</label>
+                <select id="chat-room"></select>
+              </div>
+              <div class="segmented-control" aria-label="Execution mode">
+                <button class="active" type="button" data-mode="test">Test</button>
+                <button type="button" data-mode="live">Live</button>
+              </div>
+              <button id="clear-chat" class="icon-button" type="button" title="Clear messages" aria-label="Clear messages">
+                <span class="icon" data-icon="trash-2"></span>
+              </button>
+            </div>
+            <div id="mode-notice" class="mode-notice test" role="status">
+              <span class="icon" data-icon="shield-check"></span>
+              <span>Preview only. Device writes and persistent actions are blocked.</span>
+            </div>
+            <div id="chat-messages" class="chat-messages" aria-live="polite">
+              <div class="chat-empty">No messages in this session.</div>
+            </div>
+            <form id="chat-form" class="chat-composer">
+              <label class="sr-only" for="chat-input">Message</label>
+              <textarea id="chat-input" rows="2" maxlength="4000" placeholder="Message Home Suite" required></textarea>
+              <button id="send-message" class="button primary send-button" type="submit">
+                <span class="icon" data-icon="send-horizontal"></span><span>Send</span>
+              </button>
+            </form>
+          </section>
+        </section>
+
+        <section id="view-diagnostics" class="view" data-title="Diagnostics">
+          <div class="page-heading">
+            <div><h1>Diagnostics</h1><p>Home Suite Doctor</p></div>
+          </div>
+          <div id="diagnostic-summary" class="diagnostic-summary loading-block"></div>
+          <div class="diagnostic-support-note">
+            <span class="icon" data-icon="shield-check"></span>
+            <div>
+              <strong>Safe-to-share support bundle</strong>
+              <p>Includes role readiness, versions, service state, and redacted checks. It excludes credentials, local configuration values, raw logs, and command text.</p>
+            </div>
+          </div>
+          <div id="diagnostic-groups" class="diagnostic-groups loading-block"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="config-review-dialog" class="review-dialog" aria-labelledby="config-review-title">
+    <div class="review-dialog-heading">
+      <div>
+        <span>Configuration</span>
+        <h2 id="config-review-title">Review changes</h2>
+      </div>
+      <button id="close-config-review" class="icon-button" type="button" title="Close review" aria-label="Close review">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    <div id="config-review-list" class="config-review-list"></div>
+    <div id="config-restart-notice" class="config-restart-notice"></div>
+    <div class="review-dialog-actions">
+      <button id="back-to-config" class="button secondary" type="button">Back</button>
+      <button id="apply-config-changes" class="button primary" type="button">
+        <span class="icon" data-icon="circle-check"></span><span>Apply changes</span>
+      </button>
+    </div>
+  </dialog>
+
+  <dialog id="room-edit-dialog" class="room-edit-dialog" aria-labelledby="room-edit-title">
+    <form id="room-edit-form" method="dialog">
+      <div class="review-dialog-heading">
+        <div>
+          <span id="room-edit-context">Shared room</span>
+          <h2 id="room-edit-title">Edit room</h2>
+        </div>
+        <button id="close-room-editor" class="icon-button" type="button" title="Close room editor" aria-label="Close room editor">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+      <p id="room-edit-error" class="form-error room-edit-error" role="alert" hidden></p>
+      <div id="room-edit-fields" class="room-edit-fields"></div>
+      <div class="review-dialog-actions">
+        <button id="cancel-room-editor" class="button secondary" type="button">Cancel</button>
+        <button id="save-room-draft" class="button primary" type="submit">
+          <span class="icon" data-icon="circle-check"></span><span>Keep changes</span>
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="audio-edit-dialog" class="room-edit-dialog audio-edit-dialog" aria-labelledby="audio-edit-title">
+    <form id="audio-edit-form" method="dialog">
+      <div class="review-dialog-heading">
+        <div>
+          <span>This device</span>
+          <h2 id="audio-edit-title">Edit audio setup</h2>
+        </div>
+        <button id="close-audio-editor" class="icon-button" type="button" title="Close audio editor" aria-label="Close audio editor">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+      <p id="audio-edit-error" class="form-error room-edit-error" role="alert" hidden></p>
+      <div id="audio-edit-fields" class="audio-edit-fields"></div>
+      <div class="review-dialog-actions">
+        <button id="cancel-audio-editor" class="button secondary" type="button">Cancel</button>
+        <button id="review-audio-changes" class="button primary" type="submit">
+          <span class="icon" data-icon="save"></span><span>Review changes</span>
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="audio-review-dialog" class="review-dialog" aria-labelledby="audio-review-title">
+    <div class="review-dialog-heading">
+      <div>
+        <span>Audio setup</span>
+        <h2 id="audio-review-title">Review changes</h2>
+      </div>
+      <button id="close-audio-review" class="icon-button" type="button" title="Close review" aria-label="Close review">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    <div id="audio-review-list" class="config-review-list"></div>
+    <div id="audio-restart-notice" class="config-restart-notice"></div>
+    <div class="review-dialog-actions">
+      <button id="back-to-audio" class="button secondary" type="button">Back</button>
+      <button id="apply-audio-changes" class="button primary" type="button">
+        <span class="icon" data-icon="circle-check"></span><span>Apply changes</span>
+      </button>
+    </div>
+  </dialog>
+
+  <dialog id="audio-suggestion-dialog" class="review-dialog audio-suggestion-dialog" aria-labelledby="audio-suggestion-title">
+    <div class="review-dialog-heading">
+      <div>
+        <span>Microphone calibration</span>
+        <h2 id="audio-suggestion-title">Apply this suggestion?</h2>
+      </div>
+      <button id="close-audio-suggestion" class="icon-button" type="button" title="Close suggestion" aria-label="Close suggestion">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    <div id="audio-suggestion-summary" class="audio-suggestion-summary"></div>
+    <div id="audio-suggestion-change" class="config-review-list"></div>
+    <div class="config-restart-notice">Home Suite will validate and save only this setting and create a backup. The voice service will not restart automatically.</div>
+    <div class="review-dialog-actions">
+      <button id="cancel-audio-suggestion" class="button secondary" type="button">Cancel</button>
+      <button id="apply-audio-suggestion" class="button primary" type="button">
+        <span class="icon" data-icon="circle-check"></span><span>Apply suggestion</span>
+      </button>
+    </div>
+  </dialog>
+
+  <dialog id="service-restart-dialog" class="review-dialog service-restart-dialog" aria-labelledby="service-restart-title">
+    <div class="review-dialog-heading">
+      <div>
+        <span>Saved configuration</span>
+        <h2 id="service-restart-title">Activate changes</h2>
+      </div>
+      <button id="close-service-restart" class="icon-button" type="button" title="Close restart status" aria-label="Close restart status">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    <div class="service-restart-intro">
+      Restart only the services listed below. Voice capture and any response in progress will pause briefly.
+    </div>
+    <div id="service-restart-list" class="service-restart-list"></div>
+    <div class="review-dialog-actions">
+      <button id="done-service-restart" class="button secondary" type="button">Done</button>
+    </div>
+  </dialog>
+
+  <dialog id="integration-edit-dialog" class="room-edit-dialog integration-edit-dialog" aria-labelledby="integration-edit-title">
+    <form id="integration-edit-form">
+      <div class="review-dialog-heading">
+        <div>
+          <span>Integration setup</span>
+          <h2 id="integration-edit-title">Configure integration</h2>
+        </div>
+        <button id="close-integration-editor" class="icon-button" type="button" title="Close integration setup" aria-label="Close integration setup">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+      <p id="integration-edit-error" class="form-error room-edit-error" role="alert" hidden></p>
+      <div id="integration-edit-fields" class="integration-edit-fields"></div>
+      <div class="review-dialog-actions">
+        <button id="cancel-integration-editor" class="button secondary" type="button">Cancel</button>
+        <button id="review-integration-changes" class="button primary" type="submit">
+          <span class="icon" data-icon="save"></span><span>Review changes</span>
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="integration-review-dialog" class="review-dialog" aria-labelledby="integration-review-title">
+    <div class="review-dialog-heading">
+      <div>
+        <span id="integration-review-context">Integration</span>
+        <h2 id="integration-review-title">Review changes</h2>
+      </div>
+      <button id="close-integration-review" class="icon-button" type="button" title="Close review" aria-label="Close review">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    <div id="integration-review-list" class="config-review-list"></div>
+    <div id="integration-restart-notice" class="config-restart-notice"></div>
+    <div class="review-dialog-actions">
+      <button id="back-to-integration" class="button secondary" type="button">Back</button>
+      <button id="apply-integration-changes" class="button primary" type="button">
+        <span class="icon" data-icon="circle-check"></span><span>Apply changes</span>
+      </button>
+    </div>
+  </dialog>
+
+  <dialog id="room-review-dialog" class="review-dialog" aria-labelledby="room-review-title">
+    <div class="review-dialog-heading">
+      <div>
+        <span>Shared room topology</span>
+        <h2 id="room-review-title">Review changes</h2>
+      </div>
+      <button id="close-room-review" class="icon-button" type="button" title="Close review" aria-label="Close review">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    <div id="room-review-list" class="config-review-list"></div>
+    <div id="room-restart-notice" class="config-restart-notice"></div>
+    <div class="review-dialog-actions">
+      <button id="back-to-rooms" class="button secondary" type="button">Back</button>
+      <button id="apply-room-changes" class="button primary" type="button">
+        <span class="icon" data-icon="circle-check"></span><span>Apply changes</span>
+      </button>
+    </div>
+  </dialog>
+
+  <div id="room-datalists" hidden></div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="/static/icons.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

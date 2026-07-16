@@ -1,9 +1,11 @@
 # Choose a Node Role
 
-Home Suite can run as a quiet text/API node, a physical push-to-talk handset,
-or a wakeword appliance. Start with one role on each device. All roles share
-the same Home Assistant topology, credentials, command routing, confirmations,
-and source-scoped continuity.
+Home Suite can run as a quiet text/API node, a physical push-to-talk device,
+or a wakeword appliance. These are capabilities rather than mutually exclusive
+device types: start with the capabilities a node needs, and enable both PTT and
+wake-word listening when its hardware supports both. All roles share the same
+Home Assistant topology, credentials, command routing, confirmations, and
+source-scoped continuity.
 
 Shared home topology belongs in `deployment_config.py`. Credentials belong in
 `private_config.py`. One Pi's role, room, microphone, and output settings
@@ -17,9 +19,7 @@ any microphone or GPIO hardware.
 
 ```python
 # local_prefs.py
-SOURCE_ID = "office_server"
 DEFAULT_ROOM = "office"
-HANDSET_PRESENT = False
 PTT_ENABLED = False
 WAKEWORD_ENABLED = False
 UNIFIED_SERVER_ENABLED = True
@@ -35,18 +35,22 @@ homesuite test "what lights are on?"
 `homesuite test` reads real Home Assistant state but blocks writes. A planned
 service call appears as `HA_STUB call` instead of changing a device.
 
-## Push-to-Talk Handset
+## Push-to-Talk Device
 
-Use this role for a handset, hook switch, or a deliberately wired PTT build.
+Use this role for a held PTT button, telephone hook, foot switch, or another
+maintained GPIO control. Entering the configured electrical state starts a
+listening session; leaving it ends capture or spoken output. A held button ends
+the session on release, while a handset can remain active for follow-up commands.
 Configure the audio profile by stable microphone name rather than a device
 index, then calibrate before relying on transcription.
 
 ```python
 # local_prefs.py
-SOURCE_ID = "office_handset"
 DEFAULT_ROOM = "office"
-HANDSET_PRESENT = True
 PTT_ENABLED = True
+PTT_GPIO_PIN = 11
+PTT_LISTEN_LEVEL = "low"
+PTT_END_BEHAVIOR = "cancel"  # use "submit" for a release-to-send button
 WAKEWORD_ENABLED = False
 ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 ```
@@ -59,9 +63,18 @@ homesuite calibrate-mic --list-devices
 homesuite calibrate-mic --match "your microphone name" --show-alsa
 ```
 
-The default active-low hook input is BCM GPIO 11 and can be changed with
-`HANDSET_GPIO_PIN`. See the [PTT handset guide](PTT.md) for its wiring
-contract, calibration, session behavior, and troubleshooting.
+The default PTT input listens for a low level on BCM GPIO 11. See the
+[PTT guide](PTT.md) for its wiring contract, alternate input levels,
+calibration, session behavior, and troubleshooting.
+
+For a combined PTT and wake-word node, set both capability flags to true and
+keep wake-word suppression scoped to active PTT capture:
+
+```python
+PTT_ENABLED = True
+WAKEWORD_ENABLED = True
+WAKEWORD_SUPPRESS_WHILE_PTT = True
+```
 
 ## Wakeword Appliance
 
@@ -75,9 +88,7 @@ homesuite install-wakeword
 
 ```python
 # local_prefs.py
-SOURCE_ID = "living_room_voice"
 DEFAULT_ROOM = "living_room"
-HANDSET_PRESENT = False
 PTT_ENABLED = False
 WAKEWORD_ENABLED = True
 WAKEWORD_ENGINE = "openwakeword"

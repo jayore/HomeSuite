@@ -11,7 +11,6 @@ import argparse
 import importlib
 import importlib.util
 import json
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -25,6 +24,9 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from integration_registry import SPECS_BY_ID, credentials_for, integration_readiness
+from config_inventory import build_config_inventory
 
 
 @dataclass
@@ -145,6 +147,7 @@ class Doctor:
     def run(self, *, report: bool = True) -> int:
         self._active_roles = self.active_roles()
         self.check_local_files()
+        self.check_config_inventory()
         self.check_core_config()
         self.check_room_registry()
         self.check_room_brightness()
@@ -169,6 +172,7 @@ class Doctor:
     def check_local_files(self) -> None:
         private_path = ROOT / "private_config.py"
         prefs_path = ROOT / "local_prefs.py"
+        deployment_path = ROOT / "deployment_config.py"
         self.add(
             "Config files",
             "OK" if private_path.exists() else "FAIL",
@@ -183,7 +187,6 @@ class Doctor:
             "local_prefs.py",
             "found" if prefs_path.exists() else "missing; copy local_prefs.example.py for device-specific settings",
         )
-        deployment_path = ROOT / "deployment_config.py"
         self.add(
             "Config files",
             "OK" if deployment_path.exists() else "WARN",
@@ -195,6 +198,58 @@ class Doctor:
             ),
             roles=self.ROLE_ORDER,
         )
+
+    def check_config_inventory(self) -> None:
+        """Report active compatibility aliases and settings with no contract."""
+
+        try:
+            inventory = build_config_inventory(
+                root=ROOT,
+                app_config=self.app_config,
+                private_config=self.private_config,
+            )
+        except (OSError, SyntaxError) as exc:
+            self.add(
+                "Config files",
+                "WARN",
+                "configuration inventory",
+                f"could not inspect active overrides: {exc}",
+                roles=self.ROLE_ORDER,
+            )
+            return
+
+        attention = [
+            row
+            for row in inventory["rows"]
+            if row["effective"]
+            and row["classification"] in {"deprecated", "unknown"}
+            and (row["scope"] != "credentials" or row["configured"])
+        ]
+        if not attention:
+            self.add(
+                "Config files",
+                "OK",
+                "active configuration contract",
+                "no deprecated or unrecognized overrides",
+                roles=self.ROLE_ORDER,
+            )
+            return
+
+        for row in attention:
+            if row["classification"] == "deprecated":
+                if row["replacement"]:
+                    detail = f"replace {row['key']} with {row['replacement']} in {row['source_file']}"
+                else:
+                    detail = f"remove {row['key']} from {row['source_file']}; {row['guidance']}"
+            else:
+                detail = f"{row['key']} is not recognized by the current configuration contract"
+            self.add(
+                "Config files",
+                "WARN",
+                row["label"],
+                detail,
+                roles=self.ROLE_ORDER,
+            )
 
     def check_core_config(self) -> None:
         core = {"Home Assistant": ["HA_URL", "HA_TOKEN"]}
@@ -367,10 +422,14 @@ class Doctor:
         try:
             devices = sd.query_devices()
             selected_index = None
+            alsa_capture_card = None
             if device_index is not None:
                 candidate = int(device_index)
-                if 0 <= candidate < len(devices) and int(devices[candidate]["max_input_channels"] or 0) > 0:
-                    selected_index = candidate
+                if 0 <= candidate < len(devices):
+                    if int(devices[candidate]["max_input_channels"] or 0) > 0:
+                        selected_index = candidate
+                    else:
+                        alsa_capture_card = self._alsa_capture_card(str(devices[candidate]["name"] or ""))
             elif device_match:
                 needle = device_match.casefold()
                 for index, device in enumerate(devices):
@@ -379,9 +438,20 @@ class Doctor:
                     if needle in str(device["name"] or "").casefold():
                         selected_index = index
                         break
+                if selected_index is None:
+                    alsa_capture_card = self._alsa_capture_card(device_match)
 
             if selected_index is None:
                 target = f"index {device_index}" if device_index is not None else repr(device_match or "default input")
+                if alsa_capture_card is not None:
+                    self.add(
+                        "Runtime readiness",
+                        "WARN",
+                        "configured audio input",
+                        f"capture hardware is present on ALSA card {alsa_capture_card}, but PortAudio cannot inspect it while another process may own it",
+                        roles=roles,
+                    )
+                    return
                 self.add(
                     "Runtime readiness",
                     "FAIL",
@@ -399,8 +469,13 @@ class Doctor:
                 detail = f"{devices[selected_index]['name']} (index {selected_index}, {sample_rate or 'default'} Hz)"
                 status = "OK"
             except Exception as exc:
-                detail = f"{devices[selected_index]['name']} cannot open at {sample_rate or 'default'} Hz: {exc}"
-                status = "FAIL"
+                alsa_capture_card = self._alsa_capture_card(str(devices[selected_index]["name"] or device_match))
+                if alsa_capture_card is not None:
+                    detail = f"capture hardware is present on ALSA card {alsa_capture_card}, but PortAudio cannot inspect it while another process may own it"
+                    status = "WARN"
+                else:
+                    detail = f"{devices[selected_index]['name']} cannot open at {sample_rate or 'default'} Hz: {exc}"
+                    status = "FAIL"
             self.add(
                 "Runtime readiness",
                 status,
@@ -419,24 +494,72 @@ class Doctor:
                 roles=roles,
             )
 
+    @staticmethod
+    def _alsa_capture_card(device_name: str) -> Optional[int]:
+        """Return the Linux ALSA card when capture exists but PortAudio is busy."""
+
+        if not sys.platform.startswith("linux") or not str(device_name).strip():
+            return None
+        try:
+            cards_text = Path("/proc/asound/cards").read_text(encoding="utf-8")
+            pcm_text = Path("/proc/asound/pcm").read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+        direct = re.search(r"\(hw:(\d+),\d+\)", str(device_name), re.IGNORECASE)
+        candidates = [int(direct.group(1))] if direct else []
+        if not candidates:
+            needle = str(device_name).casefold()
+            blocks = re.split(r"(?=^\s*\d+\s+\[)", cards_text, flags=re.MULTILINE)
+            for block in blocks:
+                card_match = re.match(r"^\s*(\d+)\s+\[", block)
+                if card_match and needle in block.casefold():
+                    candidates.append(int(card_match.group(1)))
+
+        for card in candidates:
+            if re.search(
+                rf"^\s*0*{card}-\d+:.*\bcapture\s+\d+",
+                pcm_text,
+                re.MULTILINE | re.IGNORECASE,
+            ):
+                return card
+        return None
+
     def check_ptt_runtime(self) -> None:
-        if not bool(self.pref("HANDSET_PRESENT", False)):
-            self.add(
-                "Runtime readiness",
-                "WARN",
-                "PTT handset input",
-                "PTT is enabled but HANDSET_PRESENT is false; confirm this is an intentional button-only build",
-                roles=("ptt",),
-            )
-            return
+        from ptt_input import normalize_end_behavior, normalize_listen_level
+
         gpio_available = self.module_available("RPi.GPIO")
-        hook_pin = self.pref("HANDSET_GPIO_PIN", 11)
+        ptt_pin = self.pref("PTT_GPIO_PIN", self.pref("HANDSET_GPIO_PIN", 11))
+        try:
+            listen_level = normalize_listen_level(self.pref("PTT_LISTEN_LEVEL", "low"))
+            level_valid = True
+        except ValueError:
+            listen_level = ""
+            level_valid = False
+        try:
+            end_behavior = normalize_end_behavior(self.pref("PTT_END_BEHAVIOR", "cancel"))
+            behavior_valid = True
+        except ValueError:
+            end_behavior = ""
+            behavior_valid = False
+        status = "OK" if gpio_available and level_valid and behavior_valid else "FAIL"
+        if not gpio_available:
+            detail = "RPi.GPIO is not installed"
+        elif not level_valid:
+            detail = "PTT_LISTEN_LEVEL must be low or high"
+        elif not behavior_valid:
+            detail = "PTT_END_BEHAVIOR must be cancel or submit"
+        else:
+            detail = (
+                f"BCM GPIO {ptt_pin}; listening while {listen_level}; "
+                f"{end_behavior} when input leaves that state"
+            )
         self.add(
             "Runtime readiness",
-            "OK" if gpio_available else "FAIL",
-            "PTT GPIO support",
-            f"BCM GPIO {hook_pin}" if gpio_available else "RPi.GPIO is not installed",
-            required=not gpio_available,
+            status,
+            "PTT GPIO input",
+            detail,
+            required=status == "FAIL",
             roles=("ptt",),
         )
 
@@ -490,54 +613,38 @@ class Doctor:
             roles=("wakeword",),
         )
 
-    def optional_group(self, label: str, names: list[str], *, warn_detail: Optional[str] = None) -> None:
-        missing = self.missing(names)
-        if missing:
-            detail = "not configured; missing " + ", ".join(missing)
-            if warn_detail:
-                detail += f"; {warn_detail}"
-            self.add("Optional integrations", "SKIP", label, detail)
-        else:
-            self.add("Optional integrations", "OK", label, "configured")
-
     def check_optional_config(self) -> None:
-        self.optional_group("Plex", ["PLEX_URL", "PLEX_TOKEN"])
-        self.optional_group("Spotify Web API", ["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"])
-        self.optional_group("YouTube OAuth", ["YOUTUBE_OAUTH_CLIENT_ID", "YOUTUBE_OAUTH_CLIENT_SECRET", "YOUTUBE_OAUTH_REFRESH_TOKEN"])
-        self.optional_group("Uptime Kuma status page", ["UPTIME_KUMA_URL", "UPTIME_KUMA_STATUS_PAGE_SLUG"])
-        self.optional_group("qBittorrent", ["QBITTORRENT_URL", "QBITTORRENT_USERNAME", "QBITTORRENT_PASSWORD"])
-        self.optional_group("Seerr", ["SEERR_URL", "SEERR_API_KEY"])
-        self.optional_group("Radarr", ["RADARR_URL", "RADARR_API_KEY"])
-        self.optional_group("Sonarr", ["SONARR_URL", "SONARR_API_KEY"])
-        self.optional_group("Lidarr", ["LIDARR_URL", "LIDARR_API_KEY"])
-        self.optional_group("Porcupine wake word", ["PVPORCUPINE_ACCESS_KEY"])
-
-        alpaca_key = (
-            self.value("ALPACA_API_KEY_ID")
-            or self.value("APCA_API_KEY_ID")
-            or os.getenv("ALPACA_API_KEY_ID")
-            or os.getenv("APCA_API_KEY_ID")
+        optional_ids = (
+            "plex",
+            "spotify",
+            "youtube",
+            "alpaca",
+            "uptime_kuma",
+            "qbittorrent",
+            "seerr",
+            "radarr",
+            "sonarr",
+            "lidarr",
+            "porcupine",
         )
-        alpaca_secret = (
-            self.value("ALPACA_API_SECRET_KEY")
-            or self.value("APCA_API_SECRET_KEY")
-            or os.getenv("ALPACA_API_SECRET_KEY")
-            or os.getenv("APCA_API_SECRET_KEY")
-        )
-        if self.has_value(alpaca_key) and self.has_value(alpaca_secret):
-            self.add("Optional integrations", "OK", "Alpaca market data", "configured")
-        elif self.has_value(alpaca_key) or self.has_value(alpaca_secret):
-            self.add(
-                "Optional integrations",
-                "WARN",
-                "Alpaca market data",
-                "partially configured; both key ID and secret key are required",
+        for integration_id in optional_ids:
+            readiness = integration_readiness(
+                SPECS_BY_ID[integration_id],
+                self.private_config,
             )
-        else:
-            self.add("Optional integrations", "SKIP", "Alpaca market data", "not configured")
+            if readiness["status"] == "configured":
+                status = "OK"
+                detail = "configured"
+            elif readiness["status"] == "partial":
+                status = "WARN"
+                detail = "partially configured; missing " + ", ".join(readiness["missing_fields"])
+            else:
+                status = "SKIP"
+                detail = "not configured; missing " + ", ".join(readiness["missing_fields"])
+            self.add("Optional integrations", status, readiness["label"], detail)
 
-        telegram_missing = self.missing(["TELEGRAM_BOT_TOKEN"])
-        if telegram_missing:
+        telegram = integration_readiness(SPECS_BY_ID["telegram"], self.private_config)
+        if telegram["status"] != "configured":
             self.add("Optional integrations", "SKIP", "Telegram", "not configured; missing TELEGRAM_BOT_TOKEN")
         else:
             allowlists = self.has_value(self.value("TELEGRAM_ALLOWED_USER_IDS")) or self.has_value(self.value("TELEGRAM_ALLOWED_CHAT_IDS"))
@@ -596,18 +703,9 @@ class Doctor:
             self.add("Live checks", "FAIL", "Home Assistant reachable", str(exc), required=True, roles=self.ROLE_ORDER)
 
     def check_alpaca_live(self) -> None:
-        key_id = (
-            self.value("ALPACA_API_KEY_ID")
-            or self.value("APCA_API_KEY_ID")
-            or os.getenv("ALPACA_API_KEY_ID")
-            or os.getenv("APCA_API_KEY_ID")
-        )
-        secret_key = (
-            self.value("ALPACA_API_SECRET_KEY")
-            or self.value("APCA_API_SECRET_KEY")
-            or os.getenv("ALPACA_API_SECRET_KEY")
-            or os.getenv("APCA_API_SECRET_KEY")
-        )
+        credentials = credentials_for("alpaca", self.private_config)
+        key_id = credentials["ALPACA_API_KEY_ID"]
+        secret_key = credentials["ALPACA_API_SECRET_KEY"]
         if not self.has_value(key_id) or not self.has_value(secret_key):
             self.add("Live checks", "SKIP", "Alpaca market data", "not configured")
             return

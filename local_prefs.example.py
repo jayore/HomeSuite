@@ -6,23 +6,37 @@ usually describes one specific Pi, room, audio device, or speaker target.
 """
 
 # ---------------------------------------------------------------------------
-# Device identity and hardware role
+# Device role and hardware
 # ---------------------------------------------------------------------------
 
-# Friendly source id for request context, logs, dashboards, and future satellites.
-# SOURCE_ID = "kitchen_pi"
-
-# Set True on a physical handset build where GPIO/off-hook handling is present.
-# HANDSET_PRESENT = False
-
-# Active-low handset hook input in BCM numbering. Defaults to 11.
-# HANDSET_GPIO_PIN = 11
-
-# Enable push-to-talk / handset interaction on devices with the needed hardware.
+# Enable a maintained push-to-talk input. Home Suite listens for as long as the
+# selected BCM GPIO remains at PTT_LISTEN_LEVEL.
 # PTT_ENABLED = False
+# PTT_GPIO_PIN = 11
+# PTT_LISTEN_LEVEL = "low"  # "low" for a switch to ground; "high" for inverse wiring
+# PTT_END_BEHAVIOR = "cancel"  # "submit" for a conventional release-to-send button
+# WAKEWORD_SUPPRESS_WHILE_PTT = True
+
+# Optional auxiliary GPIO buttons execute command phrases but do not control
+# microphone capture. Button IDs connect the pin and action maps.
+# PHYSICAL_BUTTONS_ENABLED = False
+# PHYSICAL_BUTTON_ACTIVE_LOW = True
+# PHYSICAL_BUTTON_PULL_UP = True
+# PHYSICAL_BUTTON_PINS = {
+#     1: 2,
+#     2: 3,
+# }
+# PHYSICAL_BUTTON_ACTIONS = {
+#     1: {"press": "turn on the office light", "long_press": "turn it off"},
+#     2: {"press": "toggle play pause"},
+# }
 
 # Enable wake-word listening for far-field devices.
 # WAKEWORD_ENABLED = False
+#
+# PTT and wake-word listening may both be enabled on one device. With
+# WAKEWORD_SUPPRESS_WHILE_PTT=True, wake-word detection pauses only during an
+# active PTT session and resumes when that session closes.
 
 # Wake-word engine. Common values are "openwakeword" or "porcupine".
 # WAKEWORD_ENGINE = "openwakeword"
@@ -54,7 +68,7 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # WAKEWORD_BARGE_IN_ENABLED = True
 # WAKEWORD_BARGE_IN_THRESHOLD = 0.4
 
-# If a handset needs a slight delay before the chime so it reaches your ear.
+# Optional delay before the first PTT cue; usually zero for a held button.
 # START_CHIME_DELAY_SECONDS = 0.0
 
 
@@ -82,7 +96,8 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # Audio device hints
 # ---------------------------------------------------------------------------
 
-# ALSA output device for local playback. Examples:
+# Optional ALSA output override for local playback. Leave unset to use the
+# service environment or ALSA default. Stable card IDs survive card renumbering.
 # HOMESUITE_ALSA_DEVICE = "default"
 # HOMESUITE_ALSA_DEVICE = "dmix:CARD=Device,DEV=0"
 
@@ -139,6 +154,11 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # that should not accept companion-client connections.
 # UNIFIED_SERVER_ENABLED = True
 # UNIFIED_SERVER_PORT = 8765
+
+# The separate authenticated management console defaults to every LAN
+# interface on port 8766. Bind to 127.0.0.1 when using an SSH tunnel only.
+# CONSOLE_HOST = "0.0.0.0"
+# CONSOLE_PORT = 8766
 
 
 # ---------------------------------------------------------------------------

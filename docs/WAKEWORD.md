@@ -94,7 +94,6 @@ WAKEWORD_THRESHOLD = 0.5
 WAKEWORD_VAD_THRESHOLD = 0.5
 
 PTT_ENABLED = False
-HANDSET_PRESENT = False
 ```
 
 At startup, confirm that the selected label is actually among the loaded model
@@ -110,8 +109,12 @@ Loading a built-in fallback model by accident makes threshold work misleading.
 
 ## Configure the Microphone
 
-Use a named `AUDIO_INPUT_PROFILE` in `local_prefs.py`. Name matching is more
-stable than a PortAudio index, which may change after a reboot or USB change.
+Open the management console's **Audio** view for the guided path. It discovers
+the node's capture hardware, displays stable ALSA IDs, and edits the same
+`AUDIO_INPUT_PROFILE` used by the runtime. The direct-file equivalent is a
+named profile in `local_prefs.py`. Profiles may omit unchanged fields; Home
+Suite fills them from conservative defaults. Name matching is more stable than
+a PortAudio index, which may change after a reboot or USB change.
 
 ```python
 AUDIO_INPUT_PROFILE = {
@@ -168,7 +171,13 @@ and sent to the configured ALSA output independently.
 
 ## Calibrate Capture Gain
 
-Stop the service first so the calibration tool can own the microphone:
+The recommended path is **Audio > Start calibration** in the management
+console. It safely asks the running service to pause continuous wake-word
+capture, records room noise and normal speech, and resumes the detector after
+completion, cancellation, failure, or timeout. It does not change or save gain
+automatically; use the results to make a deliberate reviewed edit.
+
+For a headless node, stop the service so the CLI tool can own the microphone:
 
 ```bash
 sudo systemctl stop homesuite.service

@@ -23,6 +23,13 @@ class InstallContractTests(unittest.TestCase):
 
         self.assertIn('pip install --upgrade pip wheel "setuptools<81"', script)
 
+    def test_systemd_install_includes_separate_management_console(self):
+        script = (ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("homesuite-console.service.template", script)
+        self.assertIn("/etc/systemd/system/homesuite-console.service", script)
+        self.assertIn("enable homesuite.service homesuite-console.service", script)
+
 
 if __name__ == "__main__":
     unittest.main()

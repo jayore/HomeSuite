@@ -22,10 +22,16 @@ cp local_prefs.example.py local_prefs.py
 
 Never commit real local config files to a public repo.
 
+The management console presents guided fields and a complete inventory of
+effective file-managed overrides. The inventory classifies each assignment as
+guided, advanced, deprecated, or unrecognized, so a setting remains visible
+even before it receives a dedicated editor. `homesuite doctor` reports the
+same deprecated and unrecognized assignments.
+
 Use `deployment_config.py` for non-secret values shared by every device, such
 as `ROOMS`, `HOME_LOCATION`, and entity labels. Use `private_config.py` for
 shared secrets and endpoints. Use `local_prefs.py` for one device's audio,
-wake-word, handset, source, and output behavior.
+wake-word, PTT, source, and output behavior.
 
 The deployment template also starts home-specific catalogs empty. Populate
 `HA_DEVICE_ALIASES`, `HA_TRIGGER_ALIASES`, pinned playlists/stations,
@@ -33,10 +39,11 @@ The deployment template also starts home-specific catalogs empty. Populate
 pronunciation overrides there when you need them. This prevents a fresh install
 from inheriting the original deployment's entities or personal media choices.
 
-Choose one or more node roles before tuning every setting. A text/API node can
-keep both `PTT_ENABLED` and `WAKEWORD_ENABLED` false; a handset node needs only
+Choose one or more node capabilities before tuning every setting. A text/API node can
+keep both `PTT_ENABLED` and `WAKEWORD_ENABLED` false; a PTT node needs only
 PTT settings; and a wake-word appliance needs a stable microphone profile and
-model. See [Deployment roles](DEPLOYMENT_ROLES.md) and run
+model. A combined device can enable both; wake-word suppression applies only
+while PTT capture is active. See [Deployment roles](DEPLOYMENT_ROLES.md) and run
 `homesuite doctor --role <role>` to validate a specific target.
 
 ## Optional Integrations
@@ -58,7 +65,6 @@ OPENAI_API_KEY = ""  # Optional until conversation or voice is enabled.
 HA_URL = "http://homeassistant.local:8123"
 HA_TOKEN = "..."
 HOMESUITE_HTTP_API_KEY = "choose-a-random-local-api-key"
-PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
 Then configure the device role in `local_prefs.py`, for example:
@@ -68,7 +74,6 @@ DEFAULT_ROOM = "living_room"
 ASSISTANT_AUDIO_OUTPUT_MODE = "local"
 WAKEWORD_ENABLED = False
 PTT_ENABLED = False
-HANDSET_PRESENT = False
 ```
 
 Run the doctor command after editing config:
@@ -588,7 +593,6 @@ clients that call Home Suite over HTTP or WebSocket:
 
 ```python
 HOMESUITE_HTTP_API_KEY = "a-long-random-string"
-PIPHONE_HTTP_API_KEY = HOMESUITE_HTTP_API_KEY
 ```
 
 The API component fails closed when the key is blank. `/health` and `/healthz`
@@ -596,6 +600,37 @@ remain public; all other routes require authentication. Use the same value in
 Raycast, menu-bar clients, satellites, or other tools that call Home Suite.
 Telegram loads the shared command runtime in its own companion service and
 does not require this API. See [API.md](API.md).
+
+## Management Console
+
+The separate browser console uses these node settings:
+
+```python
+# app_config.py defaults; override per node in local_prefs.py when needed.
+CONSOLE_HOST = "0.0.0.0"
+CONSOLE_PORT = 8766
+```
+
+Its optional private passphrase is:
+
+```python
+HOMESUITE_CONSOLE_KEY = ""
+```
+
+Blank means reuse `HOMESUITE_HTTP_API_KEY`; both blank means the console fails
+closed. The console reports effective values, rooms, integration readiness,
+and Doctor results. Its guided editors can update an allowlisted set of common
+values in `local_prefs.py` and `private_config.py`, plus the canonical shared
+`ROOMS` assignment in `deployment_config.py`. Structured editors keep room
+topology, auxiliary GPIO button pin/action maps, and device-local audio profiles
+aligned without exposing arbitrary Python editing in the browser.
+Each field explains its purpose and expected format. Read-only views redact
+credentials; authenticated Edit mode loads them into masked, revealable
+fields. Home Suite shows a semantic review, creates a private backup, and
+validates the resulting Python before an atomic write. It does not restart
+services automatically. Low-level deployment policy remains a direct file
+edit. The separate text surface supports explicit Test and Live modes. See
+[CONSOLE.md](CONSOLE.md).
 
 ## Plex
 
@@ -757,9 +792,12 @@ WAKEWORD_USE_STREAMING_STT = True
 WAKEWORD_STT_MODE = "realtime_stream"
 ```
 
-Define `AUDIO_INPUT_PROFILE` in the same file using a stable microphone name,
-the hardware-supported sample rate, and optional ALSA mixer enforcement. Do not
-assume a PortAudio device index will remain stable after reboots or USB changes.
+Use the management console's **Audio** view to inspect or edit
+`AUDIO_INPUT_PROFILE`, test local playback, and run guided calibration. The
+equivalent direct configuration belongs in `local_prefs.py` and may contain
+only values that differ from the documented defaults. Prefer a stable
+microphone name and ALSA card ID; do not assume a PortAudio device index or
+numeric ALSA card number will remain stable after reboots or USB changes.
 
 Porcupine remains supported as a compatibility engine. Its access key is a
 secret and belongs in `private_config.py`:

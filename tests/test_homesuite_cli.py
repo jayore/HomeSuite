@@ -21,6 +21,14 @@ class HomeSuiteCliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(run.call_args.args[1], ["--live"])
 
+    def test_console_subcommand_forwards_server_options(self):
+        with mock.patch.object(homesuite_cli, "_run_script", return_value=0) as run:
+            result = homesuite_cli.main(["console", "--port", "9000"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(run.call_args.args[0], homesuite_cli.ROOT / "console_server.py")
+        self.assertEqual(run.call_args.args[1], ["--port", "9000"])
+
     def test_status_delegates_to_live_doctor(self):
         with mock.patch.object(homesuite_cli, "_status", return_value=0) as status:
             result = homesuite_cli.main(["status"])

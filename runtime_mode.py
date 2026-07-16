@@ -27,6 +27,10 @@ need a consistent test-vs-live decision for direct execution.
 Current intended use:
 -   plex_controls.py
 -   announcement_controls.py
+-   applet_controls.py
+-   spotify_controls.py
+-   youtube_controls.py
+-   homelab_controls.py
 
 Intentionally deferred / not automatically covered:
 -   scheduler persistence/validation policy in schedule_controls.py

@@ -133,16 +133,26 @@ if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
     echo "Missing deploy/systemd/homesuite.service.template" >&2
     exit 1
   fi
+  if [[ ! -f deploy/systemd/homesuite-console.service.template ]]; then
+    echo "Missing deploy/systemd/homesuite-console.service.template" >&2
+    exit 1
+  fi
   tmp_unit="$(mktemp)"
+  tmp_console_unit="$(mktemp)"
   sed     -e "s#@HOMESUITE_USER@#$(id -un)#g"     -e "s#@HOMESUITE_DIR@#$INSTALL_DIR#g"     deploy/systemd/homesuite.service.template > "$tmp_unit"
+  sed     -e "s#@HOMESUITE_USER@#$(id -un)#g"     -e "s#@HOMESUITE_DIR@#$INSTALL_DIR#g"     deploy/systemd/homesuite-console.service.template > "$tmp_console_unit"
   $SUDO install -m 0644 "$tmp_unit" /etc/systemd/system/homesuite.service
-  rm -f "$tmp_unit"
+  $SUDO install -m 0644 "$tmp_console_unit" /etc/systemd/system/homesuite-console.service
+  rm -f "$tmp_unit" "$tmp_console_unit"
   $SUDO systemctl daemon-reload
-  $SUDO systemctl enable homesuite.service
+  $SUDO systemctl enable homesuite.service homesuite-console.service
   if [[ "$START_SERVICE" == "1" ]]; then
+    $SUDO systemctl restart homesuite-console.service
+    $SUDO systemctl --no-pager --full status homesuite-console.service || true
     echo "Validating configuration before service start..."
     if ! .venv/bin/python tools/doctor.py; then
       echo "Refusing to start homesuite.service until required configuration checks pass." >&2
+      echo "The read-only console remains available for inspecting setup." >&2
       exit 1
     fi
     $SUDO systemctl restart homesuite.service
@@ -162,7 +172,11 @@ Next steps:
   4. Check setup and test command routing:
        homesuite doctor
        homesuite test "service status"
-  5. Start or restart the service when ready:
+  5. Open the console in a foreground process, or start its installed service:
+       homesuite console
+       sudo systemctl start homesuite-console.service
+       http://<this-node>:8766
+  6. Start or restart the voice/runtime service when ready:
        sudo systemctl restart homesuite.service
 
 For later updates, use:

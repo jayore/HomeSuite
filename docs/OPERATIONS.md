@@ -19,6 +19,8 @@ The service also appears in `journalctl`:
 ```bash
 sudo systemctl status homesuite.service --no-pager -l
 journalctl -u homesuite.service -f -o cat
+sudo systemctl status homesuite-console.service --no-pager -l
+journalctl -u homesuite-console.service -f -o cat
 ```
 
 The primary file log is `~/homesuite/homesuite.log`. Structured command-event
@@ -65,6 +67,10 @@ names, package versions, service state, and log sizes. It never includes
 `private_config.py`, local configuration values, tokens, raw logs, or command
 text.
 
+The management console's Diagnostics view provides the same bundle as a direct
+download. The browser path adds a strict archive-member allowlist and size cap;
+it does not create a second diagnostic format.
+
 ## Before and After Changes
 
 After a configuration or code update:
@@ -79,3 +85,17 @@ interfaces by default so companion clients can reach it; `/health` is public
 for monitoring, while state, WebSocket, manifest, and command routes require
 `HOMESUITE_HTTP_API_KEY`. Do not expose the port directly to the public
 internet.
+
+The management console follows the same network rule on port `8766`. It
+requires a passphrase and browser session for all configuration, diagnostics,
+and command routes; only `/health` is public. It has no built-in TLS. Keep it on
+a trusted LAN or VPN, or place it behind a trusted HTTPS reverse proxy. See
+[CONSOLE.md](CONSOLE.md).
+
+Console configuration changes are reviewed before they are written. For each
+apply, Home Suite copies every affected file into a private timestamped
+directory under `backups/console/`, then performs validated atomic writes. If a
+multi-file write fails, it attempts to restore files from the pre-write
+contents. The console reports which services need a restart but never restarts
+them automatically, so voice capture and active timers are not interrupted by
+an edit.

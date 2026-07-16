@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 import math
-import os
 import re
 import threading
 import time
@@ -20,6 +19,8 @@ from typing import Any, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 import requests
+
+from integration_registry import credentials_for
 
 from app_config import (
     STOCK_MARKET_CLOCK_CACHE_SECONDS,
@@ -258,24 +259,19 @@ def looks_like_stock_query(text: str) -> bool:
     return parse_stock_query(text) is not None
 
 
-def _private_value(*names: str) -> str:
+def _private_config_module():
     try:
         import private_config
     except Exception:
-        private_config = None
-
-    for name in names:
-        value = getattr(private_config, name, "") if private_config is not None else ""
-        value = str(value or os.getenv(name, "") or "").strip()
-        if value:
-            return value
-    return ""
+        return None
+    return private_config
 
 
 def _credentials() -> tuple[str, str]:
+    values = credentials_for("alpaca", _private_config_module())
     return (
-        _private_value("ALPACA_API_KEY_ID", "APCA_API_KEY_ID"),
-        _private_value("ALPACA_API_SECRET_KEY", "APCA_API_SECRET_KEY"),
+        str(values["ALPACA_API_KEY_ID"] or "").strip(),
+        str(values["ALPACA_API_SECRET_KEY"] or "").strip(),
     )
 
 

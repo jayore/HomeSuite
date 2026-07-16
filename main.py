@@ -4,7 +4,7 @@ This process owns the Raspberry Pi hardware lifecycle and composes the shared
 audio, transcription, routing, Home Assistant, applet, and response modules.
 There are two intentionally distinct capture paths:
 
-* PTT opens an utterance when the handset/button state requests it.
+* PTT opens an utterance while its configured GPIO input state is active.
 * Wakeword mode continuously scores one microphone stream and hands that same
   stream to command capture after detection, preserving one-breath commands.
 
@@ -23,9 +23,16 @@ except Exception:
 import asyncio
 from realtime_streaming_stt import StreamingTranscriber
 from wakeword_listener import WakewordListener
+from ptt_input import (
+    exit_cancels_capture,
+    input_is_listening,
+    listen_level_value,
+    normalize_end_behavior,
+)
 # ---------------------------------------------------------------------------
-# RT streaming warmup (OFFHOOK): prime the realtime streaming STT connection
-# so the first utterance doesn't lose its opening words.
+# RT streaming warmup: prime the realtime streaming STT connection when PTT
+# activates so the first utterance does not lose its opening words. Existing
+# OFFHOOK setting and log names remain for compatibility.
 # Controlled via:
 #   PIPHONE_STT_MODE in ("realtime_stream","rt_stream","realtime_streaming")
 #   PIPHONE_RT_WARMUP_SILENCE_MS (default 700)
@@ -49,7 +56,7 @@ def _rt_warmup_cancel(rt):
         pass
 
 def _rt_warmup_start_on_offhook():
-    """Start and prime a streaming transcriber when the PTT handset goes off-hook."""
+    """Start and prime a streaming transcriber when PTT becomes active."""
     try:
         from app_config import RT_OFFHOOK_WARMUP_ENABLED
         if not bool(RT_OFFHOOK_WARMUP_ENABLED):
@@ -59,7 +66,7 @@ def _rt_warmup_start_on_offhook():
         pass
     if not _rt_warmup_enabled():
         return
-    # Only warm once per offhook session (or until taken).
+    # Only warm once per PTT session (or until taken).
     if _RT_WARMUP_STATE.get("rt") is not None:
         return
 
@@ -207,6 +214,31 @@ def _ptt_enabled() -> bool:
     return _pref_bool("PTT_ENABLED", False)
 
 
+def _ptt_listen_level_value() -> int:
+    """Return the GPIO level that represents an active PTT session."""
+    return listen_level_value(_pref_str("PTT_LISTEN_LEVEL", "low"))
+
+
+def _ptt_end_behavior() -> str:
+    return normalize_end_behavior(_pref_str("PTT_END_BEHAVIOR", "cancel"))
+
+
+def _ptt_exit_cancels_capture() -> bool:
+    return exit_cancels_capture(_ptt_end_behavior())
+
+
+def _ptt_input_is_listening() -> bool:
+    """Read the canonical PTT GPIO and apply its configured listen level."""
+    if bool(globals().get("_AUDIO_CALIBRATION_LEASE")):
+        return False
+    return _ptt_hardware_is_listening()
+
+
+def _ptt_hardware_is_listening() -> bool:
+    """Read the physical PTT state without management-calibration gating."""
+    return input_is_listening(GPIO.input(PTT_GPIO_PIN), _pref_str("PTT_LISTEN_LEVEL", "low"))
+
+
 def _wakeword_enabled() -> bool:
     return _pref_bool("WAKEWORD_ENABLED", False)
 
@@ -219,8 +251,8 @@ def _wakeword_model_name() -> str:
     return (_pref_str("WAKEWORD_MODEL", "") or "").strip()
 
 
-def _wakeword_only_onhook() -> bool:
-    return _pref_bool("WAKEWORD_ONLY_ONHOOK", True)
+def _wakeword_suppress_while_ptt() -> bool:
+    return _pref_bool("WAKEWORD_SUPPRESS_WHILE_PTT", True)
 
 
 def _wakeword_chime_enabled() -> bool:
@@ -435,6 +467,7 @@ PIPHONE_LIGHT_IMPORT = (os.environ.get("PIPHONE_LIGHT_IMPORT") == "1")
 if not PIPHONE_NO_RUNTIME_INIT and not PIPHONE_LIGHT_IMPORT:
     time.sleep(2)
 
+import hmac
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -458,7 +491,7 @@ _PIPHONE_PERF_T0 = time.monotonic()
 
 # =========================
 # IDLE_MIC_EXERCISER_V2
-# Keep the local mic/driver "warm" BEFORE OFFHOOK by periodically exercising the input device.
+# Keep the local mic/driver warm before PTT activation by exercising the input.
 # This is local-only (no OpenAI calls, no tokens).
 # Controls:
 #   PIPHONE_MIC_EXERCISE_BOOT_MS        (default 0)   e.g. 12000 to pre-warm at startup
@@ -484,18 +517,18 @@ def _mic_exercise_once(label="idle", duration_ms=250):
         if duration_ms <= 0:
             return
 
-        # Avoid exercising while actively off-hook / speaking / processing
+        # Avoid exercising while PTT is active, speaking, or processing.
         try:
-            if globals().get("button_pressed") or globals().get("is_speaking") or globals().get("is_processing"):
+            if globals().get("ptt_input_active") or globals().get("is_speaking") or globals().get("is_processing"):
                 return
         except Exception:
             pass
 
-        # If GPIO available and handset is up, skip
+        # Do not exercise the microphone during an active PTT session.
         try:
-            if 'GPIO' in globals() and 'GPIO_PIN' in globals():
+            if _ptt_enabled() and 'GPIO' in globals() and 'PTT_GPIO_PIN' in globals():
                 try:
-                    if GPIO.input(GPIO_PIN) == 0:
+                    if _ptt_input_is_listening():
                         return
                 except Exception:
                     pass
@@ -606,16 +639,16 @@ def _rt_keepwarm_should_skip_reason() -> str:
         pass
 
     try:
-        if globals().get("button_pressed"):
-            return "offhook"
+        if globals().get("ptt_input_active"):
+            return "ptt_active"
     except Exception:
         pass
 
     try:
-        if 'GPIO' in globals() and 'GPIO_PIN' in globals():
+        if _ptt_enabled() and 'GPIO' in globals() and 'PTT_GPIO_PIN' in globals():
             try:
-                if GPIO.input(GPIO_PIN) == 0:
-                    return "offhook"
+                if _ptt_input_is_listening():
+                    return "ptt_active"
             except Exception:
                 pass
     except Exception:
@@ -1068,7 +1101,7 @@ except ImportError:
     print("Error: Could not import secrets. Please create private_config.py with your API keys.")
     sys.exit(1)
 
-LOG_PATH = str(BASE_DIR / "homesuite.log")
+LOG_PATH = str(os.environ.get("HOMESUITE_RUNTIME_LOG_PATH") or (BASE_DIR / "homesuite.log"))
 try:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -1119,20 +1152,25 @@ try:
 except Exception as e:
     print(f"LOGGING_INIT FAILED: {e}")
 
-# GPIO setup
+# PTT GPIO setup
 try:
-    GPIO_PIN = int(_pref_value("HANDSET_GPIO_PIN", 11) or 11)
+    PTT_GPIO_PIN = int(_pref_value("PTT_GPIO_PIN", 11) or 11)
 except (TypeError, ValueError):
-    GPIO_PIN = 11
-    logging.warning("HANDSET_GPIO_PIN_INVALID; using BCM GPIO 11")
+    PTT_GPIO_PIN = 11
+    logging.warning("PTT_GPIO_PIN_INVALID; using BCM GPIO 11")
 
-if not PIPHONE_NO_RUNTIME_INIT and GPIO is not None:
+if not PIPHONE_NO_RUNTIME_INIT and _ptt_enabled() and GPIO is not None:
     try:
         GPIO.cleanup()
     except Exception:
         pass
     GPIO.setmode(GPIO.BCM)
-    GPIO.setup(GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    try:
+        _ptt_listen_level_value()
+        _ptt_end_behavior()
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    GPIO.setup(PTT_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 elif not PIPHONE_NO_RUNTIME_INIT and _ptt_enabled():
     raise RuntimeError("PTT is enabled but RPi.GPIO is unavailable on this node")
 elif not PIPHONE_NO_RUNTIME_INIT:
@@ -1147,10 +1185,15 @@ ASSETS_DIR = BASE_DIR / "assets"
 START_SOUND   = str(ASSETS_DIR / "Blow.mp3")
 FINISH_SOUND  = str(ASSETS_DIR / "Glass.mp3")
 
-# Force mpg123 to ALSA + your default device (respects .asoundrc)
-# Force mpg123 to ALSA. Use a specific ALSA device to avoid intermittent "default" mapping issues.
-# Override via env: PIPHONE_ALSA_DEVICE (examples from `aplay -L`: plughw:CARD=Device,DEV=0)
-PIPHONE_ALSA_DEVICE = os.environ.get("PIPHONE_ALSA_DEVICE", "default")
+# Force mpg123 to ALSA. A local preference selected in the management console
+# takes precedence; existing HOMESUITE_/PIPHONE_ service environment values
+# remain the fallback for deployments that already manage audio in systemd.
+PIPHONE_ALSA_DEVICE = (
+    _pref_str("HOMESUITE_ALSA_DEVICE", "").strip()
+    or os.environ.get("HOMESUITE_ALSA_DEVICE")
+    or os.environ.get("PIPHONE_ALSA_DEVICE")
+    or "default"
+)
 MPG123_CMD = ["mpg123", "-o", "alsa", "-a", PIPHONE_ALSA_DEVICE, "-q"]
 
 # Track nonblocking mpg123 processes (chimes/fx) so TTS can preempt them.
@@ -1163,26 +1206,29 @@ OPENAI_CLIENT = (openai.OpenAI(api_key=OPENAI_API_KEY) if openai is not None els
 
 is_speaking = False
 is_processing = False
-button_pressed = False
+ptt_input_active = False
 _WAKEWORD_LISTENER = None
 _WAKEWORD_DETECTION_IN_PROGRESS = False
+_AUDIO_CALIBRATION_LEASE = None
+_AUDIO_CALIBRATION_TIMER = None
+_AUDIO_CALIBRATION_LOCK = threading.RLock()
 
 last_start_chime_ts = 0.0
 
 
-_audio_ensured_in_session = False  # reset per off-hook session
+_audio_ensured_in_session = False  # reset per PTT session
 
 _start_delay_applied_in_session = False
 
 _start_chime_played_in_session = False
-  # reset on handset lift; gates START_CHIME_DELAY_SECONDS
+  # reset when PTT activates; gates START_CHIME_DELAY_SECONDS
 
 last_tts_end_ts = 0.0
 TTS_COOLDOWN_SECONDS = 0.8
 lock = threading.Lock()
 audio_device_lock = threading.Lock()
 
-# Track current TTS proc so we can stop it instantly on hang-up
+# Track current TTS process so leaving PTT can stop it immediately.
 current_tts_proc = None
 tts_proc_lock = threading.Lock()
 
@@ -1459,7 +1505,7 @@ def _record_audio_with_vad_wakeword() -> Optional[str]:
     """
     Wakeword-triggered utterance capture wrapper.
 
-    Uses the shared VAD capture core but does NOT rely on handset off-hook state.
+    Uses the shared VAD capture core but does not rely on PTT input state.
     This keeps endpointing behavior aligned with the existing PTT capture path.
     """
     _trace_audio_event("wakeword_record_legacy_enter")
@@ -1498,9 +1544,9 @@ def _record_audio_with_vad_wakeword() -> Optional[str]:
             continue_recording_fn=lambda: (
                 (time.time() - start_ts) < MAX_UTTERANCE_SECONDS
                 and not bool(globals().get("is_speaking"))
-                and not bool(globals().get("button_pressed"))
+                and not bool(globals().get("ptt_input_active"))
             ),
-            cancelled_fn=lambda: bool(globals().get("button_pressed")),
+            cancelled_fn=lambda: bool(globals().get("ptt_input_active")),
         )
 
         if out:
@@ -1769,7 +1815,7 @@ def _record_audio_with_vad_wakeword_stream(
             return (
                 (time.monotonic() - start_ts) < wake_max_seconds
                 and not bool(globals().get("is_speaking"))
-                and not bool(globals().get("button_pressed"))
+                and not bool(globals().get("ptt_input_active"))
             )
 
         # Keep a capped pre-trigger tail available for one-breath recovery, but
@@ -1825,7 +1871,7 @@ def _record_audio_with_vad_wakeword_stream(
             frame_reader=frame_reader,
             sample_rate=sr,
             continue_recording_fn=_continue_recording,
-            cancelled_fn=lambda: bool(globals().get("button_pressed")),
+            cancelled_fn=lambda: bool(globals().get("ptt_input_active")),
             pre_roll_frames=wake_pre_roll_frames,
             silence_end_frames=wake_silence_end_frames,
             min_speech_frames=wake_min_speech_frames,
@@ -2064,6 +2110,9 @@ def _process_wakeword_interaction() -> bool:
 
 
 def _wakeword_suppress_reason() -> str:
+    if bool(globals().get("_AUDIO_CALIBRATION_LEASE")):
+        return "audio_calibration"
+
     try:
         if not _wakeword_enabled():
             return "feature_disabled"
@@ -2071,15 +2120,15 @@ def _wakeword_suppress_reason() -> str:
         return "feature_disabled"
 
     try:
-        if _wakeword_only_onhook() and bool(globals().get("button_pressed")):
-            return "offhook"
+        if _wakeword_suppress_while_ptt() and bool(globals().get("ptt_input_active")):
+            return "ptt_active"
     except Exception:
         pass
 
     try:
-        if _wakeword_only_onhook():
-            if GPIO.input(GPIO_PIN) == 0:
-                return "offhook"
+        if _wakeword_suppress_while_ptt() and _ptt_enabled():
+            if _ptt_input_is_listening():
+                return "ptt_active"
     except Exception:
         pass
 
@@ -2237,6 +2286,10 @@ def _handle_wakeword_detected(**kwargs) -> None:
 def _start_wakeword_listener_if_enabled() -> bool:
     global _WAKEWORD_LISTENER
 
+    if bool(globals().get("_AUDIO_CALIBRATION_LEASE")):
+        logging.info("WAKEWORD_LISTENER_SKIP reason=audio_calibration")
+        return False
+
     try:
         if not _wakeword_enabled():
             logging.info("WAKEWORD_LISTENER_SKIP reason=feature_disabled")
@@ -2293,6 +2346,287 @@ def _restart_wakeword_listener_after_exclusive_audio_applet(name: str) -> None:
         logging.exception("APPLET_AUDIO_HANDOFF_AFTER_STOP_FAIL applet=%s", name)
 
 
+def _audio_calibration_busy_reason() -> str:
+    if bool(globals().get("is_processing")):
+        return "Home Suite is processing a command. Try again in a moment."
+    if bool(globals().get("is_speaking")):
+        return "Home Suite is speaking. Try again when the response ends."
+    if bool(globals().get("_WAKEWORD_DETECTION_IN_PROGRESS")):
+        return "A wake-word interaction is in progress. Try again in a moment."
+    if bool(globals().get("ptt_input_active")):
+        return "Push-to-talk is active. Release the input and try again."
+    try:
+        if _ptt_enabled() and _ptt_hardware_is_listening():
+            return "Push-to-talk is active. Release the input and try again."
+    except Exception:
+        pass
+    return ""
+
+
+def _schedule_audio_calibration_expiry(token: str, lease_seconds: float) -> None:
+    global _AUDIO_CALIBRATION_TIMER
+    current = _AUDIO_CALIBRATION_TIMER
+    if current is not None:
+        try:
+            current.cancel()
+        except Exception:
+            pass
+
+    def _expire() -> None:
+        try:
+            release_audio_calibration_lease(token, reason="timeout")
+        except Exception:
+            logging.exception("AUDIO_CALIBRATION_AUTO_RESUME_FAIL")
+
+    timer = threading.Timer(max(1.0, float(lease_seconds)), _expire)
+    timer.daemon = True
+    _AUDIO_CALIBRATION_TIMER = timer
+    timer.start()
+
+
+def audio_calibration_status() -> dict:
+    """Return safe runtime coordination state for the local management console."""
+    lease = None
+    with _AUDIO_CALIBRATION_LOCK:
+        current = _AUDIO_CALIBRATION_LEASE
+        if isinstance(current, dict):
+            lease = dict(current)
+    now = time.monotonic()
+    return {
+        "available": True,
+        "active": bool(lease),
+        "owner": str((lease or {}).get("owner") or "") or None,
+        "expires_in_sec": max(0.0, float((lease or {}).get("expires_at") or 0.0) - now) if lease else 0.0,
+        "wakeword_paused": bool((lease or {}).get("restart_wakeword")),
+        "wakeword_enabled": bool(_wakeword_enabled()),
+        "ptt_enabled": bool(_ptt_enabled()),
+        "busy_reason": None if lease else (_audio_calibration_busy_reason() or None),
+    }
+
+
+def acquire_audio_calibration_lease(
+    owner: str = "management_console",
+    lease_seconds: float = 45.0,
+) -> dict:
+    """Pause voice capture long enough for one guided calibration session."""
+    global _AUDIO_CALIBRATION_LEASE, _AUDIO_CALIBRATION_TIMER, _WAKEWORD_LISTENER
+    duration = max(15.0, min(90.0, float(lease_seconds)))
+    wakeword_stopped = False
+    with _AUDIO_CALIBRATION_LOCK:
+        if _AUDIO_CALIBRATION_LEASE:
+            raise RuntimeError("Microphone calibration is already active on this node.")
+        busy_reason = _audio_calibration_busy_reason()
+        if busy_reason:
+            raise RuntimeError(busy_reason)
+        token = uuid.uuid4().hex
+        restart_wakeword = _WAKEWORD_LISTENER is not None
+        _AUDIO_CALIBRATION_LEASE = {
+            "token": token,
+            "owner": str(owner or "management_console")[:80],
+            "started_at": time.monotonic(),
+            "expires_at": time.monotonic() + duration,
+            "restart_wakeword": restart_wakeword,
+        }
+
+    try:
+        listener = _WAKEWORD_LISTENER
+        if listener is not None:
+            logging.info("AUDIO_CALIBRATION_WAKEWORD_STOP owner=%r", owner)
+            try:
+                listener.stop()
+            finally:
+                _WAKEWORD_LISTENER = None
+                wakeword_stopped = True
+            time.sleep(0.25)
+        with _AUDIO_CALIBRATION_LOCK:
+            _schedule_audio_calibration_expiry(token, duration)
+        logging.info(
+            "AUDIO_CALIBRATION_ACQUIRED owner=%r lease_sec=%.1f wakeword_paused=%s",
+            owner,
+            duration,
+            restart_wakeword,
+        )
+        return {"ok": True, "token": token, **audio_calibration_status()}
+    except Exception:
+        with _AUDIO_CALIBRATION_LOCK:
+            timer = _AUDIO_CALIBRATION_TIMER
+            _AUDIO_CALIBRATION_LEASE = None
+            _AUDIO_CALIBRATION_TIMER = None
+            if timer is not None and timer is not threading.current_thread():
+                try:
+                    timer.cancel()
+                except Exception:
+                    pass
+        if wakeword_stopped:
+            try:
+                _start_wakeword_listener_if_enabled()
+            except Exception:
+                logging.exception("AUDIO_CALIBRATION_ACQUIRE_RECOVERY_FAIL")
+        logging.exception("AUDIO_CALIBRATION_ACQUIRE_FAIL")
+        raise
+
+
+def _validate_audio_calibration_token(token: str, *, extend_seconds: float = 45.0) -> dict:
+    with _AUDIO_CALIBRATION_LOCK:
+        lease = _AUDIO_CALIBRATION_LEASE
+        if not isinstance(lease, dict) or not hmac.compare_digest(
+            str(lease.get("token") or ""), str(token or "")
+        ):
+            raise RuntimeError("The microphone calibration session has expired.")
+        duration = max(15.0, min(90.0, float(extend_seconds)))
+        lease["expires_at"] = time.monotonic() + duration
+        _schedule_audio_calibration_expiry(str(lease["token"]), duration)
+        return dict(lease)
+
+
+def _audio_calibration_capture_profile(profile: Optional[dict] = None) -> dict:
+    """Match calibration buffering to the active capture role on this node."""
+    from audio_input_profile import get_audio_input_profile
+
+    active_profile = get_audio_input_profile()
+    if isinstance(profile, dict):
+        active_profile.update(profile)
+    if _ptt_enabled() and not _wakeword_enabled():
+        active_profile["stream_latency"] = "high"
+    return active_profile
+
+
+def capture_audio_calibration_segment(
+    token: str,
+    *,
+    phase: str,
+    seconds: float,
+    profile: Optional[dict] = None,
+    noise_metrics: Optional[dict] = None,
+) -> dict:
+    """Capture one quiet or speech segment while the runtime owns the pause."""
+    _validate_audio_calibration_token(token)
+    normalized_phase = str(phase or "").strip().lower()
+    if normalized_phase not in {"noise", "speech"}:
+        raise ValueError("Calibration phase must be noise or speech.")
+
+    from audio_calibration import (
+        audio_metrics,
+        calibration_adjustments,
+        calibration_recommendations,
+        calibration_status as measure_status,
+        capture_audio_segment,
+    )
+    from audio_input_profile import enforce_capture_settings
+
+    active_profile = _audio_calibration_capture_profile(profile)
+    enforce_capture_settings(active_profile, logger=logging, reason="console_calibration", force=True)
+    with audio_device_lock:
+        samples, overflows, device = capture_audio_segment(
+            active_profile,
+            seconds=max(0.5, min(10.0, float(seconds))),
+            block_ms=10,
+        )
+    metrics = audio_metrics(samples, int(device["sample_rate"]), 100)
+    recommendations = []
+    adjustments = []
+    status = None
+    if normalized_phase == "speech":
+        safe_noise = noise_metrics if isinstance(noise_metrics, dict) else None
+        try:
+            noise_overflows = max(0, int((safe_noise or {}).get("overflow_count") or 0))
+        except (TypeError, ValueError):
+            noise_overflows = 0
+        total_overflows = overflows + noise_overflows
+        recommendations = calibration_recommendations(
+            safe_noise,
+            metrics,
+            overflow_count=total_overflows,
+        )
+        adjustments = calibration_adjustments(
+            safe_noise,
+            metrics,
+            active_profile,
+            overflow_count=total_overflows,
+            wakeword_enabled=_wakeword_enabled(),
+            ptt_enabled=_ptt_enabled(),
+        )
+        status = measure_status(safe_noise, metrics, overflow_count=total_overflows)
+    _validate_audio_calibration_token(token)
+    logging.info(
+        "AUDIO_CALIBRATION_CAPTURE phase=%s device=%r duration=%.2f overflows=%d peak_dbfs=%.1f",
+        normalized_phase,
+        device.get("name"),
+        metrics.get("duration", 0.0),
+        overflows,
+        metrics.get("peak_dbfs", -120.0),
+    )
+    return {
+        "ok": True,
+        "phase": normalized_phase,
+        "metrics": metrics,
+        "overflows": overflows,
+        "device": device,
+        "recommendations": recommendations,
+        "adjustments": adjustments,
+        "status": status,
+    }
+
+
+def release_audio_calibration_lease(token: str, *, reason: str = "complete") -> dict:
+    """Resume any wake-word listener paused by a matching calibration lease."""
+    global _AUDIO_CALIBRATION_LEASE, _AUDIO_CALIBRATION_TIMER
+    restart_wakeword = False
+    with _AUDIO_CALIBRATION_LOCK:
+        lease = _AUDIO_CALIBRATION_LEASE
+        if not isinstance(lease, dict):
+            return {"ok": True, "released": False, **audio_calibration_status()}
+        if not hmac.compare_digest(str(lease.get("token") or ""), str(token or "")):
+            raise RuntimeError("The microphone calibration session is no longer active.")
+        restart_wakeword = bool(lease.get("restart_wakeword"))
+        timer = _AUDIO_CALIBRATION_TIMER
+        _AUDIO_CALIBRATION_LEASE = None
+        _AUDIO_CALIBRATION_TIMER = None
+        if timer is not None and timer is not threading.current_thread():
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+
+    restarted = False
+    if restart_wakeword:
+        restarted = _start_wakeword_listener_if_enabled()
+    logging.info(
+        "AUDIO_CALIBRATION_RELEASED reason=%r wakeword_restarted=%s",
+        reason,
+        restarted,
+    )
+    return {"ok": True, "released": True, "wakeword_restarted": restarted, **audio_calibration_status()}
+
+
+def test_audio_output_device(device: str) -> dict:
+    """Play the normal wake cue on a selected ALSA target without changing config."""
+    selected = str(device or "").strip()
+    if not selected or len(selected) > 200 or any(ord(char) < 32 for char in selected):
+        raise ValueError("Choose a valid local playback device.")
+    lease = acquire_audio_calibration_lease("management_console_output_test", 20.0)
+    token = str(lease["token"])
+    try:
+        configured = _pref_str("WAKEWORD_CHIME_SOUND_FILE", "assets/play.mp3").strip()
+        candidate = Path(configured or "assets/play.mp3")
+        sound_file = candidate if candidate.is_absolute() else BASE_DIR / candidate
+        with audio_device_lock:
+            result = subprocess.run(
+                ["mpg123", "-o", "alsa", "-a", selected, "-q", str(sound_file)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10.0,
+                check=False,
+            )
+        if result.returncode != 0:
+            detail = str(result.stderr or "Audio playback failed").strip()[:300]
+            raise RuntimeError(detail or "Audio playback failed.")
+        return {"ok": True, "device": selected}
+    finally:
+        release_audio_calibration_lease(token, reason="output_test")
+
+
 try:
     register_exclusive_audio_hooks(
         before_start=_stop_wakeword_listener_for_exclusive_audio_applet,
@@ -2313,9 +2647,9 @@ def cleanup_audio_processes():
         _caller  = _stk[1].function if len(_stk) > 1 else "?"
         _caller2 = _stk[2].function if len(_stk) > 2 else ""
         logging.info(
-            "AUDIO_CLEANUP_CALL caller=%s caller2=%s thread=%s pid=%s is_processing=%r is_speaking=%r button_pressed=%r",
+            "AUDIO_CLEANUP_CALL caller=%s caller2=%s thread=%s pid=%s is_processing=%r is_speaking=%r ptt_input_active=%r",
             _caller, _caller2, threading.current_thread().name, os.getpid(),
-            globals().get("is_processing"), globals().get("is_speaking"), globals().get("button_pressed"),
+            globals().get("is_processing"), globals().get("is_speaking"), globals().get("ptt_input_active"),
         )
     except Exception:
         pass
@@ -2536,7 +2870,7 @@ def play_sound(sound_type: str, volume: float = 1.0, blocking: bool = False):
         blocking=bool(blocking),
         is_processing=bool(globals().get("is_processing")),
         is_speaking=bool(globals().get("is_speaking")),
-        button_pressed=bool(globals().get("button_pressed")),
+        ptt_input_active=bool(globals().get("ptt_input_active")),
         wakeword_active=bool(globals().get("_WAKEWORD_DETECTION_IN_PROGRESS")),
     )
     """
@@ -2666,18 +3000,20 @@ def _record_audio_with_vad_capture_core(
     Parameters:
       - absolute_filename: destination wav path
       - continue_recording_fn: optional callable returning True while capture
-        should continue. If omitted, preserves current PTT off-hook behavior.
+        should continue. If omitted, follows the configured PTT input state.
       - cancelled_fn: optional callable returning True if the capture should be
-        treated as cancelled after recording. If omitted, preserves current PTT
-        hang-up cancellation behavior.
+        treated as cancelled after recording. If omitted, PTT_END_BEHAVIOR
+        decides whether leaving the configured input state cancels or submits.
 
     Current behavior remains unchanged for the PTT wrapper.
     """
     try:
         if continue_recording_fn is None:
-            continue_recording_fn = lambda: (GPIO.input(GPIO_PIN) == 0)
+            continue_recording_fn = _ptt_input_is_listening
         if cancelled_fn is None:
-            cancelled_fn = lambda: bool(GPIO.input(GPIO_PIN))
+            cancelled_fn = lambda: (
+                not _ptt_input_is_listening() and _ptt_exit_cancels_capture()
+            )
 
         print(f"Recording to: {absolute_filename}")
 
@@ -2821,7 +3157,7 @@ def _record_audio_with_vad_capture_core(
         try:
             _perf(
                 'VAD_POST',
-                gpio=int(GPIO.input(GPIO_PIN)),
+                gpio=int(GPIO.input(PTT_GPIO_PIN)),
                 speech_started=bool(capture["speech_started"]),
                 captured_len=int(capture["captured_len"]),
                 speech_frames=int(capture["speech_frames"]),
@@ -2932,7 +3268,7 @@ def record_audio_with_vad() -> Optional[str]:
     _trace_audio_event("ptt_record_enter")
     """
     Records one utterance:
-      - Delay for handset-to-ear
+      - Optional delay before the first PTT cue
       - Plays start chime
       - Captures audio until speech ends (silence hangover) or max duration
       - Returns WAV path or None
@@ -2982,8 +3318,10 @@ def record_audio_with_vad() -> Optional[str]:
         _perf('REC_START_CHIME_DONE')
         return _record_audio_with_vad_capture_core(
             absolute_filename,
-            continue_recording_fn=lambda: (GPIO.input(GPIO_PIN) == 0),
-            cancelled_fn=lambda: bool(GPIO.input(GPIO_PIN)),
+            continue_recording_fn=_ptt_input_is_listening,
+            cancelled_fn=lambda: (
+                not _ptt_input_is_listening() and _ptt_exit_cancels_capture()
+            ),
         )
     except Exception as e:
         try:
@@ -3327,7 +3665,7 @@ def _assistant_sonos_target_entity() -> tuple[str, str]:
     return room, entity_id
 
 
-def _play_tts_local_file(path: str) -> None:
+def _play_tts_local_file(path: str, *, bypass_ptt_gate: bool = False) -> None:
     ensure_audio_device_available()
 
     # Preempt any in-flight nonblocking chimes/fx so TTS can grab the ALSA device.
@@ -3351,7 +3689,7 @@ def _play_tts_local_file(path: str) -> None:
             stderr=subprocess.DEVNULL,
         )
 
-    # While speaking, if handset is hung up, stop immediately
+    # While speaking, leaving the active PTT state stops playback immediately.
     while True:
         with tts_proc_lock:
             proc = current_tts_proc
@@ -3360,9 +3698,13 @@ def _play_tts_local_file(path: str) -> None:
             break
         if proc.poll() is not None:
             break
-        # Stop mid-speech if handset is hung up. Only applies on devices
-        # with a real handset; bypassed when HANDSET_PRESENT=False.
-        if _pref_bool("HANDSET_PRESENT", True) and GPIO.input(GPIO_PIN) == 1:
+        # Wakeword-only and text nodes bypass this gate because PTT is disabled.
+        if (
+            not bypass_ptt_gate
+            and _ptt_enabled()
+            and _ptt_exit_cancels_capture()
+            and not _ptt_input_is_listening()
+        ):
             stop_speaking_now()
             break
 
@@ -3426,7 +3768,7 @@ def _speak_tts_sonos_via_ha(text: str) -> bool:
     return bool(ok)
 
 
-def speak_text(text: str):
+def speak_text(text: str, *, bypass_ptt_gate: bool = False):
     global is_speaking, current_tts_proc
 
     if not text:
@@ -3434,11 +3776,14 @@ def speak_text(text: str):
 
     command_dispatch.last_spoken_text = text
 
-    # Don't speak if handset is already hung up.
-    # Skipped on devices with no physical handset (HANDSET_PRESENT=False),
-    # where the GPIO line reads "hung up" forever and would otherwise mute
-    # all wakeword/button-triggered spoken responses.
-    if _pref_bool("HANDSET_PRESENT", True) and GPIO.input(GPIO_PIN) == 1:
+    # Do not speak after the user leaves the active PTT state. Other command
+    # surfaces bypass this gate because PTT is disabled on their nodes.
+    if (
+        not bypass_ptt_gate
+        and _ptt_enabled()
+        and _ptt_exit_cancels_capture()
+        and not _ptt_input_is_listening()
+    ):
         return
 
     with lock:
@@ -3485,7 +3830,7 @@ def speak_text(text: str):
             logging.error("ASSISTANT_OUTPUT_SONOS_FAIL_FALLBACK_LOCAL")
             remove_audio = True
 
-        _play_tts_local_file(audio_path)
+        _play_tts_local_file(audio_path, bypass_ptt_gate=bypass_ptt_gate)
 
     except Exception as e:
         logging.error(f"Speech error: {e}")
@@ -3608,6 +3953,7 @@ def _speak_text_for_trigger(text: str, trigger: str) -> bool:
         thread = threading.Thread(
             target=speak_text,
             args=(text,),
+            kwargs={"bypass_ptt_gate": True},
             daemon=True,
             name="wakeword_tts",
         )
@@ -3615,7 +3961,7 @@ def _speak_text_for_trigger(text: str, trigger: str) -> bool:
         logging.info("WAKEWORD_TTS_ASYNC_START chars=%s", len(text or ""))
         return True
 
-    speak_text(text)
+    speak_text(text, bypass_ptt_gate=(trigger_name != "ptt"))
     return False
 
 
@@ -3674,7 +4020,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         # A mistaken summon can be dismissed without entering device routing,
         # ChatGPT, conversation history, or outcome-tone logic. Wakeword
         # interactions rearm through their existing outer finally block; PTT
-        # interactions simply return to the off-hook capture loop.
+        # interactions simply return to the active PTT capture loop.
         if interaction_flow.is_interaction_cancel(text):
             command_dispatch._ACTION_OCCURRED = False
             try:
@@ -3700,13 +4046,14 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
             )
             return
 
-        # On devices with no physical handset (HANDSET_PRESENT=False), treat the
-        # handset as always "up" so wake-word / button-triggered commands can
-        # produce spoken responses.
-        if _pref_bool("HANDSET_PRESENT", True):
-            handset_up = (GPIO.input(GPIO_PIN) == 0)
+        # PTT uses the configured input state to decide whether a response still
+        # belongs to this physical session. Other surfaces do not use this gate.
+        if trigger_name == "ptt" and _ptt_enabled():
+            ptt_session_active = (
+                _ptt_input_is_listening() or not _ptt_exit_cancels_capture()
+            )
         else:
-            handset_up = True
+            ptt_session_active = True
 
         command_dispatch._ACTION_OCCURRED = False
 
@@ -3719,7 +4066,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         async_response_started = False
 
         # Speak only if we actually have words to say (time/weather or confirmations enabled)
-        if handset_up and device_response:
+        if ptt_session_active and device_response:
             async_response_started = _speak_text_for_trigger(device_response, trigger)
             # Bridge the deterministic/AI seam: inject informational responses into
             # conversation_history so follow-up AI queries have context
@@ -3746,7 +4093,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
             action_result = ActionResult.DEVICE
         # Semantic router (DEVICE vs CHATGPT vs ERROR)
         global last_chatgpt_ts
-        if action_result == ActionResult.NONE and handset_up:
+        if action_result == ActionResult.NONE and ptt_session_active:
             now_ts = _now_ts()
             rr = route_utterance(text=text, now_ts=now_ts, last_chatgpt_ts=last_chatgpt_ts)
             if rr.outcome == RouteOutcome.CHATGPT:
@@ -3757,7 +4104,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
                 if response:
                     last_chatgpt_ts = now_ts
                     action_result = ActionResult.CHATGPT
-                    if handset_up:
+                    if ptt_session_active:
                         async_response_started = _speak_text_for_trigger(response, trigger)
 
         # Event log: record every voiced command with outcome
@@ -3776,7 +4123,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         # Single decision point for error tone:
         # only if NO real action occurred and no ChatGPT response
         try:
-            logging.info("ACTION_DECISION action_result=%r action_occurred=%r handset_up=%r text=%r norm=%r", action_result, command_dispatch._ACTION_OCCURRED, handset_up, (text or "")[:120], getattr(command_dispatch, "_LAST_STT_NORM_OUT", None))
+            logging.info("ACTION_DECISION action_result=%r action_occurred=%r ptt_session_active=%r text=%r norm=%r", action_result, command_dispatch._ACTION_OCCURRED, ptt_session_active, (text or "")[:120], getattr(command_dispatch, "_LAST_STT_NORM_OUT", None))
         except Exception:
             pass
         _trace_audio_event(
@@ -3784,7 +4131,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
             trigger=trigger,
             action_result=action_result,
             action_occurred=bool(command_dispatch._ACTION_OCCURRED),
-            handset_up=bool(handset_up),
+            ptt_session_active=bool(ptt_session_active),
         )
 
         if action_result == ActionResult.NONE and not command_dispatch._ACTION_OCCURRED:
@@ -3836,7 +4183,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
             if _post_ms > 0:
                 time.sleep(_post_ms / 1000.0)
 
-        # Follow-up chime + keep listening while handset stays up
+        # Follow-up cue and continued listening while PTT remains active.
         # NOTE: main() already plays the ready/start chime after process_audio() returns.
         # Keeping a second start-chime here causes a double-chime UX.
         # (Disabled by patch_dedupe_start_chime)
@@ -3937,15 +4284,18 @@ def main():
             _local_loaded, _local_keys,
         )
         logging.info(
-            "FEATURE_FLAGS ptt_enabled=%s wakeword_enabled=%s wakeword_engine=%r wakeword_model=%r output_mode=%r output_room=%r chatgpt_model=%r wakeword_only_onhook=%s wakeword_chime=%s wakeword_rearm_sec=%.2f",
+            "FEATURE_FLAGS ptt_enabled=%s ptt_gpio_pin=%s ptt_listen_level=%r ptt_end_behavior=%r wakeword_enabled=%s wakeword_engine=%r wakeword_model=%r output_mode=%r output_room=%r chatgpt_model=%r wakeword_suppress_while_ptt=%s wakeword_chime=%s wakeword_rearm_sec=%.2f",
             _ptt_enabled(),
+            _pref_value("PTT_GPIO_PIN", 11),
+            _pref_str("PTT_LISTEN_LEVEL", "low"),
+            _ptt_end_behavior(),
             _wakeword_enabled(),
             _wakeword_engine_name(),
             _wakeword_model_name(),
             _assistant_audio_output_mode(),
             _assistant_audio_output_room(),
             _chatgpt_model(),
-            _wakeword_only_onhook(),
+            _wakeword_suppress_while_ptt(),
             _wakeword_chime_enabled(),
             _wakeword_rearm_sec(),
         )
@@ -4055,17 +4405,14 @@ def main():
         logging.exception("SCHEDULER_START_FAIL")
 
 
-    # Start auxiliary physical command buttons.
-    #
-    # These are separate from the handset hook/PTT switch. They execute normal
-    # PiPhone command phrases through the same in-process command brain used by
-    # scheduler/alarm attachments.
+    # Start auxiliary physical command buttons. These are separate from the PTT
+    # input and execute normal command phrases through the shared command brain.
     try:
         import physical_button_controls
 
-        def _physical_buttons_handset_is_up():
+        def _physical_buttons_ptt_is_active():
             try:
-                return bool(globals().get("button_pressed", False))
+                return bool(globals().get("ptt_input_active", False))
             except Exception:
                 return False
 
@@ -4075,7 +4422,7 @@ def main():
                 source_id="physical_button",
                 origin="button",
             ),
-            handset_is_up=_physical_buttons_handset_is_up,
+            ptt_is_active=_physical_buttons_ptt_is_active,
         )
         logging.info("PHYSICAL_BUTTONS_START_ATTEMPTED")
     except Exception:
@@ -4083,12 +4430,12 @@ def main():
 
 
     if _ptt_enabled():
-        print("\nSystem ready - lift the handset to speak")
+        print("\nSystem ready - PTT input enabled")
     else:
-        print("\nSystem ready - PTT handset disabled")
+        print("\nSystem ready - PTT input disabled")
 
     try:
-        global is_processing, is_speaking, button_pressed, last_interaction_ts
+        global is_processing, is_speaking, ptt_input_active, last_interaction_ts
         last_interaction_ts = _now_ts()
 
         with lock:
@@ -4112,22 +4459,22 @@ def main():
                 time.sleep(1.0)
                 continue
 
-            current_button_state = not GPIO.input(GPIO_PIN)
+            current_button_state = _ptt_input_is_listening()
 
-            if current_button_state and not button_pressed:
+            if current_button_state and not ptt_input_active:
                 with lock:
                     is_processing = False
                     is_speaking = False
 
-                button_pressed = True
-                # Reset per-offhook-session flags (so start-chime can play again on each handset lift)
+                ptt_input_active = True
+                # Reset per-session flags so the start cue can play each time.
                 try:
                     globals()['_start_chime_played_in_session'] = False
                     globals()['_start_delay_applied_in_session'] = False
                     globals()['_audio_ensured_in_session'] = False
                     try:
-                        logging.info('OFFHOOK_SESSION_BEGIN reset_session_flags=1')
-                        # Optional fallback realtime warmup on off-hook
+                        logging.info('PTT_SESSION_BEGIN reset_session_flags=1')
+                        # Optional fallback realtime warmup when PTT activates.
                         try:
                             _rt_warmup_start_on_offhook()
                         except Exception:
@@ -4148,10 +4495,11 @@ def main():
                     "PIPHONE_TTS_COOLDOWN_SECONDS",
                     str(TTS_COOLDOWN_SECONDS or 0)
                 ))
-                print("Button pressed")
+                print("PTT listening state entered")
 
-                # Off-hook session loop: record -> process one utterance -> repeat until hang up
-                while GPIO.input(GPIO_PIN) == 0:
+                # PTT session loop: record and process utterances until the
+                # configured input state ends.
+                while _ptt_input_is_listening():
                     # Prevent recording while TTS is playing / just ended (avoids self-transcription loop)
                     if is_speaking:
                         if not getattr(main, '_wait_speaking', False):
@@ -4171,12 +4519,12 @@ def main():
                     t_rec0 = time.monotonic()
                     audio_file = record_audio_with_vad()
                     _perf('PIPE_RECORD_RETURN', dt=round(time.monotonic()-t_rec0,4), ok=bool(audio_file))
-                    # If handset was released during recording, treat as cancel and exit
-                    if GPIO.input(GPIO_PIN) == 1:
-                        break
+                    ptt_ended = not _ptt_input_is_listening()
 
-                    # No speech captured; keep waiting while off-hook
+                    # No speech captured; keep waiting while PTT remains active.
                     if audio_file is None:
+                        if ptt_ended:
+                            break
                         time.sleep(0.25)
                         continue
 
@@ -4184,16 +4532,18 @@ def main():
                     process_audio(audio_file)
 
                     _perf('PIPE_AFTER_PROCESS_AUDIO')
+                    if ptt_ended:
+                        break
                     # Ready chime for next utterance
-                    if GPIO.input(GPIO_PIN) == 0:
+                    if _ptt_input_is_listening():
                         pass
 
-            elif not current_button_state and button_pressed:
+            elif not current_button_state and ptt_input_active:
 
-                button_pressed = False
-                print("Button released")
+                ptt_input_active = False
+                print("PTT listening state exited")
 
-                # Immediately stop speech on hang-up
+                # Immediately stop speech when the PTT session ends.
                 stop_speaking_now()
 
                 with lock:

@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import hmac
+import ipaddress
 import json
 import logging
 import threading
@@ -80,6 +81,7 @@ _HA_WS_URL: str = ""
 _PORT: int = 8765
 _RUNTIME_MODULE: Any = None  # main runtime module reference (passed in)
 _CMD_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
+_AUDIO_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
 
 # Thread / asyncio handles (for shutdown coordination)
 _SERVER_THREAD: Optional[threading.Thread] = None
@@ -177,6 +179,17 @@ def _auth_ok(request: web.Request, *, allow_query: bool = False) -> bool:
         return False
     incoming = _request_api_key(request, allow_query=allow_query)
     return bool(incoming and hmac.compare_digest(incoming, _API_KEY))
+
+
+def _internal_auth_ok(request: web.Request) -> bool:
+    """Restrict management-only runtime routes to authenticated loopback calls."""
+    if not _auth_ok(request):
+        return False
+    remote = str(request.remote or "").strip()
+    try:
+        return ipaddress.ip_address(remote).is_loopback
+    except ValueError:
+        return remote.lower() == "localhost"
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +432,16 @@ async def handle_command(request: web.Request) -> web.Response:
     if not isinstance(data, dict):
         return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
 
+    try:
+        calibration = _RUNTIME_MODULE.audio_calibration_status()
+        if bool((calibration or {}).get("active")):
+            return web.json_response(
+                {"ok": False, "error": "Microphone calibration is active. Try the command again when it finishes."},
+                status=409,
+            )
+    except AttributeError:
+        pass
+
     text = _payload_text(data)
     if not text:
         return web.json_response({"ok": False, "error": "missing_text"}, status=400)
@@ -458,6 +481,118 @@ async def handle_command(request: web.Request) -> web.Response:
     asyncio.ensure_future(_broadcast_command_ack(ack_room, text, result))
 
     return web.json_response(payload)
+
+
+async def _internal_audio_call(method_name: str, *args, **kwargs) -> web.Response:
+    method = getattr(_RUNTIME_MODULE, method_name, None)
+    if not callable(method):
+        return web.json_response(
+            {"ok": False, "error": "Audio setup is unavailable in the running Home Suite service."},
+            status=503,
+        )
+    try:
+        loop = asyncio.get_running_loop()
+        payload = await loop.run_in_executor(
+            _AUDIO_EXECUTOR,
+            lambda: method(*args, **kwargs),
+        )
+        return web.json_response(payload if isinstance(payload, dict) else {"ok": True})
+    except ValueError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=400)
+    except RuntimeError as exc:
+        return web.json_response({"ok": False, "error": str(exc)}, status=409)
+    except Exception:
+        log.exception("INTERNAL_AUDIO_CALL_FAIL method=%s", method_name)
+        return web.json_response(
+            {"ok": False, "error": "The audio operation failed. Check homesuite.service logs."},
+            status=500,
+        )
+
+
+async def handle_internal_audio_status(request: web.Request) -> web.Response:
+    if not _internal_auth_ok(request):
+        return web.json_response({"ok": False, "error": "forbidden"}, status=403)
+    return await _internal_audio_call("audio_calibration_status")
+
+
+async def handle_internal_audio_acquire(request: web.Request) -> web.Response:
+    if not _internal_auth_ok(request):
+        return web.json_response({"ok": False, "error": "forbidden"}, status=403)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+    try:
+        lease_seconds = float(data.get("lease_seconds") or 45.0)
+    except (TypeError, ValueError):
+        return web.json_response(
+            {"ok": False, "error": "lease_seconds must be a number"},
+            status=400,
+        )
+    return await _internal_audio_call(
+        "acquire_audio_calibration_lease",
+        str(data.get("owner") or "management_console"),
+        lease_seconds,
+    )
+
+
+async def handle_internal_audio_capture(request: web.Request) -> web.Response:
+    if not _internal_auth_ok(request):
+        return web.json_response({"ok": False, "error": "forbidden"}, status=403)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+    try:
+        seconds = float(data.get("seconds") or 0.0)
+    except (TypeError, ValueError):
+        return web.json_response(
+            {"ok": False, "error": "seconds must be a number"},
+            status=400,
+        )
+    return await _internal_audio_call(
+        "capture_audio_calibration_segment",
+        str(data.get("token") or ""),
+        phase=str(data.get("phase") or ""),
+        seconds=seconds,
+        profile=data.get("profile") if isinstance(data.get("profile"), dict) else None,
+        noise_metrics=data.get("noise_metrics") if isinstance(data.get("noise_metrics"), dict) else None,
+    )
+
+
+async def handle_internal_audio_release(request: web.Request) -> web.Response:
+    if not _internal_auth_ok(request):
+        return web.json_response({"ok": False, "error": "forbidden"}, status=403)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+    return await _internal_audio_call(
+        "release_audio_calibration_lease",
+        str(data.get("token") or ""),
+        reason=str(data.get("reason") or "complete")[:80],
+    )
+
+
+async def handle_internal_audio_test_output(request: web.Request) -> web.Response:
+    if not _internal_auth_ok(request):
+        return web.json_response({"ok": False, "error": "forbidden"}, status=403)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+    return await _internal_audio_call(
+        "test_audio_output_device",
+        str(data.get("device") or ""),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +649,11 @@ def _make_app() -> web.Application:
     app.router.add_get("/manifest", handle_manifest)
     app.router.add_get("/state/{room_id}", handle_state)
     app.router.add_post("/command", handle_command)
+    app.router.add_get("/internal/audio/status", handle_internal_audio_status)
+    app.router.add_post("/internal/audio/acquire", handle_internal_audio_acquire)
+    app.router.add_post("/internal/audio/capture", handle_internal_audio_capture)
+    app.router.add_post("/internal/audio/release", handle_internal_audio_release)
+    app.router.add_post("/internal/audio/test-output", handle_internal_audio_test_output)
     app.router.add_get("/ws", handle_ws)
     return app
 
@@ -594,7 +734,7 @@ def start_in_background_thread(
       wait_timeout: Seconds to wait for listen.
     """
     global _SERVER_THREAD, _API_KEY, _HA_URL, _HA_TOKEN, _HA_WS_URL, _PORT
-    global _RUNTIME_MODULE, _CMD_EXECUTOR
+    global _RUNTIME_MODULE, _CMD_EXECUTOR, _AUDIO_EXECUTOR
 
     configured_api_key = (api_key or "").strip()
     if not configured_api_key:
@@ -616,6 +756,10 @@ def start_in_background_thread(
     if _CMD_EXECUTOR is None:
         _CMD_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="homesuite_cmd"
+        )
+    if _AUDIO_EXECUTOR is None:
+        _AUDIO_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="homesuite_audio_setup"
         )
 
     # Install the cache-backed swaps NOW (before any traffic). Safe because
@@ -640,7 +784,7 @@ def shutdown(timeout: float = 5.0) -> None:
     then waits for the thread to exit. Designed to be called from
     main runtime's cleanup_handler on SIGTERM/SIGINT.
     """
-    global _SERVER_LOOP, _SERVER_RUNNER, _SERVER_THREAD
+    global _SERVER_LOOP, _SERVER_RUNNER, _SERVER_THREAD, _AUDIO_EXECUTOR
 
     loop = _SERVER_LOOP
     runner = _SERVER_RUNNER
@@ -685,6 +829,12 @@ def shutdown(timeout: float = 5.0) -> None:
             _CMD_EXECUTOR.shutdown(wait=False)
         except Exception:
             pass
+    if _AUDIO_EXECUTOR is not None:
+        try:
+            _AUDIO_EXECUTOR.shutdown(wait=False)
+        except Exception:
+            pass
+        _AUDIO_EXECUTOR = None
 
     _SERVER_LOOP = None
     _SERVER_RUNNER = None

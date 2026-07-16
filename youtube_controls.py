@@ -33,6 +33,7 @@ import youtube_meta
 import youtube_oauth
 import youtube_playlist
 import youtube_reels
+from runtime_mode import allow_real_effects
 
 log = logging.getLogger("youtube_controls")
 
@@ -95,6 +96,8 @@ def _play_channel(cid: str, launch, maybe_say) -> Optional[str]:
     title = youtube_channels.channel_title(cid) or "that channel"
     if not v:
         return maybe_say(f"I couldn't find a recent video from {title}.")
+    if not allow_real_effects():
+        return maybe_say(f"Test preview: would play {v['title']} from {v['channel_title'] or title}.")
     launch()
     if youtube_lounge.play_video(v["video_id"]):
         _mark_action()
@@ -112,6 +115,8 @@ def _play_named_playlist(name: str, launch, maybe_say) -> Optional[str]:
     if not res:
         return maybe_say(f"I couldn't find a playlist called {name}.")
     pid, title = res
+    if not allow_real_effects():
+        return maybe_say(f"Test preview: would play the {title} playlist.")
     vids = youtube_playlist.list_video_ids(pid)
     launch()
     if youtube_lounge.play_playlist(pid, vids[0] if vids else None):
@@ -122,6 +127,9 @@ def _play_named_playlist(name: str, launch, maybe_say) -> Optional[str]:
 
 def _play_digest(launch, maybe_say, *, resume: bool,
                  group: Optional[str] = None, label: str = "daily reel") -> Optional[str]:
+    if not allow_real_effects():
+        return maybe_say(f"Test preview: would play your {label}.")
+
     # Static real-playlist playback: play the scope's persistent "PiPhone · X"
     # playlist (as fresh as the last scheduled refresh). The YouTube app resumes
     # the playlist itself, so 'continue' just replays it. Falls back to an
@@ -191,6 +199,9 @@ def _add_to_digest(name: str, maybe_say, *, group: Optional[str] = None) -> Opti
         return maybe_say(f"I don't have a channel called {name}. Add it first with "
                          f"'add youtube channel @handle'.")
     title = youtube_channels.channel_title(cid) or name
+    if not allow_real_effects():
+        label = f"{group} roundup" if group else "reel"
+        return maybe_say(f"Test preview: would add {title} to your {label}.")
     if group:
         youtube_channels.add_to_group(cid, group)
         _mark_action()
@@ -205,6 +216,9 @@ def _remove_from_digest(name: str, maybe_say, *, group: Optional[str] = None) ->
     if not cid:
         return maybe_say(f"I don't have a channel called {name}.")
     title = youtube_channels.channel_title(cid) or name
+    if not allow_real_effects():
+        label = f"{group} roundup" if group else "reel"
+        return maybe_say(f"Test preview: would remove {title} from your {label}.")
     if group:
         youtube_channels.remove_from_group(cid, group)
         _mark_action()
@@ -215,6 +229,8 @@ def _remove_from_digest(name: str, maybe_say, *, group: Optional[str] = None) ->
 
 
 def _add_channel(handle_or_url: str, maybe_say) -> Optional[str]:
+    if not allow_real_effects():
+        return maybe_say(f"Test preview: would add YouTube channel {handle_or_url}.")
     cid = youtube_channels.resolve_handle_to_id(handle_or_url)
     if not cid:
         return maybe_say(f"I couldn't find a channel for {handle_or_url}.")
@@ -315,8 +331,12 @@ def handle_youtube_controls(*, tl: str, call_ha_service, maybe_say,
 
     # --- queue navigation ---
     if re.search(r"\bnext\s+(?:channel|video)\b", t):
+        if not allow_real_effects():
+            return maybe_say("Test preview: would skip to the next YouTube video.")
         return maybe_say("Next.") if youtube_lounge.next_video() else maybe_say(_NO_TV)
     if re.search(r"\b(?:previous|last)\s+(?:channel|video)\b", t):
+        if not allow_real_effects():
+            return maybe_say("Test preview: would return to the previous YouTube video.")
         return maybe_say("Previous.") if youtube_lounge.previous_video() else maybe_say(_NO_TV)
 
     # --- watch a channel's latest ---
