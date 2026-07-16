@@ -314,6 +314,7 @@ button { color: inherit; }
   border-radius: 4px;
   background: var(--surface);
   color: var(--text);
+  font-size: 13px;
 }
 .config-field-control textarea { min-height: 82px; resize: vertical; line-height: 1.4; }
 .config-field-type-json-object textarea,
@@ -568,8 +569,10 @@ details.room-form-section:not([open]) > .room-form-grid { display: none; }
 .integration-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .integration-card { min-height: 192px; display: flex; flex-direction: column; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .integration-card.diagnostic-target { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 24%, transparent); }
-.integration-card-header { display: flex; align-items: flex-start; gap: 9px; }
-.integration-card h2 { margin: 2px 0 0; font-size: 15px; }
+.integration-card-header { display: flex; align-items: center; gap: 9px; }
+.integration-provider-icon { width: 30px; height: 30px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-soft); color: var(--provider-color); }
+.integration-provider-icon .icon { width: 17px; height: 17px; display: block; }
+.integration-card h2 { margin: 0; font-size: 15px; }
 .integration-card .status-badge { margin-left: auto; }
 .integration-card > p { margin: 12px 0; color: var(--text-soft); font-size: 12px; line-height: 1.5; }
 .integration-meta { margin-top: auto; color: var(--text-faint); font-size: 11px; overflow-wrap: anywhere; }

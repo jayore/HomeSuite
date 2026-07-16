@@ -48,6 +48,24 @@
     { key: "double_press", label: "Double press", aliases: ["double_press", "double"] },
     { key: "long_press", label: "Long press", aliases: ["long_press", "long", "hold"] }
   ];
+  const INTEGRATION_VISUALS = {
+    home_assistant: { icon: "house", color: "#18bcf2" },
+    openai: { icon: "sparkles", color: "#10a37f" },
+    plex: { icon: "play", color: "#ebaf00" },
+    spotify: { icon: "music", color: "#1ed760" },
+    telegram: { icon: "send-horizontal", color: "#26a5e4" },
+    youtube: { icon: "video", color: "#ff0000" },
+    alpaca: { icon: "trending-up", color: "#2f9e6f" },
+    uptime_kuma: { icon: "activity", color: "#5cdd8b" },
+    qbittorrent: { icon: "download", color: "#2f67ba" },
+    seerr: { icon: "search", color: "#9b6bc0" },
+    radarr: { icon: "film", color: "#ffcb3d" },
+    sonarr: { icon: "tv", color: "#2596be" },
+    lidarr: { icon: "headphones", color: "#00a65a" },
+    porcupine: { icon: "audio-waveform", color: "#cf4f8b" },
+    weather_astronomy: { icon: "cloud-sun", color: "#e5a21a" },
+    calendar: { icon: "calendar-days", color: "#4285f4" }
+  };
 
   const $ = function (selector, root) { return (root || document).querySelector(selector); };
   const $$ = function (selector, root) { return Array.from((root || document).querySelectorAll(selector)); };
@@ -74,6 +92,15 @@
     node.setAttribute("data-icon", name);
     window.renderLucideIcons(node);
     return node;
+  }
+
+  function integrationProviderIcon(integration) {
+    const visual = INTEGRATION_VISUALS[integration.id] || { icon: "plug", color: "#7c8a91" };
+    const holder = element("span", "integration-provider-icon");
+    holder.style.setProperty("--provider-color", visual.color);
+    holder.setAttribute("aria-hidden", "true");
+    holder.append(icon(visual.icon));
+    return holder;
   }
 
   function statusClass(value) {
@@ -1047,7 +1074,7 @@
     const coverageStats = element("div", "config-coverage-stats");
     [
       ["Active settings", summary.active_assignments],
-      ["Advanced here", summary.advanced_active],
+      ["File-managed", summary.advanced_active],
       ["Needs attention", summary.attention_count]
     ].forEach(function (item) {
       const stat = element("div");
@@ -3051,7 +3078,7 @@
       card.dataset.integrationId = integration.id;
       const header = element("div", "integration-card-header");
       header.append(
-        icon("plug"),
+        integrationProviderIcon(integration),
         element("h2", "", integration.label),
         badge(integration.status, integrationStatusLabel(integration))
       );
@@ -3449,7 +3476,10 @@
       holder.append(section);
     });
     window.renderLucideIcons($("#view-diagnostics"));
-    setHeaderStatus(report.ok ? (warnings ? "WARN" : "OK") : "FAIL", report.ok ? (warnings ? "Ready with warnings" : "Ready") : "Needs attention");
+    setHeaderStatus(
+      report.ok ? (warnings ? "WARN" : "OK") : "FAIL",
+      report.ok ? (warnings ? "System ready with warnings" : "System ready") : "System needs attention"
+    );
     renderOverview();
   }
 

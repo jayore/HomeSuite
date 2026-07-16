@@ -70,8 +70,8 @@ reverse proxy with HTTPS if remote browser access is required.
 * **Overview** shows hostname, revision, enabled node roles, room count,
   integration count, and local Doctor readiness.
 * **Configuration** shows a curated set of effective node settings in labeled
-  Setting and Current value columns. **Edit settings** opens the guided editor
-  described below.
+  Setting and Current value columns. **Edit configuration** opens the guided
+  editor described below.
 * **Audio** shows the effective microphone profile, playback target, detected
   ALSA hardware, output testing, profile editing, and guided microphone
   calibration for this node.
@@ -86,7 +86,7 @@ reverse proxy with HTTPS if remote browser access is required.
   and topology checks, routes unhealthy checks to the relevant setup view, and
   downloads a privacy-validated support bundle.
 
-Primary page actions such as **Edit settings**, **Edit audio**, **Add room**,
+Primary page actions such as **Edit configuration**, **Edit audio**, **Add room**,
 and page refresh live in the sticky top bar. Provider setup and connection
 tests stay on their corresponding integration cards. Actions remain available
 while reviewing long pages and collapse to icons on smaller screens.
@@ -105,7 +105,7 @@ includes:
 * the current value, or configured/not-configured status for credentials
 
 Read-only configuration responses redact credentials. Entering **Edit
-settings** loads existing credentials into masked fields over an authenticated,
+configuration** loads existing credentials into masked fields over an authenticated,
 same-origin request; the eye button can reveal a value when needed. Leaving
 Edit mode with **Cancel**, signing out, or losing the session removes those
 values from the active configuration state. Optional private settings can be
@@ -117,6 +117,10 @@ session like access to `private_config.py`: use it only on a trusted device and
 LAN or VPN, and sign out on a shared browser.
 
 ## Manage Integrations
+
+Each integration uses a distinct semantic Lucide icon and provider-associated
+accent color. The icon set is bundled with the console, so the page does not
+depend on a CDN.
 
 Each device-scoped integration card opens a focused setup dialog containing
 only that provider's settings. The controls, descriptions, placeholders, and
