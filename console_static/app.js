@@ -1074,7 +1074,7 @@
     const coverageStats = element("div", "config-coverage-stats");
     [
       ["Active settings", summary.active_assignments],
-      ["File-managed", summary.advanced_active],
+      ["File-managed in use", summary.advanced_active],
       ["Needs attention", summary.attention_count]
     ].forEach(function (item) {
       const stat = element("div");
