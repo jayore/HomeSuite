@@ -14,8 +14,9 @@ class ConsoleUiContractTests(unittest.TestCase):
         self.assertIn('data-view="setup"', html)
         self.assertIn('id="view-setup"', html)
         self.assertIn('id="return-to-setup"', html)
-        self.assertIn('aria-label="Continue setup"', html)
+        self.assertIn('aria-label="Back to setup"', html)
         self.assertIn('id="setup-journey-bar"', html)
+        self.assertIn('id="setup-nav" class="nav-item" type="button" data-view="setup" hidden', html)
         self.assertIn('id="review-setup"', html)
         self.assertIn('aria-label="Review setup"', html)
         self.assertIn(
@@ -42,12 +43,15 @@ class ConsoleUiContractTests(unittest.TestCase):
         javascript = (ROOT / "console_static" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn(
-            'setupNav.hidden = complete && view !== "setup" && !state.setupJourneyActive;',
+            'setupNav.hidden = !statusKnown || (complete && view !== "setup" && !state.setupJourneyActive);',
             javascript,
         )
-        self.assertIn('$("#review-setup").hidden = !complete;', javascript)
-        self.assertIn('$("#setup-journey-bar").hidden = !state.setupJourneyActive', javascript)
-        self.assertIn('state.setupJourneyActive = true;', javascript)
+        self.assertIn('$("#review-setup").hidden = !statusKnown || !complete;', javascript)
+        self.assertIn(
+            '$("#setup-journey-bar").hidden = !statusKnown || !state.setupJourneyActive',
+            javascript,
+        )
+        self.assertIn('window.sessionStorage.setItem(SETUP_JOURNEY_STORAGE_KEY', javascript)
 
 
 if __name__ == "__main__":

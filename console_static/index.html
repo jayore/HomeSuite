@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#03a9f4">
   <title>Home Suite Console</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=20260716b">
 </head>
 <body>
   <div id="login-screen" class="login-screen" hidden>
@@ -51,7 +51,7 @@
       </div>
 
       <nav class="nav-list">
-        <button id="setup-nav" class="nav-item" type="button" data-view="setup">
+        <button id="setup-nav" class="nav-item" type="button" data-view="setup" hidden>
           <span class="icon" data-icon="list-checks"></span><span>Setup</span>
         </button>
         <button class="nav-item active" type="button" data-view="overview">
@@ -164,10 +164,10 @@
       <div id="setup-journey-bar" class="setup-journey-bar" hidden>
         <div class="setup-journey-copy">
           <span class="icon" data-icon="list-checks" aria-hidden="true"></span>
-          <span>Setup checklist</span>
+          <span id="setup-journey-label">Setup in progress</span>
         </div>
-        <button id="return-to-setup" class="button secondary" type="button" title="Continue setup" aria-label="Continue setup">
-          <span class="icon" data-icon="arrow-left"></span><span>Continue setup</span>
+        <button id="return-to-setup" class="button primary" type="button" title="Back to setup" aria-label="Back to setup">
+          <span class="icon" data-icon="arrow-left"></span><span>Back to setup</span>
         </button>
       </div>
 
@@ -558,7 +558,7 @@
   <div id="room-datalists" hidden></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <script src="/static/icons.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/icons.js?v=20260716b"></script>
+  <script src="/static/app.js?v=20260716b"></script>
 </body>
 </html>

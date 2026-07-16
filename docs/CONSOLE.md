@@ -118,10 +118,12 @@ either role is active.
 
 While initial setup is incomplete, **Setup** remains in the primary navigation.
 Opening a setup step uses the full management view for that task and leaves a
-slim sticky setup bar with **Continue setup**, so the checklist is always one
-step away and refreshes on return. Once activation is complete, Setup leaves
-the primary navigation. **Overview > Review setup** reopens it for later
-hardware changes, integration maintenance, or onboarding preview.
+slim sticky setup bar naming the current step with **Back to setup**, so the
+checklist is always one step away and refreshes on return. That setup context
+survives an ordinary page reload within the browser session. Once activation
+is complete, Setup leaves the primary navigation. **Overview > Review setup**
+reopens it for later hardware changes, integration maintenance, or onboarding
+preview.
 
 The final activation request has a narrow server contract:
 
