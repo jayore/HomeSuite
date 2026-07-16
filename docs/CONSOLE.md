@@ -70,8 +70,9 @@ reverse proxy with HTTPS if remote browser access is required.
 * **Overview** shows hostname, revision, enabled node roles, room count,
   integration count, and local Doctor readiness.
 * **Configuration** shows a curated set of effective node settings in labeled
-  Setting and Current value columns. **Edit configuration** opens the guided
-  editor described below.
+  Setting and Current value columns. Search filters by label, key, description,
+  or section, while the section menu jumps through the longer page. **Edit
+  configuration** opens the guided editor described below.
 * **Audio** shows the effective microphone profile, playback target, detected
   ALSA hardware, output testing, profile editing, and guided microphone
   calibration for this node.
@@ -83,13 +84,17 @@ reverse proxy with HTTPS if remote browser access is required.
 * **Test Console** runs text through the same deterministic and conversational
   interaction layer used by other Home Suite surfaces.
 * **Diagnostics** runs Home Suite Doctor locally or with optional live network
-  and topology checks, routes unhealthy checks to the relevant setup view, and
-  downloads a privacy-validated support bundle.
+  and topology checks, places warnings and failures first, routes unhealthy
+  checks to the relevant setup view, and downloads a privacy-validated support
+  bundle.
 
 Primary page actions such as **Edit configuration**, **Edit audio**, **Add room**,
 and page refresh live in the sticky top bar. Provider setup and connection
 tests stay on their corresponding integration cards. Actions remain available
 while reviewing long pages and collapse to icons on smaller screens.
+The system status at the right of the top bar is also a Diagnostics shortcut;
+on narrow screens it retains a status icon and issue count instead of becoming
+an unexplained color indicator.
 
 ## Edit Configuration
 
@@ -286,8 +291,8 @@ purpose-built editors, and low-level tuning belongs in collapsed advanced
 sections. Deprecated compatibility aliases such as the original `HANDSET_*`
 names remain loadable but do not appear as duplicate user-facing settings.
 
-The **Configuration coverage** summary distinguishes guided controls from the
-documented settings that still require direct file editing. The advanced
+The **Configuration status** summary reports actionable configuration issues,
+guided settings, and advanced settings currently in use. The advanced
 inventory lists every effective file-managed override and opens its relevant
 documentation. Deprecated compatibility aliases and unrecognized assignments
 appear separately as settings needing attention. Credential values remain
@@ -320,8 +325,9 @@ Doctor warnings and failures retain their redacted technical detail and add a
 plain next step when the console can identify the owning surface. **Open
 Integrations**, **Open Audio**, **Open Rooms**, or **Open Configuration** moves
 directly to that setup view; provider actions also bring the corresponding
-integration card into view. Rerun local or live checks after making and
-activating a correction.
+integration card into view. Groups and checks containing warnings or failures
+sort ahead of healthy results, and the report summary jumps to the first issue.
+Rerun local or live checks after making and activating a correction.
 
 **Support bundle** runs the same established bundle builder as
 `homesuite support-bundle`. If the current report is live, the downloaded

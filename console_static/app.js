@@ -199,10 +199,23 @@
     showToast.timer = window.setTimeout(function () { toast.hidden = true; }, 4200);
   }
 
-  function setHeaderStatus(status, label) {
+  function setHeaderStatus(status, label, compactLabel) {
     const holder = $("#header-status");
+    const visualStatus = statusClass(status);
+    const statusIcon = visualStatus === "ok"
+      ? "circle-check"
+      : (visualStatus === "warn" || visualStatus === "fail" ? "triangle-alert" : "refresh-cw");
+    holder.className = "header-status " + visualStatus;
     holder.replaceChildren();
-    holder.append(element("span", "status-dot " + statusClass(status)), element("span", "", label));
+    const statusGlyph = icon(statusIcon);
+    statusGlyph.classList.add("header-status-icon");
+    holder.append(
+      statusGlyph,
+      element("span", "header-status-label", label),
+      element("span", "header-status-compact", compactLabel || "")
+    );
+    holder.title = label + ". Open Diagnostics";
+    holder.setAttribute("aria-label", holder.title);
   }
 
   function renderServiceRestartAction() {
@@ -366,12 +379,28 @@
   function renderOverview() {
     if (!state.snapshot) return;
     const overview = state.snapshot.overview;
+    let readinessValue = "Checking";
+    let readinessDetail = "Local checks";
+    if (state.diagnostics) {
+      const warningCount = state.diagnostics.checks.filter(function (check) { return check.status === "WARN"; }).length;
+      const failureCount = state.diagnostics.checks.filter(function (check) { return check.status === "FAIL" && check.required; }).length;
+      if (!state.diagnostics.ok) {
+        readinessValue = "Needs attention";
+        readinessDetail = failureCount + " required " + (failureCount === 1 ? "issue" : "issues");
+      } else if (warningCount) {
+        readinessValue = "Ready with " + warningCount + " warning" + (warningCount === 1 ? "" : "s");
+        readinessDetail = "Required checks passed";
+      } else {
+        readinessValue = "Ready";
+        readinessDetail = state.diagnostics.live ? "Live checks passed" : "Local checks passed";
+      }
+    }
     $("#overview-subtitle").textContent = overview.hostname + (overview.revision ? " · " + overview.revision : "");
     const metricData = [
       ["Node roles", overview.roles.length, overview.roles.map(roleLabel).join(", ")],
       ["Rooms", overview.room_count, "Default: " + (overview.default_room || "not set")],
       ["Integrations", overview.configured_integrations + "/" + overview.integration_count, "Fully configured"],
-      ["Readiness", state.diagnostics ? (state.diagnostics.ok ? "Ready" : "Review") : "Checking", state.diagnostics && state.diagnostics.live ? "Live checks" : "Local checks"]
+      ["Readiness", readinessValue, readinessDetail]
     ];
     const metrics = $("#overview-metrics");
     metrics.classList.remove("loading-block");
@@ -389,7 +418,12 @@
     roleRows.forEach(function (role) {
       const row = element("div", "role-row");
       row.append(element("strong", "", roleLabel(role.role)));
-      row.append(element("small", "", role.required_failures + " required failures · " + role.warnings + " warnings"));
+      row.append(element(
+        "small",
+        "",
+        role.required_failures + " required failure" + (role.required_failures === 1 ? "" : "s") +
+          " · " + role.warnings + " warning" + (role.warnings === 1 ? "" : "s")
+      ));
       row.append(badge(role.status));
       roles.append(row);
     });
@@ -416,6 +450,9 @@
       renderConfigSurface();
       return;
     }
+
+    $("#config-navigation").hidden = true;
+    $("#config-filter-empty").hidden = true;
 
     const groups = {};
     state.snapshot.node.forEach(function (row) { (groups[row.group] || (groups[row.group] = [])).push(row); });
@@ -450,6 +487,90 @@
 
   function configControlId(key) {
     return "config-field-" + String(key || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  }
+
+  function configSectionDomId(sectionId) {
+    return "config-section-" + String(sectionId || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  }
+
+  function applyConfigFilter() {
+    const holder = $("#configuration-groups");
+    const input = $("#config-search");
+    if (!holder || !input) return;
+    const query = input.value.trim().toLowerCase();
+    let total = 0;
+    let matches = 0;
+
+    $$(".config-editor-section", holder).forEach(function (section) {
+      const rows = $$(".config-field-row", section);
+      total += rows.reduce(function (count, row) {
+        return count + (row.dataset.configKeys ? row.dataset.configKeys.split(",").length : 1);
+      }, 0);
+      const sectionMatches = query && String(section.dataset.configSearchText || "").includes(query);
+      let sectionMatchCount = 0;
+      rows.forEach(function (row) {
+        const rowMatches = !query || sectionMatches || String(row.dataset.configSearchText || "").includes(query);
+        row.hidden = !rowMatches;
+        if (rowMatches) {
+          sectionMatchCount += row.dataset.configKeys ? row.dataset.configKeys.split(",").length : 1;
+        }
+      });
+      if (query) {
+        if (section.tagName === "DETAILS" && section.dataset.filterWasOpen === undefined) {
+          section.dataset.filterWasOpen = section.open ? "true" : "false";
+        }
+        section.hidden = sectionMatchCount === 0;
+        if (!section.hidden && section.tagName === "DETAILS") section.open = true;
+        matches += sectionMatchCount;
+      } else {
+        section.hidden = false;
+        if (section.tagName === "DETAILS" && section.dataset.filterWasOpen !== undefined) {
+          section.open = section.dataset.filterWasOpen === "true";
+          delete section.dataset.filterWasOpen;
+        }
+      }
+    });
+
+    $("#config-filter-count").textContent = query
+      ? matches + " of " + total + " settings"
+      : total + " settings";
+    $("#config-filter-empty").hidden = !query || matches > 0;
+  }
+
+  function renderConfigNavigation() {
+    const holder = $("#configuration-groups");
+    const navigation = $("#config-navigation");
+    const select = $("#config-section-jump");
+    const previousValue = select.value;
+    select.replaceChildren(element("option", "", "Jump to section"));
+    select.firstElementChild.value = "";
+    $$(".config-editor-section", holder).forEach(function (section) {
+      const option = element("option", "", section.dataset.configSectionLabel);
+      option.value = section.id;
+      select.append(option);
+    });
+    if ($$("option", select).some(function (option) { return option.value === previousValue; })) {
+      select.value = previousValue;
+    }
+    navigation.hidden = false;
+    applyConfigFilter();
+  }
+
+  function jumpToConfigSection() {
+    const select = $("#config-section-jump");
+    if (!select.value) return;
+    const target = document.getElementById(select.value);
+    if (!target) return;
+    const search = $("#config-search");
+    if (search.value) {
+      search.value = "";
+      applyConfigFilter();
+    }
+    if (target.tagName === "DETAILS") target.open = true;
+    window.requestAnimationFrame(function () {
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+      select.value = "";
+    });
   }
 
   function editorValue(field) {
@@ -958,6 +1079,7 @@
     const row = element("div", "config-field-row button-mapper-row");
     row.dataset.configKey = "PHYSICAL_BUTTON_PINS";
     row.dataset.configKeys = BUTTON_MAP_KEYS.join(",");
+    row.dataset.configSearchText = "button mappings physical button pins actions gpio auxiliary commands gestures";
     const copy = element("div", "config-field-copy");
     const title = element("div", "config-field-title");
     title.append(element("span", "config-custom-label", "Button mappings"));
@@ -1043,7 +1165,11 @@
   function captureConfigDisclosures() {
     const holder = $("#configuration-groups");
     return {
-      sections: new Set($$("details.config-editor-section[open]", holder).map(function (section) {
+      sections: new Set($$("details.config-editor-section", holder).filter(function (section) {
+        return section.dataset.filterWasOpen !== undefined
+          ? section.dataset.filterWasOpen === "true"
+          : section.open;
+      }).map(function (section) {
         return section.dataset.configSection;
       })),
       help: new Set($$("details.config-field-help[open]", holder).map(function (details) {
@@ -1076,18 +1202,21 @@
 
     const coverageCopy = element("div", "config-coverage-copy");
     coverageCopy.append(
-      element("strong", "", "Configuration coverage"),
+      element("strong", "", "Configuration status"),
       element(
         "p",
         "",
-        summary.guided_available + " settings have guided controls. " +
-          summary.file_managed_available + " documented advanced settings remain file managed."
+        (summary.attention_count
+          ? summary.attention_count + " setting" + (summary.attention_count === 1 ? " needs" : "s need") + " attention. "
+          : "No configuration issues found. ") +
+          summary.guided_available + " settings can be managed here. " +
+          summary.file_managed_available + " advanced settings are available in configuration files."
       )
     );
     const coverageStats = element("div", "config-coverage-stats");
     [
-      ["Active settings", summary.active_assignments],
-      ["File-managed in use", summary.advanced_active],
+      ["Settings in use", summary.active_assignments],
+      ["Advanced in use", summary.advanced_active],
       ["Needs attention", summary.attention_count]
     ].forEach(function (item) {
       const stat = element("div");
@@ -1217,6 +1346,9 @@
     state.editableConfig.sections.forEach(function (sectionData) {
       const section = element(sectionData.optional ? "details" : "section", "config-editor-section");
       section.dataset.configSection = sectionData.id;
+      section.dataset.configSectionLabel = sectionData.label;
+      section.dataset.configSearchText = String(sectionData.label || "").toLowerCase();
+      section.id = configSectionDomId(sectionData.id);
       if (sectionData.optional) {
         section.open = preserved.sections.has(sectionData.id);
         section.append(element("summary", "", sectionData.label));
@@ -1240,6 +1372,13 @@
         if (!field) return;
         const row = element("div", "config-field-row");
         row.dataset.configKey = field.key;
+        row.dataset.configSearchText = [
+          sectionData.label,
+          field.label,
+          field.key,
+          field.description,
+          field.help_text
+        ].filter(Boolean).join(" ").toLowerCase();
         row.classList.add("config-field-type-" + field.type.replace(/[^a-z0-9]+/g, "-"));
 
         const copy = element("div", "config-field-copy");
@@ -1306,6 +1445,7 @@
       section.append(rows);
       holder.append(section);
     });
+    renderConfigNavigation();
     renderConfigInventory(preserved);
     window.renderLucideIcons(holder);
     updateConfigChangeCount();
@@ -3478,28 +3618,54 @@
     if (!state.diagnostics) return;
     const report = state.diagnostics;
     const summary = $("#diagnostic-summary");
-    summary.classList.remove("loading-block");
-    summary.replaceChildren();
-    summary.append(icon(report.ok ? "circle-check" : "triangle-alert"));
-    const copy = element("div");
     const warnings = report.checks.filter(function (check) { return check.status === "WARN"; }).length;
     const failures = report.checks.filter(function (check) { return check.status === "FAIL" && check.required; }).length;
+    const visualStatus = report.ok ? (warnings ? "warn" : "ok") : "fail";
+    summary.className = "diagnostic-summary " + visualStatus;
+    summary.replaceChildren();
+    summary.append(icon(visualStatus === "ok" ? "circle-check" : "triangle-alert"));
+    const copy = element("div", "diagnostic-summary-copy");
     copy.append(
-      element("strong", "", report.ok ? "Required checks passed" : failures + " required check" + (failures === 1 ? "" : "s") + " failed"),
-      element("span", "", (report.live ? "Live and local checks" : "Local checks") + " · " + warnings + " warning" + (warnings === 1 ? "" : "s"))
+      element("strong", "", report.ok
+        ? (warnings ? "Required checks passed" : "All checks passed")
+        : failures + " required check" + (failures === 1 ? "" : "s") + " failed"),
+      element("span", "", (warnings
+        ? warnings + " warning" + (warnings === 1 ? " needs" : "s need") + " review"
+        : "No warnings") + " · " + (report.live ? "Live and local checks" : "Local checks"))
     );
     summary.append(copy);
+    if (warnings || failures) {
+      const review = element("button", "button secondary diagnostic-summary-action");
+      review.type = "button";
+      review.append(icon("chevron-down"), element("span", "", failures ? "Review issues" : "Review warning" + (warnings === 1 ? "" : "s")));
+      review.addEventListener("click", function () {
+        const target = $(".diagnostic-row.fail, .diagnostic-row.warn", $("#diagnostic-groups"));
+        if (target) target.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+      summary.append(review);
+    }
 
     const groups = {};
     report.checks.forEach(function (check) { (groups[check.group] || (groups[check.group] = [])).push(check); });
     const holder = $("#diagnostic-groups");
     holder.classList.remove("loading-block");
     holder.replaceChildren();
-    Object.keys(groups).forEach(function (name) {
+    const priority = { FAIL: 0, WARN: 1, OK: 2, SKIP: 3 };
+    const checkPriority = function (status) {
+      return Object.prototype.hasOwnProperty.call(priority, status) ? priority[status] : 4;
+    };
+    Object.keys(groups).sort(function (left, right) {
+      const leftPriority = Math.min.apply(null, groups[left].map(function (check) { return checkPriority(check.status); }));
+      const rightPriority = Math.min.apply(null, groups[right].map(function (check) { return checkPriority(check.status); }));
+      return leftPriority - rightPriority;
+    }).forEach(function (name) {
       const section = element("section", "diagnostic-group");
       section.append(element("h2", "", name));
-      groups[name].forEach(function (check) {
+      groups[name].slice().sort(function (left, right) {
+        return checkPriority(left.status) - checkPriority(right.status);
+      }).forEach(function (check) {
         const row = element("div", "diagnostic-row");
+        row.classList.add(statusClass(check.status));
         const copy = element("div", "diagnostic-copy");
         copy.append(element("p", "", check.detail || (check.required ? "Required" : "Optional")));
         if (check.action && check.action.guidance) {
@@ -3520,7 +3686,10 @@
     window.renderLucideIcons($("#view-diagnostics"));
     setHeaderStatus(
       report.ok ? (warnings ? "WARN" : "OK") : "FAIL",
-      report.ok ? (warnings ? "System ready with warnings" : "System ready") : "System needs attention"
+      report.ok
+        ? (warnings ? warnings + " warning" + (warnings === 1 ? "" : "s") : "System ready")
+        : failures + " issue" + (failures === 1 ? "" : "s") + " need attention",
+      warnings || failures ? String(warnings || failures) : ""
     );
     renderOverview();
   }
@@ -3681,7 +3850,7 @@
   async function loadDiagnostics(live) {
     const buttons = [$("#run-local-diagnostics"), $("#run-live-diagnostics")];
     buttons.forEach(function (button) { button.disabled = true; });
-    setHeaderStatus("SKIP", live ? "Running live checks" : "Running checks");
+    setHeaderStatus("SKIP", live ? "Running live checks" : "Running checks", "");
     try {
       const data = await api("/api/diagnostics?live=" + (live ? "1" : "0"));
       state.diagnostics = data.report;
@@ -3722,7 +3891,7 @@
       if (notify) showToast("Overview refreshed");
     } catch (error) {
       showToast(error.message);
-      setHeaderStatus("FAIL", "Unable to refresh");
+      setHeaderStatus("FAIL", "Unable to refresh", "Error");
     } finally {
       button.disabled = false;
     }
@@ -3807,6 +3976,7 @@
       showLogin();
     });
     $$(".nav-item[data-view]").forEach(function (button) { button.addEventListener("click", function () { navigate(button.dataset.view); }); });
+    $("#header-status").addEventListener("click", function () { navigate("diagnostics"); });
     $("#open-menu").addEventListener("click", openSidebar);
     $("#close-menu").addEventListener("click", closeSidebar);
     $("#sidebar-scrim").addEventListener("click", closeSidebar);
@@ -3838,6 +4008,13 @@
     $("#close-service-restart").addEventListener("click", closeServiceRestartDialog);
     $("#done-service-restart").addEventListener("click", closeServiceRestartDialog);
     $("#edit-configuration").addEventListener("click", beginConfigurationEdit);
+    $("#config-search").addEventListener("input", applyConfigFilter);
+    $("#config-search").addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || !event.currentTarget.value) return;
+      event.currentTarget.value = "";
+      applyConfigFilter();
+    });
+    $("#config-section-jump").addEventListener("change", jumpToConfigSection);
     $("#refresh-integrations").addEventListener("click", function () {
       const button = $("#refresh-integrations");
       button.disabled = true;

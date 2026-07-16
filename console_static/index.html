@@ -130,9 +130,11 @@
             <span class="icon" data-icon="rotate-ccw"></span><span>Restart required</span>
           </button>
         </div>
-        <div id="header-status" class="header-status">
-          <span class="status-dot neutral"></span><span>Loading</span>
-        </div>
+        <button id="header-status" class="header-status skip" type="button" title="Open Diagnostics" aria-label="Loading system status. Open Diagnostics">
+          <span class="icon header-status-icon" data-icon="refresh-cw"></span>
+          <span class="header-status-label">Loading</span>
+          <span class="header-status-compact" aria-hidden="true"></span>
+        </button>
       </header>
 
       <main class="content">
@@ -159,6 +161,24 @@
           </div>
           <div id="config-result" class="config-result" role="status" hidden></div>
           <div id="config-coverage" class="config-coverage loading-block"></div>
+          <div id="config-navigation" class="config-navigation" hidden>
+            <label class="config-search-control" for="config-search">
+              <span class="sr-only">Find a setting</span>
+              <span class="icon" data-icon="search" aria-hidden="true"></span>
+              <input id="config-search" type="search" autocomplete="off" placeholder="Find a setting">
+            </label>
+            <div class="config-section-control">
+              <label for="config-section-jump">Section</label>
+              <div class="select-control">
+                <select id="config-section-jump" aria-label="Jump to configuration section">
+                  <option value="">Jump to section</option>
+                </select>
+                <span class="icon select-control-icon" data-icon="chevron-down" aria-hidden="true"></span>
+              </div>
+            </div>
+            <span id="config-filter-count" class="config-filter-count" aria-live="polite"></span>
+          </div>
+          <div id="config-filter-empty" class="config-filter-empty" hidden>No settings match your search.</div>
           <form id="configuration-editor" class="configuration-editor">
             <div id="configuration-groups" class="config-sections loading-block"></div>
             <div id="config-editor-actions" class="config-editor-actions" hidden>
@@ -270,6 +290,7 @@
             <div><h1>Diagnostics</h1><p>Home Suite Doctor</p></div>
           </div>
           <div id="diagnostic-summary" class="diagnostic-summary loading-block"></div>
+          <div id="diagnostic-groups" class="diagnostic-groups loading-block"></div>
           <div class="diagnostic-support-note">
             <span class="icon" data-icon="shield-check"></span>
             <div>
@@ -277,7 +298,6 @@
               <p>Includes role readiness, versions, service state, and redacted checks. It excludes credentials, local configuration values, raw logs, and command text.</p>
             </div>
           </div>
-          <div id="diagnostic-groups" class="diagnostic-groups loading-block"></div>
         </section>
       </main>
     </div>
