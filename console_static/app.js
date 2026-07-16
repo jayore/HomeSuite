@@ -33,6 +33,7 @@
     setupPreview: false,
     setupPreviewRole: "wakeword",
     setupActivationBusy: false,
+    setupJourneyActive: false,
     setupTested: false,
     audioCalibration: {
       token: null,
@@ -479,6 +480,25 @@
     return roles.includes("api") ? "Text commands + Companion API" : "Text commands";
   }
 
+  function currentView() {
+    const active = $(".view.active");
+    return active ? active.id.replace(/^view-/, "") : "overview";
+  }
+
+  function updateSetupNavigation() {
+    const view = currentView();
+    const complete = Boolean(state.setup && state.setup.complete);
+    const setupNav = $("#setup-nav");
+    setupNav.hidden = complete && view !== "setup" && !state.setupJourneyActive;
+    $("#review-setup").hidden = !complete;
+    $("#setup-journey-bar").hidden = !state.setupJourneyActive || view === "setup";
+  }
+
+  function beginSetupDetour() {
+    state.setupJourneyActive = true;
+    updateSetupNavigation();
+  }
+
   function previewSetupRoles() {
     const roles = ["text", "api"];
     if (state.setupPreviewRole === "ptt" || state.setupPreviewRole === "both") roles.push("ptt");
@@ -722,6 +742,7 @@
   }
 
   function renderSetup() {
+    updateSetupNavigation();
     if (!state.setup || !state.snapshot) return;
     const model = setupModel();
     const preview = model.preview;
@@ -771,31 +792,37 @@
   async function performSetupAction(action) {
     if (state.setupPreview) return;
     if (action === "home_assistant") {
+      beginSetupDetour();
       navigate("integrations");
       await openIntegrationEditor("home_assistant");
       return;
     }
     if (action === "rooms") {
+      beginSetupDetour();
       navigate("rooms");
       const roomId = state.roomConfig && state.roomConfig.default_room;
       if (roomId && state.roomDraft && state.roomDraft[roomId]) openRoomEditor(roomId, "edit");
       return;
     }
     if (action === "roles") {
+      beginSetupDetour();
       navigate("configuration");
       await beginConfigurationEdit();
       return;
     }
     if (action === "audio") {
+      beginSetupDetour();
       navigate("audio");
       return;
     }
     if (action === "test") {
+      beginSetupDetour();
       navigate("console");
       window.setTimeout(function () { $("#chat-input").focus(); }, 0);
       return;
     }
     if (action === "diagnostics") {
+      beginSetupDetour();
       navigate("diagnostics");
       await loadDiagnostics(true).catch(function (error) { showToast(error.message); });
       return;
@@ -4336,7 +4363,12 @@
     });
     const section = $("#view-" + view);
     $("#topbar-title").textContent = section ? section.dataset.title : "Home Suite";
-    if (view === "setup") renderSetup();
+    if (view === "setup") {
+      state.setupJourneyActive = false;
+      renderSetup();
+    } else {
+      updateSetupNavigation();
+    }
     closeSidebar();
     window.scrollTo({ top: 0, behavior: "instant" });
   }
@@ -4427,12 +4459,21 @@
       state.setupPreview = false;
       state.setupPreviewRole = "wakeword";
       state.setupActivationBusy = false;
+      state.setupJourneyActive = false;
       state.audioCalibration = { token: null, stage: "idle", noise: null, speech: null, busy: false, error: null };
       renderServiceRestartAction();
       showConfigurationEditMode(false);
       showLogin(false);
     });
     $$(".nav-item[data-view]").forEach(function (button) { button.addEventListener("click", function () { navigate(button.dataset.view); }); });
+    $("#review-setup").addEventListener("click", function () {
+      state.setupPreview = false;
+      navigate("setup");
+    });
+    $("#return-to-setup").addEventListener("click", function () {
+      navigate("setup");
+      refreshAll(false).catch(function (error) { showToast(error.message); });
+    });
     $("#preview-onboarding").addEventListener("click", function () {
       state.setupPreview = true;
       state.setupPreviewRole = $("#setup-preview-role").value;

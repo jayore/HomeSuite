@@ -51,7 +51,7 @@
       </div>
 
       <nav class="nav-list">
-        <button class="nav-item" type="button" data-view="setup">
+        <button id="setup-nav" class="nav-item" type="button" data-view="setup">
           <span class="icon" data-icon="list-checks"></span><span>Setup</span>
         </button>
         <button class="nav-item active" type="button" data-view="overview">
@@ -106,6 +106,9 @@
             </button>
           </div>
           <div class="topbar-action-group button-row" data-actions-view="overview">
+            <button id="review-setup" class="button secondary" type="button" title="Review setup" aria-label="Review setup" hidden>
+              <span class="icon" data-icon="list-checks"></span><span>Review setup</span>
+            </button>
             <button id="refresh-overview" class="icon-button" type="button" title="Refresh overview" aria-label="Refresh overview">
               <span class="icon" data-icon="refresh-cw"></span>
             </button>
@@ -157,6 +160,16 @@
           <span class="header-status-compact" aria-hidden="true"></span>
         </button>
       </header>
+
+      <div id="setup-journey-bar" class="setup-journey-bar" hidden>
+        <div class="setup-journey-copy">
+          <span class="icon" data-icon="list-checks" aria-hidden="true"></span>
+          <span>Setup checklist</span>
+        </div>
+        <button id="return-to-setup" class="button secondary" type="button" title="Continue setup" aria-label="Continue setup">
+          <span class="icon" data-icon="arrow-left"></span><span>Continue setup</span>
+        </button>
+      </div>
 
       <main class="content">
         <section id="view-setup" class="view" data-title="Setup">
