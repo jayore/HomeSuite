@@ -644,6 +644,23 @@ class ConfigEditor:
             if int(resulting("UNIFIED_SERVER_PORT")) == console_port:
                 raise ConfigEditError("The companion API and management console cannot use the same port.")
 
+        satellite_keys = {
+            "COMMAND_PROCESSING_MODE",
+            "SATELLITE_BRAIN_URL",
+            "SATELLITE_BRAIN_API_KEY",
+            "HOMESUITE_HTTP_API_KEY",
+        }
+        if satellite_keys.intersection(by_key) and resulting("COMMAND_PROCESSING_MODE") == "satellite":
+            if not _has_value(resulting("SATELLITE_BRAIN_URL")):
+                raise ConfigEditError("Enter a brain URL before enabling satellite command processing.")
+            if not (
+                _has_value(resulting("SATELLITE_BRAIN_API_KEY"))
+                or _has_value(resulting("HOMESUITE_HTTP_API_KEY"))
+            ):
+                raise ConfigEditError(
+                    "Satellite command processing requires the brain API key or a shared companion API key."
+                )
+
         gpio_keys = {
             "PTT_ENABLED",
             "PTT_GPIO_PIN",

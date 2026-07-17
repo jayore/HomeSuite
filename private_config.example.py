@@ -14,6 +14,11 @@ HA_TOKEN = ""
 # one with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 HOMESUITE_HTTP_API_KEY = ""
 
+# Optional dedicated key used when this device forwards voice commands to a
+# Home Suite brain. Leave blank when the satellite and brain share the same
+# HOMESUITE_HTTP_API_KEY.
+SATELLITE_BRAIN_API_KEY = ""
+
 # Optional separate passphrase for the browser management console. Leave blank
 # to reuse HOMESUITE_HTTP_API_KEY. A separate value is preferable on shared
 # networks because the console can inspect configuration and issue live text.

@@ -5,12 +5,13 @@ a concrete source device, and an effective target room. The runtime sets one
 ``RequestContext`` while dispatching a command so lower-level handlers can
 choose room defaults without receiving source metadata in every function call.
 
-The module-level current context is process-local and short-lived. Callers must
-clear it after dispatch; it is not persistent conversation state.
+The current context is isolated per thread/async context and short-lived.
+Callers must clear it after dispatch; it is not persistent conversation state.
 """
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any
 
@@ -38,7 +39,10 @@ class RequestContext:
         return asdict(self)
 
 
-_CURRENT_REQUEST_CONTEXT: Optional[RequestContext] = None
+_CURRENT_REQUEST_CONTEXT: ContextVar[Optional[RequestContext]] = ContextVar(
+    "homesuite_request_context",
+    default=None,
+)
 
 
 def _clean_optional(value: Optional[str]) -> Optional[str]:
@@ -94,24 +98,21 @@ def build_request_context(
 
 
 def set_current_request_context(ctx: Optional[RequestContext]) -> None:
-    global _CURRENT_REQUEST_CONTEXT
-    _CURRENT_REQUEST_CONTEXT = ctx
+    _CURRENT_REQUEST_CONTEXT.set(ctx)
 
 
 def replace_current_request_context(ctx: Optional[RequestContext]) -> Optional[RequestContext]:
-    global _CURRENT_REQUEST_CONTEXT
-    previous = _CURRENT_REQUEST_CONTEXT
-    _CURRENT_REQUEST_CONTEXT = ctx
+    previous = _CURRENT_REQUEST_CONTEXT.get()
+    _CURRENT_REQUEST_CONTEXT.set(ctx)
     return previous
 
 
 def get_current_request_context() -> Optional[RequestContext]:
-    return _CURRENT_REQUEST_CONTEXT
+    return _CURRENT_REQUEST_CONTEXT.get()
 
 
 def clear_current_request_context() -> None:
-    global _CURRENT_REQUEST_CONTEXT
-    _CURRENT_REQUEST_CONTEXT = None
+    _CURRENT_REQUEST_CONTEXT.set(None)
 
 # Sources that are currently allowed to supply implicit room-local context.
 # This is intentionally conservative for now.
@@ -150,6 +151,7 @@ def request_has_room_local_context() -> bool:
     This is intentionally conservative:
     * default_piphone -> room-local (fixed room)
     * physical_button -> room-local (fixed room)
+    * satellite source type -> room-local when it supplies a physical room
     * mobile sources (telegram / http / menubar / raycast) -> room-local only
       once they've set a sticky room via "I'm in the <room>"
     * scheduler -> never room-local
@@ -161,6 +163,10 @@ def request_has_room_local_context() -> bool:
         return False
 
     if source_id in _ROOM_LOCAL_SOURCE_IDS:
+        return True
+
+    ctx = get_current_request_context()
+    if str(getattr(ctx, "source_type", "") or "").strip().lower() == "satellite":
         return True
 
     # A mobile source that has resolved a sticky room (present in source_room

@@ -103,6 +103,7 @@ Context fields are optional:
 | `request_id` | Client correlation ID echoed in the response. |
 | `response_mode` | Client preference echoed in the response; defaults to `text`. |
 | `stt` | Optional client-provided speech metadata object echoed in the response. |
+| `timing` | Optional structured voice-event timing envelope used by satellites; echoed with the brain receive time. |
 
 Use a stable, configured `source_id` for every turn from one client. AI history,
 typed follow-up referents, and other continuity state are scoped by that source
@@ -142,6 +143,70 @@ occurred:
 HTTP `400` means malformed JSON or missing text, `403` means authentication
 failed, `404` means an unknown room on the state route, and `500` means command
 or state processing failed.
+
+## Voice Satellite Mode
+
+A wake-word or PTT node can use the companion API as its command boundary while
+retaining its existing local audio experience:
+
+```python
+# local_prefs.py on the satellite
+COMMAND_PROCESSING_MODE = "satellite"
+SATELLITE_BRAIN_URL = "http://homesuite-brain.local:8765"
+```
+
+The satellite continues to own microphone capture, wake-word/PTT behavior,
+transcription, acknowledgement cues, local response speech, and barge-in. After
+STT, it sends the transcript to the brain. The brain owns deterministic routing,
+source-scoped continuity and confirmations, AI fallback, and action execution,
+then returns a structured result for the satellite to render.
+
+By default, the request uses the satellite hostname as its stable `source_id`,
+`DEFAULT_ROOM` as its physical room, and the local `HOMESUITE_HTTP_API_KEY` as
+the brain credential. Advanced deployments can override
+`SATELLITE_SOURCE_ID`, `SATELLITE_SOURCE_ROOM`, and
+`SATELLITE_COMMAND_TIMEOUT_SECONDS` in `local_prefs.py`. Set
+`SATELLITE_BRAIN_API_KEY` in `private_config.py` only when the brain uses a
+different companion API key.
+
+Satellite forwarding fails closed. If the brain is unreachable or rejects the
+request, the satellite uses its normal failure cue and does not retry through
+its local command runtime; this prevents duplicate actions and split continuity.
+Exact dismissals such as `never mind` are forwarded so the authoritative brain
+can clear its pending confirmation or clarification before the satellite ends
+the turn silently.
+
+Wake-word satellites also attach a versioned `timing` envelope. It includes a
+stable `utterance_id`, the wake model label and score, the timestamp of the
+audio frame that produced the wake hit, the later model-decision timestamp,
+capture and VAD speech boundaries, STT timing, the satellite send time, and the
+brain receive time. Audio-frame timestamps come from the continuously drained
+microphone ring; PortAudio's ADC clock is used when available so buffered frame
+processing does not collapse the apparent timeline. The request ID uses the
+same utterance ID.
+
+Cross-node event timestamps are UTC Unix milliseconds. Durations are derived
+from each node's monotonic clock and only the derived values cross the network.
+Satellite and brain clock-sync state is included when systemd-timesyncd exposes
+it. Keep NTP enabled on every node before enabling arbitration:
+
+```bash
+timedatectl show -p NTPSynchronized -p NTP
+```
+
+Both values should be `yes`. The brain also reports `apparent_transit_ms`, which
+is useful for detecting a clock or LAN-latency outlier before trusting a
+candidate in an arbitration window.
+
+This is currently a transcript-first **voice runtime mode**, not a thin install
+profile. The satellite still runs the normal Home Suite process and its local
+companion API/scheduler unless those features are separately disabled. Timers,
+alarms, scheduled actions, and temporary restorations created through the
+satellite are owned by the brain; later alarm/audio output follows the brain's
+configured output policy rather than being pushed back to the originating
+satellite. Multi-satellite wake-word arbitration and deduplication are also
+future work; the timing envelope is the event substrate for that next phase and
+does not yet delay, suppress, or select between competing satellite requests.
 
 ## Manifest and State
 

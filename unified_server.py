@@ -53,6 +53,7 @@ from request_context import (
     replace_current_request_context,
     set_current_request_context,
 )
+from voice_timing import timing_with_brain_receive, unix_time_ms
 
 log = logging.getLogger("unified_server")
 
@@ -243,7 +244,16 @@ def _build_context_from_payload(data: Dict[str, Any]):
     )
 
 
-def _interaction_result_to_payload(result, *, text: str, request_id: Optional[str], response_mode: Optional[str], request_ctx, stt_meta):
+def _interaction_result_to_payload(
+    result,
+    *,
+    text: str,
+    request_id: Optional[str],
+    response_mode: Optional[str],
+    request_ctx,
+    stt_meta,
+    timing_meta=None,
+):
     handled = bool(getattr(result, "handled", False))
     action_occurred = bool(getattr(result, "action_occurred", False))
     response_text = str(getattr(result, "response_text", "") or "").strip()
@@ -261,6 +271,8 @@ def _interaction_result_to_payload(result, *, text: str, request_id: Optional[st
     }
     if stt_meta is not None:
         payload["stt"] = stt_meta
+    if timing_meta is not None:
+        payload["timing"] = timing_meta
     return payload
 
 
@@ -424,6 +436,8 @@ async def handle_command(request: web.Request) -> web.Response:
     if not _auth_ok(request):
         return web.json_response({"ok": False, "error": "forbidden"}, status=403)
 
+    brain_received_at_ms = unix_time_ms()
+
     try:
         data = await request.json()
     except Exception:
@@ -449,15 +463,24 @@ async def handle_command(request: web.Request) -> web.Response:
     request_id = _clean_optional(data.get("request_id"))
     response_mode = _clean_optional(data.get("response_mode")) or "text"
     stt_meta = data.get("stt") if isinstance(data.get("stt"), dict) else None
+    timing_meta = timing_with_brain_receive(
+        data.get("timing") if isinstance(data.get("timing"), dict) else None,
+        received_at_ms=brain_received_at_ms,
+    )
 
     request_ctx = _build_context_from_payload(data)
 
     log.info(
-        "[HTTP] command=%r source_id=%r source_room=%r target_room=%r",
+        "[HTTP] command=%r request_id=%r utterance_id=%r source_id=%r "
+        "source_room=%r target_room=%r brain_received_at_ms=%s apparent_transit_ms=%r",
         text,
+        request_id,
+        (timing_meta or {}).get("utterance_id"),
         request_ctx.source_id,
         request_ctx.source_room,
         request_ctx.effective_target_room,
+        brain_received_at_ms,
+        (timing_meta or {}).get("apparent_transit_ms"),
     )
 
     try:
@@ -474,6 +497,7 @@ async def handle_command(request: web.Request) -> web.Response:
         response_mode=response_mode,
         request_ctx=request_ctx,
         stt_meta=stt_meta,
+        timing_meta=timing_meta,
     )
 
     # Broadcast command_ack to WS clients in the target room

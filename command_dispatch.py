@@ -4537,6 +4537,30 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
         tv_state = _ctx["tv_state"]
         sonos_state = _ctx["sonos_state"]
         sonos_is_music = _ctx["sonos_is_music"]
+        tv_remote_state = _state(_request_tv_remote) if _request_tv_remote else ""
+        tv_audio_active = bool(
+            sonos_eid
+            and not sonos_is_music
+            and sonos_state in {"playing", "paused"}
+        )
+
+        def _call_tv_remote_transport(action: str) -> bool:
+            """Use the Apple TV remote when its media-player state is stale."""
+            if not _request_tv_remote or tv_remote_state != "on":
+                return False
+            logging.info(
+                "TRANSPORT_TV_REMOTE_FALLBACK action=%s remote=%r "
+                "tv_state=%r sonos_state=%r tv_audio_active=%r",
+                action,
+                _request_tv_remote,
+                tv_state,
+                sonos_state,
+                tv_audio_active,
+            )
+            return bool(call_ha_service(
+                "remote/send_command",
+                {"entity_id": _request_tv_remote, "command": action},
+            ))
 
         # Resume/play: prefer whatever we last paused (if still paused)
         if verb in {"resume","play"}:
@@ -4583,6 +4607,19 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
                     set_text_confirm_context(kind="transport", verb="resumed", entity_id=tv_eid, label=f"{_request_sonos_room} TV")
                     return _maybe_say("Okay.")
                 return None
+
+            # Apple TV's media_player entity can report off/idle while its
+            # remote is connected and the room Sonos is carrying TV audio.
+            # In that case the remote's directional play command is a stronger
+            # transport path than requiring a misleading paused state.
+            if (tv_audio_active or _ctx["focus"] == "tv") and _call_tv_remote_transport("play"):
+                process_device_commands._last_transport_focus = "tv"
+                try:
+                    _set_transport_focus_for_request("tv", tv_eid)
+                except Exception:
+                    pass
+                set_text_confirm_context(kind="transport", verb="resumed", entity_id=tv_eid, label=f"{_request_sonos_room} TV")
+                return _maybe_say("Okay.")
             return None
 
         # Pause/stop: respect last interaction (focus) when both are contenders.
@@ -4639,6 +4676,34 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
                 return _maybe_say("Okay.")
             return None
 
+        # Sonos TV passthrough is useful corroboration when HA's Apple TV
+        # media_player state is stale. Keep this behind an active remote or
+        # request-room TV focus so bare transport cannot leak to another room.
+        if (tv_audio_active or focus == "tv") and _call_tv_remote_transport("pause"):
+            process_device_commands._last_paused_transport = "tv"
+            process_device_commands._last_transport_focus = "tv"
+            try:
+                _set_transport_focus_for_request("tv", tv_eid)
+            except Exception:
+                pass
+            set_text_confirm_context(kind="transport", verb="paused", entity_id=tv_eid, label=f"{_request_sonos_room} TV")
+            return _maybe_say("Okay.")
+
+        logging.info(
+            "TRANSPORT_BARE_NO_TARGET verb=%s focus=%r tv=%r tv_state=%r "
+            "tv_remote=%r tv_remote_state=%r sonos=%r sonos_state=%r "
+            "sonos_is_music=%r tv_audio_active=%r",
+            verb,
+            focus,
+            tv_eid,
+            tv_state,
+            _request_tv_remote,
+            tv_remote_state,
+            sonos_eid,
+            sonos_state,
+            sonos_is_music,
+            tv_audio_active,
+        )
         return None
 
     # Canonicalize restorative device wording before media handlers see the

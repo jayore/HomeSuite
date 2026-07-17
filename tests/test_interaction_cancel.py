@@ -123,6 +123,7 @@ class InteractionCancelVoiceFlowTests(unittest.TestCase):
                     mock.patch.object(main, "_trace_audio_event"),
                     mock.patch.object(main, "transcribe_audio", return_value="never mind"),
                     mock.patch.object(main, "_strip_wakeword_prefix", side_effect=lambda text: text),
+                    mock.patch.object(main, "_satellite_mode_enabled", return_value=False),
                     mock.patch.object(main, "process_device_commands") as route,
                     mock.patch.object(main, "get_chatgpt_response") as chat,
                     mock.patch.object(main, "_speak_text_for_trigger") as speak,

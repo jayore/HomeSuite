@@ -71,6 +71,11 @@ class ContinuousAudioSourceTests(unittest.TestCase):
         first = cursor.read_frame(timeout=0.0)
         self.assertEqual(cursor.dropped_frames, 5)
         self.assertTrue(np.all(first == 5))
+        first_timing = cursor.last_frame_timing()
+        self.assertEqual(first_timing["sequence"], 5)
+        self.assertIsInstance(first_timing["end_monotonic_ns"], int)
+        self.assertIsInstance(first_timing["end_unix_ms"], int)
+        self.assertEqual(source.timing_for_sequence(5), first_timing)
         self.assertEqual(
             [int(frame[0]) for frame in source.snapshot(frame_count=3)],
             [22, 23, 24],
@@ -163,6 +168,44 @@ class VadEndpointTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["speech_frames"], 2)
         self.assertEqual(int(result["audio_data"][0]), 1)
+
+    def test_capture_boundaries_use_audio_acquisition_times(self):
+        import audio_capture
+
+        frames = [np.zeros(160, dtype=np.int16) for _ in range(5)]
+        timings = [
+            {
+                "end_monotonic_ns": index * 10_000_000,
+                "end_unix_ms": 1_000 + (index * 10),
+            }
+            for index in range(1, 6)
+        ]
+        vad = _SequenceVad([False, True, True, False, False])
+        last_timing = {"value": None}
+
+        def read_frame():
+            last_timing["value"] = timings.pop(0)
+            return frames.pop(0)
+
+        with mock.patch.object(audio_capture, "vad", vad):
+            result = audio_capture._capture_utterance_from_frame_source(
+                frame_reader=read_frame,
+                frame_timing_fn=lambda: last_timing["value"],
+                sample_rate=16000,
+                continue_recording_fn=lambda: bool(frames),
+                cancelled_fn=lambda: False,
+                pre_roll_frames=1,
+                silence_end_frames=2,
+                min_speech_frames=2,
+                sleep_per_frame_sec=0.0,
+            )
+
+        self.assertEqual(result["capture_started_monotonic_ns"], 0)
+        self.assertEqual(result["speech_started_monotonic_ns"], 10_000_000)
+        self.assertEqual(result["speech_ended_monotonic_ns"], 30_000_000)
+        self.assertEqual(result["capture_ended_monotonic_ns"], 50_000_000)
+        self.assertEqual(result["speech_started_at_unix_ms"], 1_010)
+        self.assertEqual(result["speech_ended_at_unix_ms"], 1_030)
 
 
 class AudioProfileTests(unittest.TestCase):

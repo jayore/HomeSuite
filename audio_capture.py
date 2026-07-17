@@ -171,6 +171,7 @@ class _VadUtteranceAccumulator:
         self.speech_started = False
         self.silence_frames = 0
         self.speech_frames = 0
+        self.last_frame_was_speech = False
         self.done = False
 
     @property
@@ -208,6 +209,7 @@ class _VadUtteranceAccumulator:
             return ""
 
         is_voice = bool(self.vad_obj.is_speech(arr.tobytes(), int(sample_rate)))
+        self.last_frame_was_speech = is_voice
 
         self.pre_roll.append(arr)
 
@@ -494,6 +496,7 @@ def _capture_utterance_from_frame_source(
     sleep_per_frame_sec: float = 0.001,
     rt_stream_runtime=None,
     first_speech_deadline_ts: float = 0.0,
+    frame_timing_fn=None,
 ):
     """
     Canonical frame-driven utterance capture engine.
@@ -517,6 +520,18 @@ def _capture_utterance_from_frame_source(
 
     start_ts = time.monotonic()
     speech_start_elapsed_ms = None
+    frame_duration_ns = max(
+        1,
+        int(round(1_000_000_000 * 0.01)),
+    )
+    capture_started_monotonic_ns = None
+    capture_started_at_unix_ms = None
+    capture_ended_monotonic_ns = None
+    capture_ended_at_unix_ms = None
+    speech_started_monotonic_ns = None
+    speech_started_at_unix_ms = None
+    speech_ended_monotonic_ns = None
+    speech_ended_at_unix_ms = None
     frames_seen = 0
     prime_only_frame_count = max(0, int(prime_only_frames))
 
@@ -568,6 +583,38 @@ def _capture_utterance_from_frame_source(
             time.sleep(sleep_per_frame_sec)
             continue
 
+        try:
+            frame_duration_ns = max(
+                1,
+                int(round(arr.size * 1_000_000_000 / float(sample_rate))),
+            )
+        except Exception:
+            pass
+
+        frame_timing = None
+        if callable(frame_timing_fn):
+            try:
+                frame_timing = frame_timing_fn()
+            except Exception:
+                logging.exception("%s_FRAME_TIMING_FAIL", perf_prefix)
+        frame_timing = frame_timing if isinstance(frame_timing, dict) else {}
+        try:
+            frame_end_monotonic_ns = int(frame_timing.get("end_monotonic_ns"))
+        except (TypeError, ValueError):
+            frame_end_monotonic_ns = time.monotonic_ns()
+        try:
+            frame_end_unix_ms = int(frame_timing.get("end_unix_ms"))
+        except (TypeError, ValueError):
+            frame_end_unix_ms = time.time_ns() // 1_000_000
+
+        if capture_started_monotonic_ns is None:
+            capture_started_monotonic_ns = frame_end_monotonic_ns - frame_duration_ns
+            capture_started_at_unix_ms = (
+                frame_end_unix_ms - int(round(frame_duration_ns / 1_000_000.0))
+            )
+        capture_ended_monotonic_ns = frame_end_monotonic_ns
+        capture_ended_at_unix_ms = frame_end_unix_ms
+
         if rt_stream_runtime is not None:
             _rt_stream_append_frame(rt_stream_runtime, arr, sample_rate)
 
@@ -588,13 +635,23 @@ def _capture_utterance_from_frame_source(
             return None
 
         if vad_event == "speech_start":
-            speech_start_elapsed_ms = (now - start_ts) * 1000.0
+            speech_started_monotonic_ns = frame_end_monotonic_ns - frame_duration_ns
+            speech_started_at_unix_ms = (
+                frame_end_unix_ms - int(round(frame_duration_ns / 1_000_000.0))
+            )
+            speech_start_elapsed_ms = (
+                (speech_started_monotonic_ns - capture_started_monotonic_ns)
+                / 1_000_000.0
+            )
             try:
                 logging.info("%s_SPEECH_START elapsed_ms=%.1f", perf_prefix, speech_start_elapsed_ms)
             except Exception:
                 pass
             _perf(f"{perf_prefix}_SPEECH_START")
-        elif vad_event == "endpoint":
+        if vad_capture.last_frame_was_speech:
+            speech_ended_monotonic_ns = frame_end_monotonic_ns
+            speech_ended_at_unix_ms = frame_end_unix_ms
+        if vad_event == "endpoint":
             _perf(
                 f"{perf_prefix}_ENDPOINT",
                 silence_frames=vad_capture.silence_frames,
@@ -658,4 +715,12 @@ def _capture_utterance_from_frame_source(
         "speech_frames": int(vad_capture.speech_frames),
         "silence_frames": int(vad_capture.silence_frames),
         "speech_start_elapsed_ms": speech_start_elapsed_ms,
+        "capture_started_monotonic_ns": capture_started_monotonic_ns,
+        "capture_started_at_unix_ms": capture_started_at_unix_ms,
+        "capture_ended_monotonic_ns": capture_ended_monotonic_ns,
+        "capture_ended_at_unix_ms": capture_ended_at_unix_ms,
+        "speech_started_monotonic_ns": speech_started_monotonic_ns,
+        "speech_started_at_unix_ms": speech_started_at_unix_ms,
+        "speech_ended_monotonic_ns": speech_ended_monotonic_ns,
+        "speech_ended_at_unix_ms": speech_ended_at_unix_ms,
     }

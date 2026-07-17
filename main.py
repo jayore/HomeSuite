@@ -140,6 +140,7 @@ try:
 except Exception:
     pass
 import time
+import socket
 import types
 import uuid
 from datetime import datetime
@@ -147,6 +148,14 @@ from realtime_transcribe import realtime_transcribe_wav
 from pathlib import Path
 
 from sonos_utils import homesuite_media_url_for_path, sonos_play_media
+from satellite_runtime import SatelliteRuntimeError, forward_command as forward_satellite_command
+from voice_timing import (
+    apply_capture_timing,
+    mark_stt_completed,
+    mark_stt_started,
+    new_voice_timing,
+    utterance_id_from_timing,
+)
 
 
 def _env_truthy(name: str, default: str = "1") -> bool:
@@ -241,6 +250,58 @@ def _ptt_hardware_is_listening() -> bool:
 
 def _wakeword_enabled() -> bool:
     return _pref_bool("WAKEWORD_ENABLED", False)
+
+
+def _command_processing_mode() -> str:
+    mode = (_pref_str("COMMAND_PROCESSING_MODE", "local") or "local").strip().lower()
+    return mode if mode in {"local", "satellite"} else "local"
+
+
+def _satellite_mode_enabled() -> bool:
+    return _command_processing_mode() == "satellite"
+
+
+def _satellite_source_id() -> str:
+    configured = (_pref_str("SATELLITE_SOURCE_ID", "") or "").strip()
+    if configured:
+        return configured
+    hostname = (socket.gethostname() or "").strip().split(".", 1)[0]
+    return hostname or "homesuite_satellite"
+
+
+def _satellite_source_room() -> str:
+    configured = (_pref_str("SATELLITE_SOURCE_ROOM", "") or "").strip()
+    if configured:
+        return configured
+    return (_pref_str("DEFAULT_ROOM", "") or "").strip()
+
+
+def _satellite_brain_api_key() -> str:
+    try:
+        import private_config
+
+        return str(
+            getattr(private_config, "SATELLITE_BRAIN_API_KEY", "")
+            or getattr(private_config, "HOMESUITE_HTTP_API_KEY", "")
+            or getattr(private_config, "PIPHONE_HTTP_API_KEY", "")
+            or ""
+        ).strip()
+    except Exception:
+        return ""
+
+
+def _forward_voice_command_to_brain(text: str, *, trigger: str, timing=None):
+    return forward_satellite_command(
+        text,
+        brain_url=_pref_str("SATELLITE_BRAIN_URL", ""),
+        api_key=_satellite_brain_api_key(),
+        source_id=_satellite_source_id(),
+        source_room=_satellite_source_room(),
+        trigger=trigger,
+        timeout_seconds=_pref_float("SATELLITE_COMMAND_TIMEOUT_SECONDS", 20.0),
+        request_id=utterance_id_from_timing(timing),
+        timing=timing,
+    )
 
 
 def _wakeword_engine_name() -> str:
@@ -1501,7 +1562,7 @@ def _pause_wakeword_capture_media_if_needed() -> list:
 
     return paused
 
-def _record_audio_with_vad_wakeword() -> Optional[str]:
+def _record_audio_with_vad_wakeword(*, voice_timing=None) -> Optional[str]:
     """
     Wakeword-triggered utterance capture wrapper.
 
@@ -1547,6 +1608,7 @@ def _record_audio_with_vad_wakeword() -> Optional[str]:
                 and not bool(globals().get("ptt_input_active"))
             ),
             cancelled_fn=lambda: bool(globals().get("ptt_input_active")),
+            voice_timing=voice_timing,
         )
 
         if out:
@@ -1572,6 +1634,8 @@ def _record_audio_with_vad_wakeword_stream(
     pre_trigger_frames=None,
     pre_trigger_sample_rate: Optional[int] = None,
     pre_trigger_frame_samples: Optional[int] = None,
+    frame_timing_fn=None,
+    voice_timing=None,
 ) -> Optional[str]:
     """
     Wakeword-triggered utterance capture from an already-open input stream.
@@ -1883,12 +1947,15 @@ def _record_audio_with_vad_wakeword_stream(
             sleep_per_frame_sec=0.001,
             rt_stream_runtime=rt_stream_runtime,
             first_speech_deadline_ts=first_speech_deadline_ts,
+            frame_timing_fn=frame_timing_fn,
         )
 
         if not capture:
             logging.info("WAKEWORD_STREAM_CAPTURE_EMPTY")
             print("No speech detected")
             return None
+
+        apply_capture_timing(voice_timing, capture)
 
         audio_data = capture["audio_data"]
         speech_start_ms = capture.get("speech_start_elapsed_ms")
@@ -2018,6 +2085,8 @@ def _process_wakeword_stream_interaction(
     pre_trigger_frames=None,
     pre_trigger_sample_rate: Optional[int] = None,
     pre_trigger_frame_samples: Optional[int] = None,
+    frame_timing_fn=None,
+    voice_timing=None,
 ) -> bool:
     """Run one wakeword interaction using the listener's open audio stream."""
     _trace_audio_event(
@@ -2047,6 +2116,8 @@ def _process_wakeword_stream_interaction(
         pre_trigger_frames=pre_trigger_frames,
         pre_trigger_sample_rate=pre_trigger_sample_rate,
         pre_trigger_frame_samples=pre_trigger_frame_samples,
+        frame_timing_fn=frame_timing_fn,
+        voice_timing=voice_timing,
     )
 
     if not audio_file:
@@ -2058,7 +2129,7 @@ def _process_wakeword_stream_interaction(
 
     try:
         logging.info("WAKEWORD_STREAM_PROCESS_BEGIN file=%r", audio_file)
-        process_audio(audio_file, trigger="wakeword")
+        process_audio(audio_file, trigger="wakeword", voice_timing=voice_timing)
         logging.info("WAKEWORD_STREAM_PROCESS_DONE")
         return True
     finally:
@@ -2066,7 +2137,7 @@ def _process_wakeword_stream_interaction(
             is_processing = False
 
 
-def _process_wakeword_interaction() -> bool:
+def _process_wakeword_interaction(*, voice_timing=None) -> bool:
     """
     End-to-end wakeword interaction path:
     * capture one utterance using shared VAD core
@@ -2091,7 +2162,7 @@ def _process_wakeword_interaction() -> bool:
         pass
 
     logging.info("WAKEWORD_INTERACTION_BEGIN")
-    audio_file = _record_audio_with_vad_wakeword()
+    audio_file = _record_audio_with_vad_wakeword(voice_timing=voice_timing)
     if not audio_file:
         logging.info("WAKEWORD_INTERACTION_ABORT reason=no_audio")
         return False
@@ -2100,7 +2171,7 @@ def _process_wakeword_interaction() -> bool:
         is_processing = True
     try:
         logging.info("WAKEWORD_PROCESS_BEGIN file=%r", audio_file)
-        process_audio(audio_file, trigger="wakeword")
+        process_audio(audio_file, trigger="wakeword", voice_timing=voice_timing)
         logging.info("WAKEWORD_PROCESS_DONE")
         return True
     finally:
@@ -2173,6 +2244,20 @@ def _handle_wakeword_detected(**kwargs) -> None:
 
     The same-stream path avoids opening the input device a second time.
     """
+    timing = new_voice_timing(
+        trigger="wakeword",
+        source_id=(
+            _satellite_source_id()
+            if _satellite_mode_enabled()
+            else "default_piphone"
+        ),
+        wakeword_label=(kwargs or {}).get("wakeword_label"),
+        wakeword_score=(kwargs or {}).get("wakeword_score"),
+        wake_detected_at_unix_ms=(kwargs or {}).get("wake_detected_at_unix_ms"),
+        wake_detected_monotonic_ns=(kwargs or {}).get("wake_detected_monotonic_ns"),
+        wake_audio_end_at_unix_ms=(kwargs or {}).get("wake_audio_end_at_unix_ms"),
+        wake_audio_end_monotonic_ns=(kwargs or {}).get("wake_audio_end_monotonic_ns"),
+    )
     _trace_audio_event(
         "wakeword_detected_callback_enter",
         has_frame_reader=bool(callable((kwargs or {}).get("frame_reader"))),
@@ -2180,6 +2265,7 @@ def _handle_wakeword_detected(**kwargs) -> None:
         frame_samples=(kwargs or {}).get("frame_samples"),
         wakeword_label=(kwargs or {}).get("wakeword_label"),
         wakeword_score=(kwargs or {}).get("wakeword_score"),
+        utterance_id=utterance_id_from_timing(timing),
     )
     global _WAKEWORD_DETECTION_IN_PROGRESS
     try:
@@ -2196,6 +2282,7 @@ def _handle_wakeword_detected(**kwargs) -> None:
         )
 
         frame_reader = (kwargs or {}).get("frame_reader")
+        frame_timing_fn = (kwargs or {}).get("frame_timing_fn")
         sample_rate = (kwargs or {}).get("sample_rate")
         frame_samples = (kwargs or {}).get("frame_samples")
         pre_trigger_frames = (kwargs or {}).get("pre_trigger_frames")
@@ -2205,14 +2292,16 @@ def _handle_wakeword_detected(**kwargs) -> None:
         if callable(frame_reader):
             _process_wakeword_stream_interaction(
                 frame_reader=frame_reader,
+                frame_timing_fn=frame_timing_fn,
                 sample_rate=sample_rate,
                 frame_samples=frame_samples,
                 pre_trigger_frames=pre_trigger_frames,
                 pre_trigger_sample_rate=pre_trigger_sample_rate,
                 pre_trigger_frame_samples=pre_trigger_frame_samples,
+                voice_timing=timing,
             )
         else:
-            _process_wakeword_interaction()
+            _process_wakeword_interaction(voice_timing=timing)
     finally:
         # Smart rearm:
         #   1) Wait for any in-flight SFX (success/finish/error chime) to finish,
@@ -2993,6 +3082,7 @@ def _record_audio_with_vad_capture_core(
     *,
     continue_recording_fn=None,
     cancelled_fn=None,
+    voice_timing=None,
 ) -> Optional[str]:
     """
     Internal capture core shared by PTT today and intended for wake-word reuse later.
@@ -3147,6 +3237,8 @@ def _record_audio_with_vad_capture_core(
                 pass
             print("No speech detected")
             return None
+
+        apply_capture_timing(voice_timing, capture)
 
         _perf(
             'VAD_DONE',
@@ -3918,6 +4010,7 @@ def _looks_like_failure_response(text: str) -> bool:
         ("couldn't" in t)
         or ("could not" in t)
         or ("can't" in t)
+        or t.startswith("error")
         or ("didn't" in t and "play" in t)
         or ("failed" in t)
     )
@@ -3965,7 +4058,7 @@ def _speak_text_for_trigger(text: str, trigger: str) -> bool:
     return False
 
 
-def process_audio(audio_file: str, *, trigger: str = "ptt"):
+def process_audio(audio_file: str, *, trigger: str = "ptt", voice_timing=None):
     global is_processing
     previous_request_ctx = None
     request_ctx = None
@@ -3973,21 +4066,31 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
 
     try:
         trigger_name = str(trigger or "").strip().lower()
-        request_ctx = build_request_context(
-            source_id="default_piphone",
-            origin=trigger_name or "ptt",
-        )
+        satellite_mode = _satellite_mode_enabled()
+        if satellite_mode:
+            request_ctx = build_request_context(
+                source_id=_satellite_source_id(),
+                source_type="satellite",
+                origin=f"satellite_{trigger_name or 'voice'}",
+                source_room=_satellite_source_room(),
+            )
+        else:
+            request_ctx = build_request_context(
+                source_id="default_piphone",
+                origin=trigger_name or "ptt",
+            )
         previous_request_ctx = replace_current_request_context(request_ctx)
         request_ctx_installed = True
         _trace_audio_event("process_audio_enter", trigger=trigger, audio_file=audio_file)
         logging.info("PROCESS_AUDIO_BEGIN trigger=%r audio_file=%r", trigger, audio_file)
         touch_session()
-        refresh_runnable_cache(
-            ha_get_states=ha_get_states,
-            normalize_scene_phrase=lambda s: _normalize_scene_phrase(s, logger=logging),
-            ttl_seconds=10 * 60,
-            force=False,
-        )
+        if not satellite_mode:
+            refresh_runnable_cache(
+                ha_get_states=ha_get_states,
+                normalize_scene_phrase=lambda s: _normalize_scene_phrase(s, logger=logging),
+                ttl_seconds=10 * 60,
+                force=False,
+            )
 
         _perf('PIPE_BEFORE_STT')
 
@@ -4002,7 +4105,11 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
                 stt_mode_override,
                 (os.environ.get("PIPHONE_STT_MODE", "") or "").strip().lower(),
             )
-        text = transcribe_audio(audio_file, mode_override=stt_mode_override)
+        mark_stt_started(voice_timing)
+        try:
+            text = transcribe_audio(audio_file, mode_override=stt_mode_override)
+        finally:
+            mark_stt_completed(voice_timing)
 
         # Option A (Step 6): wakeword captures intentionally include the wake
         # word at the front of the transcript (via the listener pre-trigger
@@ -4021,7 +4128,7 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         # ChatGPT, conversation history, or outcome-tone logic. Wakeword
         # interactions rearm through their existing outer finally block; PTT
         # interactions simply return to the active PTT capture loop.
-        if interaction_flow.is_interaction_cancel(text):
+        if interaction_flow.is_interaction_cancel(text) and not satellite_mode:
             command_dispatch._ACTION_OCCURRED = False
             try:
                 from confirmation_controls import cancel_pending_confirmation
@@ -4060,61 +4167,122 @@ def process_audio(audio_file: str, *, trigger: str = "ptt"):
         action_result = ActionResult.NONE
 
         _t0_cmd = time.monotonic()
-        device_response = process_device_commands(text)
-
-        logging.info(f"DEVICE_RESPONSE: {device_response!r} ACTION_OCCURRED={command_dispatch._ACTION_OCCURRED}")
+        device_response = None
+        satellite_result = None
         async_response_started = False
-
-        # Speak only if we actually have words to say (time/weather or confirmations enabled)
-        if ptt_session_active and device_response:
-            async_response_started = _speak_text_for_trigger(device_response, trigger)
-            # Bridge the deterministic/AI seam: inject informational responses into
-            # conversation_history so follow-up AI queries have context
-            # ("what time is it there?" after a deterministic weather response).
-            force_history = False
-            assistant_context_text = None
-            try:
-                force_history = command_dispatch._is_np_query(text)
-                if force_history:
-                    assistant_context_text = f"Currently playing: {device_response}"
-            except Exception:
-                force_history = False
-            interaction_flow.inject_into_history(
-                text,
-                device_response,
-                force=force_history,
-                assistant_context_text=assistant_context_text,
-            )
-
-        # Mark DEVICE only if something truly happened:
-        # - HA call succeeded (_ACTION_OCCURRED), OR
-        # - local utility returned a non-empty string (time/weather)
-        if command_dispatch._ACTION_OCCURRED or (device_response is not None and device_response.strip()):
-            action_result = ActionResult.DEVICE
-        # Semantic router (DEVICE vs CHATGPT vs ERROR)
         global last_chatgpt_ts
-        if action_result == ActionResult.NONE and ptt_session_active:
-            now_ts = _now_ts()
-            rr = route_utterance(text=text, now_ts=now_ts, last_chatgpt_ts=last_chatgpt_ts)
-            if rr.outcome == RouteOutcome.CHATGPT:
-                if _looks_like_joke_request(text):
-                    response = (get_chatgpt_joke_response(text) or "").strip()
-                else:
-                    response = (get_chatgpt_response(text) or "").strip()
-                if response:
-                    last_chatgpt_ts = now_ts
-                    action_result = ActionResult.CHATGPT
-                    if ptt_session_active:
-                        async_response_started = _speak_text_for_trigger(response, trigger)
+        if satellite_mode:
+            try:
+                satellite_result = _forward_voice_command_to_brain(
+                    text,
+                    trigger=trigger_name,
+                    timing=voice_timing,
+                )
+            except SatelliteRuntimeError as exc:
+                logging.error(
+                    "SATELLITE_COMMAND_FAIL brain=%r source_id=%r error=%s",
+                    _pref_str("SATELLITE_BRAIN_URL", ""),
+                    _satellite_source_id(),
+                    exc,
+                )
+            else:
+                command_dispatch._ACTION_OCCURRED = bool(satellite_result.action_occurred)
+                device_response = satellite_result.response_text
+                logging.info(
+                    "SATELLITE_COMMAND_DONE request_id=%r handled=%s action_occurred=%s source=%r chars=%s",
+                    satellite_result.request_id,
+                    satellite_result.handled,
+                    satellite_result.action_occurred,
+                    satellite_result.source,
+                    len(device_response or ""),
+                )
+                if satellite_result.cancelled:
+                    try:
+                        log_command_event(
+                            text,
+                            request_ctx,
+                            satellite_result,
+                            int((time.monotonic() - _t0_cmd) * 1000),
+                        )
+                    except Exception:
+                        pass
+                    _trace_audio_event(
+                        "process_audio_cancelled",
+                        trigger=trigger,
+                        source="satellite",
+                    )
+                    return
+                if satellite_result.handled:
+                    action_result = (
+                        ActionResult.CHATGPT
+                        if satellite_result.source == "chatgpt"
+                        else ActionResult.DEVICE
+                    )
+                    speak_response = not (
+                        satellite_result.source == "device_confirm"
+                        and not _pref_bool("SPEAK_ACTION_CONFIRMATIONS", False)
+                    )
+                    if ptt_session_active and device_response and speak_response:
+                        async_response_started = _speak_text_for_trigger(device_response, trigger)
+        else:
+            device_response = process_device_commands(text)
+
+            logging.info(f"DEVICE_RESPONSE: {device_response!r} ACTION_OCCURRED={command_dispatch._ACTION_OCCURRED}")
+
+            # Speak only if we actually have words to say (time/weather or confirmations enabled)
+            if ptt_session_active and device_response:
+                async_response_started = _speak_text_for_trigger(device_response, trigger)
+                # Bridge the deterministic/AI seam: inject informational responses into
+                # conversation_history so follow-up AI queries have context
+                # ("what time is it there?" after a deterministic weather response).
+                force_history = False
+                assistant_context_text = None
+                try:
+                    force_history = command_dispatch._is_np_query(text)
+                    if force_history:
+                        assistant_context_text = f"Currently playing: {device_response}"
+                except Exception:
+                    force_history = False
+                interaction_flow.inject_into_history(
+                    text,
+                    device_response,
+                    force=force_history,
+                    assistant_context_text=assistant_context_text,
+                )
+
+            # Mark DEVICE only if something truly happened:
+            # - HA call succeeded (_ACTION_OCCURRED), OR
+            # - local utility returned a non-empty string (time/weather)
+            if command_dispatch._ACTION_OCCURRED or (device_response is not None and device_response.strip()):
+                action_result = ActionResult.DEVICE
+            # Semantic router (DEVICE vs CHATGPT vs ERROR)
+            if action_result == ActionResult.NONE and ptt_session_active:
+                now_ts = _now_ts()
+                rr = route_utterance(text=text, now_ts=now_ts, last_chatgpt_ts=last_chatgpt_ts)
+                if rr.outcome == RouteOutcome.CHATGPT:
+                    if _looks_like_joke_request(text):
+                        response = (get_chatgpt_joke_response(text) or "").strip()
+                    else:
+                        response = (get_chatgpt_response(text) or "").strip()
+                    if response:
+                        last_chatgpt_ts = now_ts
+                        action_result = ActionResult.CHATGPT
+                        if ptt_session_active:
+                            async_response_started = _speak_text_for_trigger(response, trigger)
 
         # Event log: record every voiced command with outcome
         try:
             _log_result = types.SimpleNamespace(
                 handled=(action_result != ActionResult.NONE),
                 action_occurred=bool(command_dispatch._ACTION_OCCURRED),
-                source=("deterministic" if action_result == ActionResult.DEVICE
-                        else "chatgpt" if action_result == ActionResult.CHATGPT
-                        else None),
+                source=(
+                    satellite_result.source
+                    if satellite_result is not None
+                    else "deterministic" if action_result == ActionResult.DEVICE
+                    else "chatgpt" if action_result == ActionResult.CHATGPT
+                    else "satellite_error" if satellite_mode
+                    else None
+                ),
             )
             log_command_event(text, request_ctx, _log_result, int((time.monotonic() - _t0_cmd) * 1000))
         except Exception:
@@ -4284,7 +4452,7 @@ def main():
             _local_loaded, _local_keys,
         )
         logging.info(
-            "FEATURE_FLAGS ptt_enabled=%s ptt_gpio_pin=%s ptt_listen_level=%r ptt_end_behavior=%r wakeword_enabled=%s wakeword_engine=%r wakeword_model=%r output_mode=%r output_room=%r chatgpt_model=%r wakeword_suppress_while_ptt=%s wakeword_chime=%s wakeword_rearm_sec=%.2f",
+            "FEATURE_FLAGS ptt_enabled=%s ptt_gpio_pin=%s ptt_listen_level=%r ptt_end_behavior=%r wakeword_enabled=%s wakeword_engine=%r wakeword_model=%r command_mode=%r satellite_brain=%r output_mode=%r output_room=%r chatgpt_model=%r wakeword_suppress_while_ptt=%s wakeword_chime=%s wakeword_rearm_sec=%.2f",
             _ptt_enabled(),
             _pref_value("PTT_GPIO_PIN", 11),
             _pref_str("PTT_LISTEN_LEVEL", "low"),
@@ -4292,6 +4460,8 @@ def main():
             _wakeword_enabled(),
             _wakeword_engine_name(),
             _wakeword_model_name(),
+            _command_processing_mode(),
+            _pref_str("SATELLITE_BRAIN_URL", ""),
             _assistant_audio_output_mode(),
             _assistant_audio_output_room(),
             _chatgpt_model(),

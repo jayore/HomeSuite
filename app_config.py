@@ -874,6 +874,18 @@ PTT_ENABLED = False
 HANDSET_GPIO_PIN = PTT_GPIO_PIN
 HANDSET_PRESENT = PTT_ENABLED
 
+# Command processing normally remains in this process. A voice satellite keeps
+# capture, wake-word/PTT, STT, cues, and response playback local, but sends the
+# resulting transcript to a central Home Suite brain for routing and execution.
+COMMAND_PROCESSING_MODE = "local"  # "local" or "satellite"
+SATELLITE_BRAIN_URL = ""
+# These optional advanced overrides default to this node's hostname and
+# DEFAULT_ROOM, respectively. Keep source IDs stable so follow-up context on the
+# brain remains scoped to the same physical device.
+SATELLITE_SOURCE_ID = None
+SATELLITE_SOURCE_ROOM = None
+SATELLITE_COMMAND_TIMEOUT_SECONDS = 20.0
+
 # Assistant audio output policy for normal assistant responses.
 # Supported values:
 #   "local" = local PiPhone audio path

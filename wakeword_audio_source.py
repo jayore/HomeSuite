@@ -26,6 +26,9 @@ class AudioFrameCursor:
         self._source = source
         self.next_sequence = int(next_sequence)
         self.dropped_frames = 0
+        self.last_frame_sequence: Optional[int] = None
+        self.last_frame_end_monotonic_ns: Optional[int] = None
+        self.last_frame_end_unix_ms: Optional[int] = None
 
     def read_frame(self, timeout: float = 1.0):
         return self._source._read_for_cursor(self, timeout=timeout)
@@ -34,6 +37,16 @@ class AudioFrameCursor:
         """Discard buffered history and resume at the next frame produced."""
         self.next_sequence = self._source.next_live_sequence()
         return self.next_sequence
+
+    def last_frame_timing(self):
+        """Return acquisition timing for the frame most recently read."""
+        if self.last_frame_sequence is None:
+            return None
+        return {
+            "sequence": int(self.last_frame_sequence),
+            "end_monotonic_ns": int(self.last_frame_end_monotonic_ns),
+            "end_unix_ms": int(self.last_frame_end_unix_ms),
+        }
 
 
 class ContinuousAudioSource:
@@ -103,7 +116,6 @@ class ContinuousAudioSource:
                 stream.close()
 
     def _callback(self, indata, frames, time_info, status) -> None:
-        del time_info
         try:
             data = indata[:, 0] if getattr(indata, "ndim", 1) > 1 else indata
             data = np.asarray(data, dtype=np.int16).copy()
@@ -114,7 +126,40 @@ class ContinuousAudioSource:
             remainder_start = complete * self.frame_samples
             self._partial = data[remainder_start:].copy()
 
-            now = time.monotonic()
+            now_monotonic_ns = time.monotonic_ns()
+            now_unix_ns = time.time_ns()
+            frame_duration_ns = max(
+                1,
+                int(round(self.frame_samples * 1_000_000_000 / self.sample_rate)),
+            )
+
+            # PortAudio exposes the ADC start and callback clock. When present,
+            # use them to remove callback scheduling delay from frame times.
+            # The fallback still timestamps at callback delivery, which is
+            # normally within one hardware block for this fixed-size stream.
+            callback_audio_end_offset_ns = 0
+            try:
+                adc_start = float(
+                    getattr(time_info, "inputBufferAdcTime", None)
+                    if not isinstance(time_info, dict)
+                    else time_info.get("inputBufferAdcTime")
+                )
+                current_time = float(
+                    getattr(time_info, "currentTime", None)
+                    if not isinstance(time_info, dict)
+                    else time_info.get("currentTime")
+                )
+                adc_end = adc_start + (float(frames) / float(self.sample_rate))
+                offset_seconds = adc_end - current_time
+                if abs(offset_seconds) <= 2.0:
+                    callback_audio_end_offset_ns = int(round(offset_seconds * 1_000_000_000))
+            except (TypeError, ValueError, AttributeError):
+                pass
+
+            callback_audio_end_monotonic_ns = (
+                now_monotonic_ns + callback_audio_end_offset_ns
+            )
+            callback_audio_end_unix_ns = now_unix_ns + callback_audio_end_offset_ns
             with self._condition:
                 if status:
                     self._status_count += 1
@@ -122,10 +167,26 @@ class ContinuousAudioSource:
                 for index in range(complete):
                     start = index * self.frame_samples
                     frame = data[start : start + self.frame_samples].copy()
-                    self._ring.append((self._sequence, frame))
+                    frames_after = complete - index - 1
+                    frame_end_monotonic_ns = (
+                        callback_audio_end_monotonic_ns
+                        - (frames_after * frame_duration_ns)
+                    )
+                    frame_end_unix_ns = (
+                        callback_audio_end_unix_ns
+                        - (frames_after * frame_duration_ns)
+                    )
+                    self._ring.append(
+                        (
+                            self._sequence,
+                            frame,
+                            frame_end_monotonic_ns,
+                            frame_end_unix_ns // 1_000_000,
+                        )
+                    )
                     self._sequence += 1
                 if complete:
-                    self._last_frame_monotonic = now
+                    self._last_frame_monotonic = now_monotonic_ns / 1_000_000_000.0
                     self._condition.notify_all()
         except Exception:
             # PortAudio callbacks must not raise into the audio thread.
@@ -158,8 +219,11 @@ class ContinuousAudioSource:
                         cursor.next_sequence = oldest
                     if cursor.next_sequence <= newest:
                         offset = cursor.next_sequence - oldest
-                        sequence, frame = self._ring[offset]
+                        sequence, frame, end_monotonic_ns, end_unix_ms = self._ring[offset]
                         cursor.next_sequence = int(sequence) + 1
+                        cursor.last_frame_sequence = int(sequence)
+                        cursor.last_frame_end_monotonic_ns = int(end_monotonic_ns)
+                        cursor.last_frame_end_unix_ms = int(end_unix_ms)
                         return frame.copy()
 
                 remaining = deadline - time.monotonic()
@@ -176,7 +240,20 @@ class ContinuousAudioSource:
             items = [item for item in items if int(item[0]) <= int(end_sequence)]
         if frame_count is not None and frame_count >= 0:
             items = items[-int(frame_count):]
-        return [frame.copy() for _, frame in items]
+        return [frame.copy() for _, frame, _, _ in items]
+
+    def timing_for_sequence(self, sequence: int):
+        """Return acquisition timing for a retained frame sequence."""
+        target = int(sequence)
+        with self._condition:
+            for item_sequence, _, end_monotonic_ns, end_unix_ms in self._ring:
+                if int(item_sequence) == target:
+                    return {
+                        "sequence": target,
+                        "end_monotonic_ns": int(end_monotonic_ns),
+                        "end_unix_ms": int(end_unix_ms),
+                    }
+        return None
 
     def stats(self):
         with self._condition:

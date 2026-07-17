@@ -345,7 +345,9 @@ def run_openwakeword(listener) -> None:
                 if best_score < threshold:
                     continue
 
-                hit_now = time.monotonic()
+                hit_monotonic_ns = time.monotonic_ns()
+                hit_unix_ms = time.time_ns() // 1_000_000
+                hit_now = hit_monotonic_ns / 1_000_000_000.0
                 if hit_now - last_hit_ts < debounce_sec:
                     listener.log.info(
                         "WAKEWORD_DETECTED_IGNORED reason=debounce dt=%.3f floor=%.3f",
@@ -380,13 +382,19 @@ def run_openwakeword(listener) -> None:
                     next_sequence=int(block_end_sequence) + 1,
                     live=False,
                 )
+                wake_audio_timing = source.timing_for_sequence(block_end_sequence) or {}
 
                 listener._emit_detected(
                     frame_reader=command_cursor.read_frame,
+                    frame_timing_fn=command_cursor.last_frame_timing,
                     sample_rate=sample_rate,
                     frame_samples=frame_samples,
                     wakeword_label=best_label,
                     wakeword_score=best_score,
+                    wake_detected_at_unix_ms=hit_unix_ms,
+                    wake_detected_monotonic_ns=hit_monotonic_ns,
+                    wake_audio_end_at_unix_ms=wake_audio_timing.get("end_unix_ms"),
+                    wake_audio_end_monotonic_ns=wake_audio_timing.get("end_monotonic_ns"),
                     pre_trigger_frames=pretrigger_snapshot,
                     pre_trigger_sample_rate=sample_rate,
                     pre_trigger_frame_samples=frame_samples,

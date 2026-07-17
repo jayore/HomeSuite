@@ -22,6 +22,8 @@ class ConfigEditorTests(unittest.TestCase):
             'PHYSICAL_BUTTONS_ENABLED = False\n'
             'PHYSICAL_BUTTON_PINS = {}\n'
             'PHYSICAL_BUTTON_ACTIONS = {}\n'
+            'COMMAND_PROCESSING_MODE = "local"\n'
+            'SATELLITE_BRAIN_URL = ""\n'
             'UNIFIED_SERVER_PORT = 8765\n',
             encoding="utf-8",
         )
@@ -40,6 +42,7 @@ class ConfigEditorTests(unittest.TestCase):
                 'HA_TOKEN = "old-ha-token"\n'
                 'OPENAI_API_KEY = ""\n'
                 'HOMESUITE_HTTP_API_KEY = "api-key"\n'
+                'SATELLITE_BRAIN_API_KEY = ""\n'
                 'HOMESUITE_CONSOLE_KEY = ""\n',
                 encoding="utf-8",
             )
@@ -54,6 +57,8 @@ class ConfigEditorTests(unittest.TestCase):
             PHYSICAL_BUTTONS_ENABLED=False,
             PHYSICAL_BUTTON_PINS={},
             PHYSICAL_BUTTON_ACTIONS={},
+            COMMAND_PROCESSING_MODE="local",
+            SATELLITE_BRAIN_URL="",
             UNIFIED_SERVER_PORT=8765,
             CONSOLE_PORT=8766,
             ROOMS={
@@ -68,6 +73,7 @@ class ConfigEditorTests(unittest.TestCase):
             HA_TOKEN="old-ha-token",
             OPENAI_API_KEY="",
             HOMESUITE_HTTP_API_KEY="api-key",
+            SATELLITE_BRAIN_API_KEY="",
             HOMESUITE_CONSOLE_KEY="",
         )
         return ConfigEditor(
@@ -216,6 +222,27 @@ class ConfigEditorTests(unittest.TestCase):
                 )
             with self.assertRaisesRegex(ConfigEditError, "cannot be cleared"):
                 editor.preview([{"key": "HA_TOKEN", "action": "clear"}])
+
+    def test_satellite_mode_requires_a_brain_url_and_accepts_shared_api_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            editor = self.make_editor(Path(directory))
+            with self.assertRaisesRegex(ConfigEditError, "Enter a brain URL"):
+                editor.preview(
+                    [{"key": "COMMAND_PROCESSING_MODE", "action": "set", "value": "satellite"}]
+                )
+
+            preview = editor.preview(
+                [
+                    {"key": "COMMAND_PROCESSING_MODE", "action": "set", "value": "satellite"},
+                    {
+                        "key": "SATELLITE_BRAIN_URL",
+                        "action": "set",
+                        "value": "http://piphone.local:8765",
+                    },
+                ]
+            )
+
+        self.assertEqual(len(preview["changes"]), 2)
 
     def test_gpio_button_maps_are_validated_and_written_as_structured_values(self):
         with tempfile.TemporaryDirectory() as directory:

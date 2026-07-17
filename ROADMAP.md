@@ -139,10 +139,16 @@ special-case regular expressions.
 
 ### Central Brain And Thin Satellites
 
-Every current Pi runs a complete command runtime even though the HTTP command
-contract can already serve a brainless client. A future deployment could place
-one authoritative runtime on a server or primary device and use room-bound
-satellites for capture, playback, and local hardware.
+Transcript-first voice satellite mode can now place routing, continuity, AI,
+and action execution on one authoritative Home Suite brain while a room-bound
+node retains local capture, STT, playback, and hardware. Every node still runs
+the complete Home Suite runtime, however. A future thin install profile should
+remove those unused local services and add origin-directed alarm output plus
+multi-satellite wake-word arbitration and deduplication.
+
+Wake, speech, transport, and brain-receive timestamps now travel in a versioned
+NTP-aware envelope, so arbitration can compare acquisition events rather than
+post-STT request arrival order.
 
 This remains a topology choice, not a prerequisite for adding more frontends.
 The self-contained appliance model should stay supported while it remains

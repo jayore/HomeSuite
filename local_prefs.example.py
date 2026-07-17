@@ -155,6 +155,17 @@ usually describes one specific Pi, room, audio device, or speaker target.
 # UNIFIED_SERVER_ENABLED = True
 # UNIFIED_SERVER_PORT = 8765
 
+# A voice satellite still records, transcribes, and plays responses locally,
+# but sends transcript text to another Home Suite node for command routing and
+# execution. Enter either the brain server URL or its full /command URL. The
+# satellite defaults to this node's hostname as its stable source ID and to
+# DEFAULT_ROOM as its physical room.
+# COMMAND_PROCESSING_MODE = "satellite"
+# SATELLITE_BRAIN_URL = "http://homesuite-brain.local:8765"
+# SATELLITE_SOURCE_ID = None
+# SATELLITE_SOURCE_ROOM = None
+# SATELLITE_COMMAND_TIMEOUT_SECONDS = 20.0
+
 # The separate authenticated management console defaults to every LAN
 # interface on port 8766. Bind to 127.0.0.1 when using an SSH tunnel only.
 # CONSOLE_HOST = "0.0.0.0"
