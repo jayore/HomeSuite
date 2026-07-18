@@ -108,7 +108,7 @@ diagnostic retention, compatibility values, and domain-specific policy
 thresholds. Promote them only when a structured editor makes the behavior safer
 or substantially easier to understand. Useful future owners include:
 
-* Diagnostics for command-text privacy and log-retention controls
+* System Health for command-text privacy and log-retention controls
 * language tooling for aliases, phonetic repairs, labels, and pronunciation
 * integration-specific advanced panels for weather, astronomy, stocks, media,
   scheduling, and temporary-action policy

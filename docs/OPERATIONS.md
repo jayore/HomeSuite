@@ -67,9 +67,9 @@ names, package versions, service state, and log sizes. It never includes
 `private_config.py`, local configuration values, tokens, raw logs, or command
 text.
 
-The management console's Diagnostics view provides the same bundle as a direct
-download. The browser path adds a strict archive-member allowlist and size cap;
-it does not create a second diagnostic format.
+The management console's **System Health** view provides the same bundle as a
+direct download. The browser path adds a strict archive-member allowlist and
+size cap; it does not create a second diagnostic format.
 
 ## Before and After Changes
 

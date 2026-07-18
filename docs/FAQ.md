@@ -151,7 +151,7 @@ Then see [INTEGRATIONS.md](INTEGRATIONS.md) for the keys that service needs.
 
 ## Where Should I Look When Something Behaves Weirdly?
 
-Start with the browser's **Diagnostics** view, which runs the same Doctor checks
+Start with the browser's **System Health** view, which runs the same Doctor checks
 and links failures to the owning setup page. For deeper command debugging, use
 this loop:
 

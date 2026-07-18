@@ -314,7 +314,7 @@
       element("span", "header-status-label", label),
       element("span", "header-status-compact", compactLabel || "")
     );
-    holder.title = label + ". Open Diagnostics";
+    holder.title = label + ". Open System Health";
     holder.setAttribute("aria-label", holder.title);
     window.renderLucideIcons(holder);
   }
@@ -778,14 +778,14 @@
       activationAction = "chat";
       activationLabel = "Open Chat";
     } else if (activationRequested) {
-      activationDescription = "Runtime startup has been requested. Open Diagnostics if it does not become healthy shortly.";
+      activationDescription = "Runtime startup has been requested. Open System Health if it does not become healthy shortly.";
       activationAction = "refresh_setup";
       activationLabel = "Check status";
       activationReady = true;
     } else if (!activationSupported) {
       activationDescription = "The bounded runtime activation helper is not installed on this node.";
       activationAction = "diagnostics";
-      activationLabel = "Open diagnostics";
+      activationLabel = "Open System Health";
       activationDisabled = false;
     } else if (diagnosticsReady) {
       activationDescription = "Required local checks pass. Activation will repeat them with live network checks.";
@@ -995,7 +995,7 @@
         ]);
         showSetupResult("ok", "Home Suite is active and healthy.");
       } else {
-        showSetupResult("warn", "Activation was requested, but the runtime is not healthy yet. Open Diagnostics for the current checks.");
+        showSetupResult("warn", "Activation was requested, but the runtime is not healthy yet. Open System Health for the current checks.");
       }
     } catch (error) {
       if (error.payload && error.payload.report) {

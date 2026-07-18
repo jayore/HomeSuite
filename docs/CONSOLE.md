@@ -109,7 +109,7 @@ reverse proxy with HTTPS if remote browser access is required.
   tests. Overview cards never return secret values.
 * **Chat** sends text through the same live deterministic and conversational
   interaction layer used by other Home Suite surfaces.
-* **Diagnostics** runs Home Suite Doctor locally or with optional live network
+* **System Health** runs Home Suite Doctor locally or with optional live network
   and topology checks, places warnings and failures first, routes unhealthy
   checks to the relevant setup view, and downloads a privacy-validated support
   bundle.
@@ -117,7 +117,7 @@ reverse proxy with HTTPS if remote browser access is required.
 ## Guided Setup And Activation
 
 Setup is an orchestrator over the existing Settings, Integrations, Rooms,
-Audio, Wake word, Physical controls, Chat, and Diagnostics surfaces.
+Audio, Wake word, Physical controls, Chat, and System Health surfaces.
 It does not duplicate their values or write a separate onboarding
 configuration. PTT and wake-word roles remain independent and can both be
 enabled; the audio step appears whenever either role is active.
@@ -137,7 +137,7 @@ Existing installations whose runtime is already healthy are also recognized as
 complete for compatibility; the authenticated setup-status check records that
 state once so it remains complete through later restarts or outages. Setup then
 leaves the primary navigation after the user leaves the checklist; later runtime
-failures are surfaced through Diagnostics rather than reopening onboarding.
+failures are surfaced through System Health rather than reopening onboarding.
 **Overview > Review setup** temporarily reopens the checklist for hardware
 changes, integration maintenance, or onboarding preview.
 
@@ -158,7 +158,7 @@ Primary page actions such as **Edit settings**, **Edit audio**, **Add room**,
 and page refresh live in the sticky top bar. Provider setup and connection
 tests stay on their corresponding integration cards. Actions remain available
 while reviewing long pages and collapse to icons on smaller screens.
-The system status at the right of the top bar is also a Diagnostics shortcut;
+The system status at the right of the top bar is also a System Health shortcut;
 on narrow screens it retains a status icon and issue count instead of becoming
 an unexplained color indicator.
 
@@ -424,7 +424,7 @@ Structured `ROOMS` mappings use the purpose-built Rooms editor, and
 `AUDIO_INPUT_PROFILE` uses the purpose-built Audio editor. Deployment-wide
 catalogs and expert policies without guided controls remain direct file edits;
 none of these structured settings are exposed as unvalidated free-form text
-fields. Likely future owners include Diagnostics for privacy and retention,
+fields. Likely future owners include System Health for privacy and retention,
 language tooling for aliases and pronunciation, and each integration for its
 own advanced thresholds. The console's own bind address and port also remain a
 deliberate file-managed recovery setting so a browser edit cannot silently lock
@@ -434,7 +434,7 @@ Integration readiness is local to the node serving the console. A credential
 configured on one Pi does not make it available to another Pi unless the same
 private configuration or environment is intentionally provided there.
 
-## Diagnostics And Support
+## System Health And Support
 
 Doctor warnings and failures retain their redacted technical detail and add a
 plain next step when the console can identify the owning surface. **Open

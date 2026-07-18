@@ -86,8 +86,8 @@ YouTube can wait. Configure them later from **Integrations** as you need them.
 
 Return to **Setup** and choose **Activate Home Suite**. The console repeats
 Home Suite Doctor with bounded live network checks. Required failures block
-activation and appear in Diagnostics with links to the owning setup surface;
-warnings do not block it.
+activation and appear in **System Health** with links to the owning setup
+surface; warnings do not block it.
 
 Activation writes one fixed private marker consumed by an installer-owned
 systemd path unit. The browser cannot supply a command, service name, or shell
