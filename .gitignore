@@ -48,6 +48,7 @@ recording.prev.wav.transcript
 backups/
 *.bak.*
 *.bak-*
+*.bak_*
 *.BAK_*
 *.broken.*
 *.save
@@ -64,6 +65,7 @@ state/temporary_actions.json
 state/source_rooms.json
 state/youtube_*.json
 state/console_restart_required.json
+state/setup_complete.json
 .scheduler.lock
 
 # ============================================================================
@@ -81,6 +83,7 @@ archive/wyoming-satellite*/
 # ============================================================================
 .DS_Store
 Thumbs.db
+.claude/
 *.swp
 *.swo
 *~
