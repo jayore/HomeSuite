@@ -17,7 +17,9 @@ flowchart LR
     Ring --> Detect["WakewordFrontend: detector cleanup and 16 kHz resampling"]
     Detect --> OWW["OpenWakeWord model plus VAD gate"]
     OWW -->|hit| Handoff["Sequence cursor plus bounded pre-trigger tail"]
-    Handoff --> Capture["Wakeword command VAD and non-blocking cue"]
+    Handoff --> Arbitrate["Optional brain arbitration before cue and STT"]
+    Arbitrate -->|winner or one node| Capture["Wakeword command VAD and non-blocking cue"]
+    Arbitrate -->|loser| Suppress["Silent re-arm"]
     Capture --> RT["Realtime transcription: 24 kHz PCM, manual commit"]
     Capture --> WAV["16 kHz diagnostic and fallback WAV"]
     RT --> Text["Prefix stripping, normalization, and phonetic repairs"]
@@ -38,6 +40,10 @@ The important runtime properties are:
   kitchen light`.
 * The acknowledgement cue is non-blocking. Audio is still buffered and sent to
   Realtime while the cue plays.
+* A satellite announces its wake candidate before the cue or STT. One connected
+  wake node receives an immediate grant; a multi-node cluster briefly compares
+  confidence and signal quality while each local ring continues buffering.
+  Losing nodes re-arm silently and never enter command capture.
 * Local wake-word VAD owns the utterance boundary. Realtime server VAD is
   disabled for this path and the complete utterance is committed once.
 * Text then enters the same normalization, phonetic repair, device resolution,
@@ -52,6 +58,8 @@ The important runtime properties are:
 | `wakeword_frontend.py` | Resampling and optional detector/command cleanup |
 | `wakeword_openwakeword.py` | Canonical OpenWakeWord runtime, model selection, scoring, hysteresis, and detector-to-command handoff |
 | `wakeword_listener.py` | Engine lifecycle, suppression, callback contract, and Porcupine compatibility |
+| `wakeword_arbitration.py` | Brain-side candidate grouping, quality scoring, winner leases, and duplicate-command protection |
+| `satellite_coordination.py` | Persistent authenticated candidate/decision channel on a wake-word satellite |
 | `audio_capture.py` | Shared VAD machinery with opt-in wake-word rolling endpoint policy |
 | `realtime_streaming_stt.py` | 24 kHz Realtime transcription sessions and completed-WAV replay |
 | `main.py` | Wake-word interaction policy, cue playback, STT fallback, routing, tones, and re-arm |
@@ -60,6 +68,36 @@ The important runtime properties are:
 
 `wakeword_openwakeword.py` is the active OpenWakeWord implementation. Older
 engine code retained in `wakeword_listener.py` is not the canonical path.
+
+## Multi-Device Arbitration
+
+Set `COMMAND_PROCESSING_MODE = "satellite"` and `SATELLITE_BRAIN_URL` on each
+wake-word frontend that should share a command brain. Arbitration is enabled by
+default. All participating devices must point to the same brain and authenticate
+with its companion API key.
+
+The brain dynamically reports how many eligible wake nodes are connected. With
+one node, `WAKEWORD_ARBITRATION_ELECTION_WINDOW_MS` is skipped and logs show
+`hold_ms=0`. With multiple nodes, the default `180` ms window lets overlapping
+detections arrive before the brain chooses a winner. Command audio is not lost
+during that interval because the continuously drained local ring keeps filling.
+
+The election is based primarily on wake confidence and speech-to-background
+separation, with loudness as a smaller signal and clipping as a penalty. This
+avoids simply rewarding whichever microphone has the highest gain. If every
+candidate cannot provide comparable quality telemetry, that election falls back
+to model confidence for all nodes.
+
+Useful logs are:
+
+```text
+SATELLITE_COORDINATION_READY ... nodes=1 election_window_ms=180
+WAKEWORD_ARBITRATION_ROUNDTRIP ... disposition='granted' ... hold_ms=0
+WAKEWORD_ARBITRATION_DECISION ... disposition='suppressed' winner='kitchen'
+```
+
+The advanced controls live in **Wake word > Settings > Multi-device
+coordination**. Keep NTP enabled on every Pi. PTT bypasses this channel entirely.
 
 ## Install OpenWakeWord
 

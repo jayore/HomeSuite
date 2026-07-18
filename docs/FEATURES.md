@@ -22,7 +22,12 @@ and validated through the normal command path.
 
 ## Rooms, Focus, And Defaults
 
-Fixed devices can have fixed room defaults. Mobile clients such as chat, Telegram, Raycast-style launchers, or future satellites can keep sticky room focus. That lets Home Suite route short commands to the room or media player that makes sense without forcing every request to mention a Home Assistant entity.
+Fixed devices can have fixed room defaults. Mobile clients such as chat,
+Telegram, and Raycast-style launchers can keep sticky room focus. Voice
+satellites contribute their configured physical room to the shared command
+brain. That lets Home Suite route short commands to the room or media player
+that makes sense without forcing every request to mention a Home Assistant
+entity.
 
 A room can coordinate multiple kinds of targets rather than pretending they are
 one physical entity. Its configuration may include media players, Sonos
@@ -178,6 +183,11 @@ and command-routing behavior while keeping trigger-specific audio mechanics
 separate. The wake-word path supports continuous capture, same-stream command
 handoff, VAD endpointing, microphone profiles, calibration, near-miss logging,
 asynchronous response speech, barge-in, and configurable OpenWakeWord models.
+Wake-word satellites linked to one command brain announce detections before
+their cue or STT; the brain can select the clearest candidate and silently
+suppress overlapping detections. A one-node cluster adds no election hold, and
+PTT does not participate in this arbitration.
+
 See [WAKEWORD.md](WAKEWORD.md) for the hardware and tuning details.
 
 ## External Interfaces

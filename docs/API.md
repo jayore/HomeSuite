@@ -198,15 +198,43 @@ Both values should be `yes`. The brain also reports `apparent_transit_ms`, which
 is useful for detecting a clock or LAN-latency outlier before trusting a
 candidate in an arbitration window.
 
+When wake-word arbitration is enabled, each wake-word satellite also maintains
+an authenticated persistent WebSocket at `GET /satellite/ws`. A detected wake
+is announced over that channel before the acknowledgement cue or STT begins.
+The announcement contains the event timestamp, wake-model confidence, and, in
+a multi-node cluster, aggregate audio-quality measurements. Raw wake audio is
+not sent to the brain.
+
+The brain treats its connected wake-word satellites as one arbitration cluster:
+
+* One eligible node is granted immediately with no election hold. The only
+  added work is one persistent-channel LAN round trip.
+* With several eligible nodes, the brain waits a short configurable window,
+  groups matching acoustic events, and selects the strongest candidate using
+  model confidence, speech-to-background separation, loudness, and clipping.
+* The winner receives a short-lived execution lease. Other nodes are told to
+  suppress the interaction before they play a cue, stop speech, capture a
+  command, or run STT.
+* The `/command` endpoint consumes the winner lease and caches its result, so a
+  concurrent retry cannot execute the action twice.
+
+NTP-synchronized acoustic timestamps are preferred for event matching. If a
+node cannot confirm clock synchronization, the brain safely falls back to its
+own monotonic candidate-arrival timeline. Different model filenames do not
+prevent two detections from competing for the same acoustic event.
+
+The cluster boundary is the configured brain URL and API key. Devices linked
+to another brain do not participate in this election. PTT requests do not use
+the wake candidate channel and retain their existing behavior.
+
 This is currently a transcript-first **voice runtime mode**, not a thin install
 profile. The satellite still runs the normal Home Suite process and its local
 companion API/scheduler unless those features are separately disabled. Timers,
 alarms, scheduled actions, and temporary restorations created through the
 satellite are owned by the brain; later alarm/audio output follows the brain's
 configured output policy rather than being pushed back to the originating
-satellite. Multi-satellite wake-word arbitration and deduplication are also
-future work; the timing envelope is the event substrate for that next phase and
-does not yet delay, suppress, or select between competing satellite requests.
+satellite. Origin-directed alarm playback and a thinner satellite installation
+profile remain future work.
 
 ## Manifest and State
 

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import time
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 
 import unified_server
+from wakeword_arbitration import WakewordArbitrator
 
 
 class _Request:
@@ -21,11 +25,20 @@ class UnifiedServerAuthTests(unittest.TestCase):
     def setUp(self):
         self.original_key = unified_server._API_KEY
         self.original_runtime = unified_server._RUNTIME_MODULE
+        self.original_arbitrator = unified_server._WAKEWORD_ARBITRATOR
+        self.original_executor = unified_server._CMD_EXECUTOR
         unified_server._API_KEY = "shared-passphrase"
+        unified_server.connected_satellites.clear()
+        unified_server.satellite_metadata.clear()
+        unified_server._WAKEWORD_ARBITRATOR = unified_server._build_wakeword_arbitrator()
 
     def tearDown(self):
         unified_server._API_KEY = self.original_key
         unified_server._RUNTIME_MODULE = self.original_runtime
+        unified_server._WAKEWORD_ARBITRATOR = self.original_arbitrator
+        unified_server._CMD_EXECUTOR = self.original_executor
+        unified_server.connected_satellites.clear()
+        unified_server.satellite_metadata.clear()
 
     def test_shared_key_header_is_accepted(self):
         request = _Request(headers={"X-API-Key": "shared-passphrase"})
@@ -132,6 +145,141 @@ class UnifiedServerAuthTests(unittest.TestCase):
                 await ws.close()
             finally:
                 await client.close()
+
+        asyncio.run(scenario())
+
+    def test_satellite_websocket_registers_and_grants_single_device_without_hold(self):
+        async def scenario():
+            client = TestClient(TestServer(unified_server._make_app()))
+            await client.start_server()
+            try:
+                ws = await client.ws_connect(
+                    "/satellite/ws",
+                    headers={"X-API-Key": "shared-passphrase"},
+                )
+                await ws.send_json(
+                    {
+                        "type": "satellite_hello",
+                        "protocol_version": 1,
+                        "source_id": "piphone1",
+                        "source_room": "living_room",
+                        "wakeword_capable": True,
+                    }
+                )
+                hello = await ws.receive_json(timeout=2)
+                self.assertEqual(hello["type"], "satellite_hello_ack")
+                self.assertEqual(hello["eligible_wakeword_nodes"], 1)
+                await ws.receive_json(timeout=2)  # topology broadcast
+
+                await ws.send_json(
+                    {
+                        "type": "wakeword_candidate",
+                        "protocol_version": 1,
+                        "candidate_id": "candidate-a",
+                        "wakeword_label": "hal_v2",
+                        "wakeword_score": 0.90,
+                        "wakeword_threshold": 0.75,
+                        "audio_quality": {
+                            "separation_db": 18.0,
+                            "p90_dbfs": -14.0,
+                            "clip_pct": 0.0,
+                        },
+                        "timing": {
+                            "wakeword": {
+                                "label": "hal_v2",
+                                "audio_end_at_ms": 1000,
+                            }
+                        },
+                    }
+                )
+                decision = await ws.receive_json(timeout=2)
+                self.assertEqual(decision["type"], "wakeword_decision")
+                self.assertEqual(decision["disposition"], "granted")
+                self.assertEqual(decision["election_hold_ms"], 0)
+                self.assertTrue(decision["winner_token"])
+                await ws.close()
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
+    def test_winner_command_lease_executes_once_across_concurrent_retries(self):
+        async def scenario():
+            decisions = []
+
+            async def emit(source_id, payload):
+                decisions.append((source_id, payload))
+
+            arbitrator = WakewordArbitrator(emit, election_window_ms=5)
+            arbitrator.register_source("piphone1", source_room="living_room")
+            await arbitrator.submit_candidate(
+                "piphone1",
+                {
+                    "candidate_id": "candidate-a",
+                    "wakeword_label": "hal_v2",
+                    "wakeword_score": 0.9,
+                    "wakeword_threshold": 0.75,
+                    "timing": {
+                        "wakeword": {
+                            "label": "hal_v2",
+                            "audio_end_at_ms": 1000,
+                        }
+                    },
+                },
+            )
+            decision = decisions[0][1]
+            unified_server._WAKEWORD_ARBITRATOR = arbitrator
+            unified_server._RUNTIME_MODULE = SimpleNamespace(
+                audio_calibration_status=lambda: {"active": False}
+            )
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            unified_server._CMD_EXECUTOR = executor
+            calls = []
+
+            def run_command(text, request_ctx):
+                calls.append((text, request_ctx.source_id))
+                time.sleep(0.05)
+                return SimpleNamespace(
+                    handled=True,
+                    action_occurred=True,
+                    response_text="Done.",
+                    source="device_confirm",
+                )
+
+            client = TestClient(TestServer(unified_server._make_app()))
+            await client.start_server()
+            try:
+                request_payload = {
+                    "text": "turn off the stair light",
+                    "source_id": "piphone1",
+                    "source_type": "satellite",
+                    "origin": "satellite_wakeword",
+                    "source_room": "living_room",
+                    "request_id": "utterance-a",
+                    "interaction_id": decision["interaction_id"],
+                    "winner_token": decision["winner_token"],
+                }
+                headers = {"X-API-Key": "shared-passphrase"}
+                with mock.patch.object(
+                    unified_server,
+                    "_run_command_sync",
+                    side_effect=run_command,
+                ):
+                    first, duplicate = await asyncio.gather(
+                        client.post("/command", headers=headers, json=request_payload),
+                        client.post("/command", headers=headers, json=request_payload),
+                    )
+                    first_payload = await first.json()
+                    duplicate_payload = await duplicate.json()
+
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(first_payload["response"], "Done.")
+                self.assertEqual(duplicate_payload["response"], "Done.")
+                self.assertEqual(first_payload["disposition"], "winner")
+                self.assertEqual(duplicate_payload["disposition"], "winner")
+            finally:
+                await client.close()
+                executor.shutdown(wait=True)
 
         asyncio.run(scenario())
 

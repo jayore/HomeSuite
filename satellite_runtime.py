@@ -32,12 +32,18 @@ class SatelliteCommandResult:
     response_text: str
     source: str
     request_id: str
+    disposition: str = ""
     context: Optional[dict[str, Any]] = None
     timing: Optional[dict[str, Any]] = None
+    arbitration: Optional[dict[str, Any]] = None
 
     @property
     def cancelled(self) -> bool:
         return self.source == "cancelled"
+
+    @property
+    def suppressed(self) -> bool:
+        return self.disposition == "suppressed" or self.source == "arbitration_suppressed"
 
 
 def normalize_command_url(value: str) -> str:
@@ -63,6 +69,8 @@ def build_command_payload(
     request_id: str = "",
     stt: Optional[Mapping[str, Any]] = None,
     timing: Optional[Mapping[str, Any]] = None,
+    interaction_id: str = "",
+    winner_token: str = "",
 ) -> dict[str, Any]:
     """Build the source-aware request envelope accepted by ``POST /command``."""
     source = str(source_id or "").strip()
@@ -91,6 +99,15 @@ def build_command_payload(
         payload["stt"] = dict(stt)
     if public_timing:
         payload["timing"] = public_timing
+    interaction = str(interaction_id or "").strip()
+    token = str(winner_token or "").strip()
+    if interaction or token:
+        if not interaction or not token:
+            raise SatelliteRuntimeError(
+                "Wake-word arbitration requires both an interaction ID and winner token."
+            )
+        payload["interaction_id"] = interaction
+        payload["winner_token"] = token
     return payload
 
 
@@ -106,6 +123,8 @@ def forward_command(
     request_id: str = "",
     stt: Optional[Mapping[str, Any]] = None,
     timing: Optional[Mapping[str, Any]] = None,
+    interaction_id: str = "",
+    winner_token: str = "",
 ) -> SatelliteCommandResult:
     """Send one transcript to the brain and return its normalized outcome."""
     command_text = str(text or "").strip()
@@ -124,6 +143,8 @@ def forward_command(
         request_id=request_id,
         stt=stt,
         timing=timing,
+        interaction_id=interaction_id,
+        winner_token=winner_token,
     )
     request = urllib.request.Request(
         url,
@@ -167,12 +188,15 @@ def forward_command(
 
     context = data.get("context")
     response_timing = data.get("timing")
+    arbitration = data.get("arbitration")
     return SatelliteCommandResult(
         handled=bool(data.get("handled")),
         action_occurred=bool(data.get("action_occurred")),
         response_text=str(data.get("text") or data.get("response") or "").strip(),
         source=str(data.get("source") or "").strip(),
         request_id=str(data.get("request_id") or payload["request_id"]).strip(),
+        disposition=str(data.get("disposition") or "").strip(),
         context=dict(context) if isinstance(context, dict) else None,
         timing=dict(response_timing) if isinstance(response_timing, dict) else None,
+        arbitration=dict(arbitration) if isinstance(arbitration, dict) else None,
     )

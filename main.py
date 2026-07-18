@@ -149,11 +149,17 @@ from pathlib import Path
 
 from sonos_utils import homesuite_media_url_for_path, sonos_play_media
 from satellite_runtime import SatelliteRuntimeError, forward_command as forward_satellite_command
+from satellite_coordination import SatelliteCoordinationClient, WakewordDecision
+from wakeword_arbitration import (
+    measure_wake_audio_quality,
+    warm_wake_audio_quality_metrics,
+)
 from voice_timing import (
     apply_capture_timing,
     mark_stt_completed,
     mark_stt_started,
     new_voice_timing,
+    timing_for_transport,
     utterance_id_from_timing,
 )
 
@@ -290,7 +296,13 @@ def _satellite_brain_api_key() -> str:
         return ""
 
 
-def _forward_voice_command_to_brain(text: str, *, trigger: str, timing=None):
+def _forward_voice_command_to_brain(
+    text: str,
+    *,
+    trigger: str,
+    timing=None,
+    wakeword_decision=None,
+):
     return forward_satellite_command(
         text,
         brain_url=_pref_str("SATELLITE_BRAIN_URL", ""),
@@ -301,7 +313,143 @@ def _forward_voice_command_to_brain(text: str, *, trigger: str, timing=None):
         timeout_seconds=_pref_float("SATELLITE_COMMAND_TIMEOUT_SECONDS", 20.0),
         request_id=utterance_id_from_timing(timing),
         timing=timing,
+        interaction_id=(wakeword_decision.interaction_id if wakeword_decision else ""),
+        winner_token=(wakeword_decision.winner_token if wakeword_decision else ""),
     )
+
+
+def _wakeword_arbitration_enabled() -> bool:
+    return _pref_bool("WAKEWORD_ARBITRATION_ENABLED", True)
+
+
+def _start_satellite_coordination_if_needed() -> bool:
+    """Start the pre-chime coordination channel for a wake-word satellite."""
+    global _SATELLITE_COORDINATION_CLIENT
+    if not (
+        _satellite_mode_enabled()
+        and _wakeword_enabled()
+        and _wakeword_arbitration_enabled()
+    ):
+        return False
+    if _SATELLITE_COORDINATION_CLIENT is not None:
+        return True
+    try:
+        metrics_ready = warm_wake_audio_quality_metrics()
+        logging.info(
+            "WAKEWORD_ARBITRATION_METRICS_WARM ready=%s",
+            metrics_ready,
+        )
+        client = SatelliteCoordinationClient(
+            brain_url=_pref_str("SATELLITE_BRAIN_URL", ""),
+            api_key=_satellite_brain_api_key(),
+            source_id=_satellite_source_id(),
+            source_room=_satellite_source_room(),
+            capabilities={
+                "local_stt": True,
+                "local_tts": True,
+                "wakeword_engine": _wakeword_engine_name(),
+                "wakeword_model": _wakeword_model_name(),
+            },
+            logger=logging,
+        )
+        _SATELLITE_COORDINATION_CLIENT = client
+        wait_seconds = max(
+            0.0,
+            min(
+                3.0,
+                _pref_float("WAKEWORD_ARBITRATION_STARTUP_WAIT_SECONDS", 1.0),
+            ),
+        )
+        ready = client.start(wait_for_ready_seconds=wait_seconds)
+        logging.info(
+            "SATELLITE_COORDINATION_START ready=%s status=%r",
+            ready,
+            client.status(),
+        )
+        return True
+    except Exception:
+        _SATELLITE_COORDINATION_CLIENT = None
+        logging.exception("SATELLITE_COORDINATION_START_FAIL")
+        return False
+
+
+def _stop_satellite_coordination() -> None:
+    global _SATELLITE_COORDINATION_CLIENT
+    client = _SATELLITE_COORDINATION_CLIENT
+    _SATELLITE_COORDINATION_CLIENT = None
+    if client is not None:
+        try:
+            client.stop(timeout=2.0)
+        except Exception:
+            logging.exception("SATELLITE_COORDINATION_STOP_FAIL")
+
+
+def _request_wakeword_decision(timing, kwargs) -> WakewordDecision:
+    """Ask the brain to grant or suppress one local wake hit."""
+    candidate_id = utterance_id_from_timing(timing) or uuid.uuid4().hex
+    if not (_satellite_mode_enabled() and _wakeword_arbitration_enabled()):
+        return WakewordDecision(
+            disposition="legacy",
+            candidate_id=candidate_id,
+            reason="arbitration_not_required",
+            eligible_wakeword_nodes=1,
+        )
+
+    client = globals().get("_SATELLITE_COORDINATION_CLIENT")
+    if client is None:
+        return WakewordDecision(
+            disposition="legacy",
+            candidate_id=candidate_id,
+            reason="coordination_client_unavailable",
+            eligible_wakeword_nodes=1,
+        )
+
+    wake_score = (kwargs or {}).get("wakeword_score")
+    client_status = client.status()
+    audio_quality = {}
+    if (
+        bool(client_status.get("connected"))
+        and int(client_status.get("eligible_wakeword_nodes") or 0) > 1
+    ):
+        sample_rate = int((kwargs or {}).get("pre_trigger_sample_rate") or 16000)
+        audio_quality = measure_wake_audio_quality(
+            (kwargs or {}).get("pre_trigger_frames"),
+            sample_rate,
+        )
+    payload = {
+        "candidate_id": candidate_id,
+        "source_room": _satellite_source_room(),
+        "wakeword_label": str((kwargs or {}).get("wakeword_label") or "").strip(),
+        "wakeword_score": wake_score,
+        "wakeword_threshold": _wakeword_detection_threshold(),
+        "audio_quality": audio_quality,
+        "timing": timing_for_transport(timing) or {},
+    }
+    timeout_seconds = max(
+        0.1,
+        min(
+            3.0,
+            _pref_float("WAKEWORD_ARBITRATION_DECISION_TIMEOUT_MS", 750.0) / 1000.0,
+        ),
+    )
+    decision = client.request_wakeword_decision(
+        payload,
+        timeout_seconds=timeout_seconds,
+    )
+    if isinstance(timing, dict):
+        timing["arbitration"] = decision.public_metadata()
+    logging.info(
+        "WAKEWORD_ARBITRATION_DECISION candidate_id=%r disposition=%r reason=%r "
+        "winner=%r nodes=%s hold_ms=%s quality=%r",
+        candidate_id,
+        decision.disposition,
+        decision.reason,
+        decision.winner_source_id,
+        decision.eligible_wakeword_nodes,
+        decision.election_hold_ms,
+        audio_quality,
+    )
+    return decision
 
 
 def _wakeword_engine_name() -> str:
@@ -1270,6 +1418,7 @@ is_processing = False
 ptt_input_active = False
 _WAKEWORD_LISTENER = None
 _WAKEWORD_DETECTION_IN_PROGRESS = False
+_SATELLITE_COORDINATION_CLIENT = None
 _AUDIO_CALIBRATION_LEASE = None
 _AUDIO_CALIBRATION_TIMER = None
 _AUDIO_CALIBRATION_LOCK = threading.RLock()
@@ -2088,6 +2237,7 @@ def _process_wakeword_stream_interaction(
     pre_trigger_frame_samples: Optional[int] = None,
     frame_timing_fn=None,
     voice_timing=None,
+    wakeword_decision=None,
 ) -> bool:
     """Run one wakeword interaction using the listener's open audio stream."""
     _trace_audio_event(
@@ -2130,7 +2280,12 @@ def _process_wakeword_stream_interaction(
 
     try:
         logging.info("WAKEWORD_STREAM_PROCESS_BEGIN file=%r", audio_file)
-        process_audio(audio_file, trigger="wakeword", voice_timing=voice_timing)
+        process_audio(
+            audio_file,
+            trigger="wakeword",
+            voice_timing=voice_timing,
+            wakeword_decision=wakeword_decision,
+        )
         logging.info("WAKEWORD_STREAM_PROCESS_DONE")
         return True
     finally:
@@ -2138,7 +2293,7 @@ def _process_wakeword_stream_interaction(
             is_processing = False
 
 
-def _process_wakeword_interaction(*, voice_timing=None) -> bool:
+def _process_wakeword_interaction(*, voice_timing=None, wakeword_decision=None) -> bool:
     """
     End-to-end wakeword interaction path:
     * capture one utterance using shared VAD core
@@ -2172,7 +2327,12 @@ def _process_wakeword_interaction(*, voice_timing=None) -> bool:
         is_processing = True
     try:
         logging.info("WAKEWORD_PROCESS_BEGIN file=%r", audio_file)
-        process_audio(audio_file, trigger="wakeword", voice_timing=voice_timing)
+        process_audio(
+            audio_file,
+            trigger="wakeword",
+            voice_timing=voice_timing,
+            wakeword_decision=wakeword_decision,
+        )
         logging.info("WAKEWORD_PROCESS_DONE")
         return True
     finally:
@@ -2270,11 +2430,37 @@ def _handle_wakeword_detected(**kwargs) -> None:
     )
     global _WAKEWORD_DETECTION_IN_PROGRESS
     try:
+        _WAKEWORD_DETECTION_IN_PROGRESS = True
+        wakeword_decision = _request_wakeword_decision(timing, kwargs)
+        if wakeword_decision.suppressed:
+            logging.info(
+                "WAKEWORD_INTERACTION_SUPPRESSED candidate_id=%r winner=%r reason=%r",
+                wakeword_decision.candidate_id,
+                wakeword_decision.winner_source_id,
+                wakeword_decision.reason,
+            )
+            _trace_audio_event(
+                "wakeword_arbitration_suppressed",
+                candidate_id=wakeword_decision.candidate_id,
+                winner_source_id=wakeword_decision.winner_source_id,
+            )
+            return
+        if not wakeword_decision.granted:
+            logging.warning(
+                "WAKEWORD_INTERACTION_ABORT reason=arbitration_unavailable candidate_id=%r detail=%r",
+                wakeword_decision.candidate_id,
+                wakeword_decision.reason,
+            )
+            _trace_audio_event(
+                "wakeword_arbitration_unavailable",
+                candidate_id=wakeword_decision.candidate_id,
+            )
+            return
+
         if _wakeword_barge_in_enabled() and bool(globals().get("is_speaking")):
             logging.info("WAKEWORD_BARGE_IN_STOP_TTS")
             stop_speaking_now()
 
-        _WAKEWORD_DETECTION_IN_PROGRESS = True
         logging.info(
             "WAKEWORD_DETECTED_CALLBACK phase=stream output_mode=%r output_room=%r has_frame_reader=%s",
             _assistant_audio_output_mode(),
@@ -2300,9 +2486,13 @@ def _handle_wakeword_detected(**kwargs) -> None:
                 pre_trigger_sample_rate=pre_trigger_sample_rate,
                 pre_trigger_frame_samples=pre_trigger_frame_samples,
                 voice_timing=timing,
+                wakeword_decision=wakeword_decision,
             )
         else:
-            _process_wakeword_interaction(voice_timing=timing)
+            _process_wakeword_interaction(
+                voice_timing=timing,
+                wakeword_decision=wakeword_decision,
+            )
     finally:
         # Smart rearm:
         #   1) Wait for any in-flight SFX (success/finish/error chime) to finish,
@@ -2801,6 +2991,11 @@ def stop_speaking_now():
         is_speaking = False
 
 def cleanup_handler(signum=None, frame=None):
+    try:
+        _stop_satellite_coordination()
+    except Exception:
+        pass
+
     # Shut down the unified HTTP/WS server first so its TCP listener
     # releases the port cleanly before the rest of cleanup runs. Daemon
     # thread would die with the process either way, but explicit cleanup
@@ -4059,7 +4254,13 @@ def _speak_text_for_trigger(text: str, trigger: str) -> bool:
     return False
 
 
-def process_audio(audio_file: str, *, trigger: str = "ptt", voice_timing=None):
+def process_audio(
+    audio_file: str,
+    *,
+    trigger: str = "ptt",
+    voice_timing=None,
+    wakeword_decision=None,
+):
     global is_processing
     previous_request_ctx = None
     request_ctx = None
@@ -4178,6 +4379,9 @@ def process_audio(audio_file: str, *, trigger: str = "ptt", voice_timing=None):
                     text,
                     trigger=trigger_name,
                     timing=voice_timing,
+                    wakeword_decision=(
+                        wakeword_decision if trigger_name == "wakeword" else None
+                    ),
                 )
             except SatelliteRuntimeError as exc:
                 logging.error(
@@ -4209,6 +4413,18 @@ def process_audio(audio_file: str, *, trigger: str = "ptt", voice_timing=None):
                         pass
                     _trace_audio_event(
                         "process_audio_cancelled",
+                        trigger=trigger,
+                        source="satellite",
+                    )
+                    return
+                if satellite_result.suppressed:
+                    logging.info(
+                        "SATELLITE_COMMAND_SUPPRESSED request_id=%r disposition=%r",
+                        satellite_result.request_id,
+                        satellite_result.disposition,
+                    )
+                    _trace_audio_event(
+                        "process_audio_arbitration_suppressed",
                         trigger=trigger,
                         source="satellite",
                     )
@@ -4486,6 +4702,10 @@ def main():
         logging.info("MIC_EXERCISE_BOOT_SKIP reason=wakeword_box")
     except Exception:
         pass
+    try:
+        _start_satellite_coordination_if_needed()
+    except Exception:
+        logging.exception("SATELLITE_COORDINATION_BOOT_CALL_FAIL")
     try:
         _start_wakeword_listener_if_enabled()
     except Exception:

@@ -75,6 +75,8 @@ class SatelliteTransportTests(unittest.TestCase):
                     "utterance_id": "utterance-1",
                     "speech": {"started_at_ms": 1000, "ended_at_ms": 2000},
                 },
+                interaction_id="interaction-1",
+                winner_token="winner-token",
             )
 
         request = urlopen.call_args.args[0]
@@ -86,6 +88,8 @@ class SatelliteTransportTests(unittest.TestCase):
         self.assertEqual(payload["source_type"], "satellite")
         self.assertEqual(payload["origin"], "satellite_wakeword")
         self.assertEqual(payload["timing"]["utterance_id"], "utterance-1")
+        self.assertEqual(payload["interaction_id"], "interaction-1")
+        self.assertEqual(payload["winner_token"], "winner-token")
         self.assertIn("satellite_sent_at_ms", payload["timing"])
         self.assertEqual(result.response_text, "It's 4:12 PM.")
         self.assertTrue(result.handled)
@@ -159,7 +163,12 @@ class SatelliteVoiceRuntimeTests(unittest.TestCase):
         ):
             main.process_audio("ignored.wav", trigger="wakeword")
 
-        forward.assert_called_once_with("what time is it", trigger="wakeword", timing=None)
+        forward.assert_called_once_with(
+            "what time is it",
+            trigger="wakeword",
+            timing=None,
+            wakeword_decision=None,
+        )
         local_route.assert_not_called()
         local_semantic_route.assert_not_called()
         speak.assert_called_once_with("It's 4:12 PM.", "wakeword")
@@ -187,7 +196,12 @@ class SatelliteVoiceRuntimeTests(unittest.TestCase):
         ):
             main.process_audio("ignored.wav", trigger="wakeword")
 
-        forward.assert_called_once_with("never mind", trigger="wakeword", timing=None)
+        forward.assert_called_once_with(
+            "never mind",
+            trigger="wakeword",
+            timing=None,
+            wakeword_decision=None,
+        )
         local_route.assert_not_called()
         speak.assert_not_called()
         error_tone.assert_not_called()
@@ -242,6 +256,173 @@ class SatelliteVoiceRuntimeTests(unittest.TestCase):
         speak.assert_not_called()
         error_tone.assert_called_once_with()
         success_tone.assert_not_called()
+
+    def test_arbitration_suppression_is_silent_and_does_not_route_locally(self):
+        from satellite_runtime import SatelliteCommandResult
+
+        main = self.main
+        result = SatelliteCommandResult(
+            handled=False,
+            action_occurred=False,
+            response_text="",
+            source="arbitration_suppressed",
+            request_id="req-suppressed",
+            disposition="suppressed",
+        )
+        with (
+            self._base_environment("turn off the stair light"),
+            mock.patch.object(main, "_forward_voice_command_to_brain", return_value=result),
+            mock.patch.object(main, "process_device_commands") as local_route,
+            mock.patch.object(main, "_speak_text_for_trigger") as speak,
+            mock.patch.object(main, "play_error_sound") as error_tone,
+            mock.patch.object(main, "play_sound") as success_tone,
+        ):
+            main.process_audio("ignored.wav", trigger="wakeword")
+
+        local_route.assert_not_called()
+        speak.assert_not_called()
+        error_tone.assert_not_called()
+        success_tone.assert_not_called()
+
+    def test_losing_wake_candidate_never_enters_capture_or_barge_in(self):
+        from satellite_coordination import WakewordDecision
+
+        main = self.main
+        decision = WakewordDecision(
+            disposition="suppressed",
+            candidate_id="candidate-loser",
+            interaction_id="interaction-1",
+            winner_source_id="kitchen",
+            reason="better_candidate",
+            eligible_wakeword_nodes=2,
+        )
+        with (
+            mock.patch.object(main, "_satellite_mode_enabled", return_value=True),
+            mock.patch.object(main, "_satellite_source_id", return_value="hall"),
+            mock.patch.object(main, "_request_wakeword_decision", return_value=decision),
+            mock.patch.object(main, "_process_wakeword_stream_interaction") as process,
+            mock.patch.object(main, "_wakeword_rearm_sec", return_value=0.0),
+            mock.patch.object(main, "_is_sfx_playing", return_value=False),
+            mock.patch.object(main, "_trace_audio_event"),
+            mock.patch.object(main, "stop_speaking_now") as stop_speaking,
+        ):
+            main._handle_wakeword_detected(
+                frame_reader=lambda: None,
+                sample_rate=16000,
+                frame_samples=160,
+                wakeword_label="hal_v2",
+                wakeword_score=0.90,
+            )
+
+        process.assert_not_called()
+        stop_speaking.assert_not_called()
+        self.assertFalse(main._WAKEWORD_DETECTION_IN_PROGRESS)
+
+    def test_single_node_candidate_skips_unneeded_audio_quality_work(self):
+        from satellite_coordination import WakewordDecision
+
+        main = self.main
+        client = mock.Mock()
+        client.status.return_value = {
+            "connected": True,
+            "eligible_wakeword_nodes": 1,
+        }
+        client.request_wakeword_decision.return_value = WakewordDecision(
+            disposition="granted",
+            candidate_id="candidate-one",
+            interaction_id="interaction-one",
+            winner_token="winner-token",
+            winner_source_id="piphone1",
+            eligible_wakeword_nodes=1,
+        )
+        timing = {"utterance_id": "candidate-one"}
+        with (
+            mock.patch.object(main, "_satellite_mode_enabled", return_value=True),
+            mock.patch.object(main, "_wakeword_arbitration_enabled", return_value=True),
+            mock.patch.object(main, "_satellite_source_room", return_value="living_room"),
+            mock.patch.object(main, "_wakeword_detection_threshold", return_value=0.75),
+            mock.patch.object(main, "_SATELLITE_COORDINATION_CLIENT", client),
+            mock.patch.object(main, "measure_wake_audio_quality") as measure_quality,
+        ):
+            decision = main._request_wakeword_decision(
+                timing,
+                {
+                    "wakeword_label": "hal_v2",
+                    "wakeword_score": 0.90,
+                    "pre_trigger_frames": [b"unused"],
+                    "pre_trigger_sample_rate": 16000,
+                },
+            )
+
+        self.assertTrue(decision.granted)
+        measure_quality.assert_not_called()
+        candidate_payload = client.request_wakeword_decision.call_args.args[0]
+        self.assertEqual(candidate_payload["audio_quality"], {})
+
+    def test_granted_wake_candidate_enters_existing_capture_path(self):
+        from satellite_coordination import WakewordDecision
+
+        main = self.main
+        decision = WakewordDecision(
+            disposition="granted",
+            candidate_id="candidate-winner",
+            interaction_id="interaction-1",
+            winner_token="winner-token",
+            winner_source_id="piphone1",
+            reason="winner",
+            eligible_wakeword_nodes=1,
+            election_hold_ms=0,
+        )
+        with (
+            mock.patch.object(main, "_satellite_mode_enabled", return_value=True),
+            mock.patch.object(main, "_satellite_source_id", return_value="piphone1"),
+            mock.patch.object(main, "_request_wakeword_decision", return_value=decision),
+            mock.patch.object(main, "_process_wakeword_stream_interaction", return_value=True) as process,
+            mock.patch.object(main, "_wakeword_rearm_sec", return_value=0.0),
+            mock.patch.object(main, "_is_sfx_playing", return_value=False),
+            mock.patch.object(main, "_trace_audio_event"),
+        ):
+            frame_reader = lambda: None
+            main._handle_wakeword_detected(
+                frame_reader=frame_reader,
+                sample_rate=16000,
+                frame_samples=160,
+                wakeword_label="hal_v2",
+                wakeword_score=0.90,
+            )
+
+        self.assertIs(process.call_args.kwargs["wakeword_decision"], decision)
+        self.assertIs(process.call_args.kwargs["frame_reader"], frame_reader)
+        self.assertFalse(main._WAKEWORD_DETECTION_IN_PROGRESS)
+
+    def test_ptt_satellite_command_bypasses_wakeword_arbitration(self):
+        from satellite_runtime import SatelliteCommandResult
+
+        main = self.main
+        result = SatelliteCommandResult(
+            handled=True,
+            action_occurred=True,
+            response_text="",
+            source="device_confirm",
+            request_id="req-ptt",
+        )
+        with (
+            self._base_environment("turn off the stair light"),
+            mock.patch.object(main, "_forward_voice_command_to_brain", return_value=result) as forward,
+            mock.patch.object(main, "_ptt_enabled", return_value=False),
+            mock.patch.object(main, "play_error_sound") as error_tone,
+            mock.patch.object(main, "play_sound") as success_tone,
+        ):
+            main.process_audio("ignored.wav", trigger="ptt")
+
+        forward.assert_called_once_with(
+            "turn off the stair light",
+            trigger="ptt",
+            timing=None,
+            wakeword_decision=None,
+        )
+        error_tone.assert_not_called()
+        success_tone.assert_called_once_with("finish", 1.0, blocking=False)
 
 
 class SatelliteRoomContextTests(unittest.TestCase):

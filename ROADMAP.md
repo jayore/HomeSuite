@@ -170,12 +170,15 @@ Transcript-first voice satellite mode can now place routing, continuity, AI,
 and action execution on one authoritative Home Suite brain while a room-bound
 node retains local capture, STT, playback, and hardware. Every node still runs
 the complete Home Suite runtime, however. A future thin install profile should
-remove those unused local services and add origin-directed alarm output plus
-multi-satellite wake-word arbitration and deduplication.
+remove those unused local services and add origin-directed alarm output.
 
 Wake, speech, transport, and brain-receive timestamps now travel in a versioned
-NTP-aware envelope, so arbitration can compare acquisition events rather than
-post-STT request arrival order.
+NTP-aware envelope. Wake-word nodes now announce candidates over a persistent
+brain connection before their cue or STT; the brain compares model confidence
+and aggregate signal quality, silently suppresses losing nodes, and grants an
+idempotent command lease to the winner. A one-node cluster skips the election
+hold. Future refinements include real multi-room microphone calibration,
+winner-failure promotion, and origin-directed long-lived audio.
 
 This remains a topology choice, not a prerequisite for adding more frontends.
 The self-contained appliance model should stay supported while it remains

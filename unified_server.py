@@ -54,6 +54,7 @@ from request_context import (
     set_current_request_context,
 )
 from voice_timing import timing_with_brain_receive, unix_time_ms
+from wakeword_arbitration import PROTOCOL_VERSION, WakewordArbitrator
 
 log = logging.getLogger("unified_server")
 
@@ -71,6 +72,11 @@ _ha_ws_connected: bool = False
 # {aiohttp WebSocketResponse -> room_id | None}
 connected_clients: Dict[Any, Optional[str]] = {}
 
+# Wake-word frontends use a separate, device-addressed channel. Browser/state
+# clients remain room broadcasts and cannot participate in arbitration.
+connected_satellites: Dict[str, Any] = {}
+satellite_metadata: Dict[str, Dict[str, Any]] = {}
+
 # ---------------------------------------------------------------------------
 # Module-level config (set once by start_in_background_thread)
 # ---------------------------------------------------------------------------
@@ -83,6 +89,7 @@ _PORT: int = 8765
 _RUNTIME_MODULE: Any = None  # main runtime module reference (passed in)
 _CMD_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
 _AUDIO_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
+_WAKEWORD_ARBITRATOR: Optional[WakewordArbitrator] = None
 
 # Thread / asyncio handles (for shutdown coordination)
 _SERVER_THREAD: Optional[threading.Thread] = None
@@ -276,6 +283,33 @@ def _interaction_result_to_payload(
     return payload
 
 
+def _arbitration_terminal_payload(
+    *,
+    request_id: Optional[str],
+    interaction_id: str,
+    disposition: str,
+    reason: str,
+    winner_source_id: str = "",
+) -> dict[str, Any]:
+    """Return a non-error terminal result that voice satellites render silently."""
+    return {
+        "ok": True,
+        "handled": False,
+        "action_occurred": False,
+        "text": None,
+        "response": "",
+        "source": "arbitration_suppressed",
+        "request_id": request_id,
+        "disposition": disposition,
+        "arbitration": {
+            "interaction_id": interaction_id or None,
+            "disposition": disposition,
+            "reason": reason,
+            "winner_source_id": winner_source_id or None,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Sync command runner (runs in _CMD_EXECUTOR thread)
 # ---------------------------------------------------------------------------
@@ -335,6 +369,70 @@ async def _broadcast_command_ack(room_id: str, text: str, result: Any) -> None:
                 dead.append(ws)
     for ws in dead:
         connected_clients.pop(ws, None)
+
+
+# ---------------------------------------------------------------------------
+# Wake-word satellite coordination
+# ---------------------------------------------------------------------------
+
+
+async def _send_satellite_message(source_id: str, payload: dict[str, Any]) -> None:
+    ws = connected_satellites.get(str(source_id or "").strip())
+    if ws is None or ws.closed:
+        return
+    try:
+        await ws.send_json(payload)
+        if payload.get("type") == "wakeword_decision":
+            log.info(
+                "WAKEWORD_ARBITRATION_DECISION source_id=%r candidate_id=%r "
+                "disposition=%r winner=%r nodes=%s hold_ms=%s candidate_total=%r "
+                "winner_total=%r reason=%r",
+                source_id,
+                payload.get("candidate_id"),
+                payload.get("disposition"),
+                payload.get("winner_source_id"),
+                payload.get("eligible_wakeword_nodes"),
+                payload.get("election_hold_ms"),
+                (payload.get("candidate_score") or {}).get("total"),
+                (payload.get("winner_score") or {}).get("total"),
+                payload.get("reason"),
+            )
+    except Exception:
+        log.warning("SATELLITE_COORDINATION_SEND_FAIL source_id=%r", source_id)
+
+
+async def _broadcast_satellite_cluster_state() -> None:
+    arbitrator = _WAKEWORD_ARBITRATOR
+    if arbitrator is None or not connected_satellites:
+        return
+    payload = arbitrator.cluster_state()
+    for source_id in list(connected_satellites):
+        await _send_satellite_message(source_id, payload)
+
+
+def _build_wakeword_arbitrator() -> WakewordArbitrator:
+    try:
+        import app_config
+
+        election_window_ms = int(
+            getattr(app_config, "WAKEWORD_ARBITRATION_ELECTION_WINDOW_MS", 180)
+        )
+        cohort_window_ms = int(
+            getattr(app_config, "WAKEWORD_ARBITRATION_COHORT_WINDOW_MS", 700)
+        )
+        lease_seconds = float(
+            getattr(app_config, "WAKEWORD_ARBITRATION_LEASE_SECONDS", 30.0)
+        )
+    except Exception:
+        election_window_ms = 180
+        cohort_window_ms = 700
+        lease_seconds = 30.0
+    return WakewordArbitrator(
+        _send_satellite_message,
+        election_window_ms=election_window_ms,
+        cohort_window_ms=cohort_window_ms,
+        lease_seconds=lease_seconds,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +567,59 @@ async def handle_command(request: web.Request) -> web.Response:
     )
 
     request_ctx = _build_context_from_payload(data)
+    interaction_id = _clean_optional(data.get("interaction_id")) or ""
+    winner_token = _clean_optional(data.get("winner_token")) or ""
+    arbitration_execute = False
+
+    if interaction_id or winner_token:
+        arbitrator = _WAKEWORD_ARBITRATOR
+        if arbitrator is None or not interaction_id or not winner_token:
+            payload = _arbitration_terminal_payload(
+                request_id=request_id,
+                interaction_id=interaction_id,
+                disposition="suppressed",
+                reason="invalid_winner_lease",
+            )
+            return web.json_response(payload)
+        authorization = arbitrator.begin_command(
+            source_id=str(request_ctx.source_id or ""),
+            interaction_id=interaction_id,
+            winner_token=winner_token,
+        )
+        authorization_state = str(authorization.get("state") or "rejected")
+        if authorization_state == "cached":
+            return web.json_response(
+                authorization.get("payload") or {},
+                status=int(authorization.get("status") or 200),
+            )
+        if authorization_state == "wait":
+            try:
+                cached_payload, cached_status = await asyncio.wait_for(
+                    asyncio.shield(authorization["future"]),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                return web.json_response(
+                    {"ok": False, "error": "winner_command_still_processing"},
+                    status=504,
+                )
+            return web.json_response(cached_payload, status=int(cached_status))
+        if authorization_state != "execute":
+            payload = _arbitration_terminal_payload(
+                request_id=request_id,
+                interaction_id=interaction_id,
+                disposition="suppressed",
+                reason=str(authorization.get("reason") or "not_winner"),
+                winner_source_id=str(authorization.get("winner_source_id") or ""),
+            )
+            log.info(
+                "WAKEWORD_COMMAND_SUPPRESSED interaction_id=%r source_id=%r reason=%r",
+                interaction_id,
+                request_ctx.source_id,
+                payload["arbitration"]["reason"],
+            )
+            return web.json_response(payload)
+        arbitration_execute = True
 
     log.info(
         "[HTTP] command=%r request_id=%r utterance_id=%r source_id=%r "
@@ -488,7 +639,14 @@ async def handle_command(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_CMD_EXECUTOR, _run_command_sync, text, request_ctx)
     except Exception as e:
         log.exception("Command executor error")
-        return web.json_response({"ok": False, "error": str(e)}, status=500)
+        error_payload = {"ok": False, "error": str(e)}
+        if arbitration_execute and _WAKEWORD_ARBITRATOR is not None:
+            _WAKEWORD_ARBITRATOR.finish_command(
+                interaction_id,
+                error_payload,
+                status=500,
+            )
+        return web.json_response(error_payload, status=500)
 
     payload = _interaction_result_to_payload(
         result,
@@ -499,6 +657,15 @@ async def handle_command(request: web.Request) -> web.Response:
         stt_meta=stt_meta,
         timing_meta=timing_meta,
     )
+    if arbitration_execute:
+        payload["disposition"] = "winner"
+        payload["arbitration"] = {
+            "interaction_id": interaction_id,
+            "disposition": "winner",
+            "winner_source_id": request_ctx.source_id,
+        }
+        if _WAKEWORD_ARBITRATOR is not None:
+            _WAKEWORD_ARBITRATOR.finish_command(interaction_id, payload, status=200)
 
     # Broadcast command_ack to WS clients in the target room
     ack_room = request_ctx.effective_target_room or DEFAULT_ROOM
@@ -624,6 +791,130 @@ async def handle_internal_audio_test_output(request: web.Request) -> web.Respons
 # ---------------------------------------------------------------------------
 
 
+async def handle_satellite_ws(request: web.Request) -> web.StreamResponse:
+    """Maintain one authenticated, device-addressed wake coordination channel."""
+    if not _auth_ok(request):
+        return web.json_response({"ok": False, "error": "forbidden"}, status=403)
+
+    ws = web.WebSocketResponse(heartbeat=20.0)
+    await ws.prepare(request)
+    source_id = ""
+    remote = request.remote or "?"
+
+    try:
+        first = await ws.receive(timeout=5.0)
+        if first.type != WSMsgType.TEXT:
+            await ws.close(code=1008, message=b"hello required")
+            return ws
+        try:
+            hello = json.loads(first.data)
+        except (TypeError, json.JSONDecodeError):
+            await ws.close(code=1008, message=b"invalid hello")
+            return ws
+        if not isinstance(hello, dict) or hello.get("type") != "satellite_hello":
+            await ws.close(code=1008, message=b"hello required")
+            return ws
+        if int(hello.get("protocol_version") or 0) != PROTOCOL_VERSION:
+            await ws.send_json(
+                {
+                    "type": "protocol_error",
+                    "supported_version": PROTOCOL_VERSION,
+                    "error": "unsupported_protocol_version",
+                }
+            )
+            await ws.close(code=1002, message=b"protocol mismatch")
+            return ws
+
+        source_id = str(hello.get("source_id") or "").strip()
+        source_room = str(hello.get("source_room") or "").strip()
+        if not source_id or len(source_id) > 120:
+            await ws.close(code=1008, message=b"invalid source_id")
+            return ws
+
+        previous = connected_satellites.get(source_id)
+        if previous is not None and previous is not ws and not previous.closed:
+            await previous.close(code=1001, message=b"replaced by new connection")
+        connected_satellites[source_id] = ws
+        satellite_metadata[source_id] = {
+            "source_room": source_room,
+            "wakeword_capable": bool(hello.get("wakeword_capable", True)),
+            "capabilities": dict(hello.get("capabilities") or {})
+            if isinstance(hello.get("capabilities"), dict)
+            else {},
+        }
+        arbitrator = _WAKEWORD_ARBITRATOR
+        if arbitrator is None:
+            raise RuntimeError("wakeword arbitrator is unavailable")
+        arbitrator.register_source(source_id, **satellite_metadata[source_id])
+        log.info(
+            "SATELLITE_COORDINATION_CONNECTED remote=%s source_id=%r room=%r",
+            remote,
+            source_id,
+            source_room,
+        )
+        await ws.send_json(
+            {
+                **arbitrator.cluster_state(),
+                "type": "satellite_hello_ack",
+                "protocol_version": PROTOCOL_VERSION,
+                "source_id": source_id,
+            }
+        )
+        await _broadcast_satellite_cluster_state()
+
+        async for msg in ws:
+            if msg.type != WSMsgType.TEXT:
+                continue
+            try:
+                payload = json.loads(msg.data)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            message_type = str(payload.get("type") or "").strip()
+            if message_type == "wakeword_candidate":
+                payload.setdefault("source_room", source_room)
+                try:
+                    await arbitrator.submit_candidate(source_id, payload)
+                except ValueError as exc:
+                    await ws.send_json(
+                        {
+                            "type": "candidate_error",
+                            "candidate_id": str(payload.get("candidate_id") or ""),
+                            "error": str(exc),
+                        }
+                    )
+            elif message_type == "ping":
+                await ws.send_json(
+                    {
+                        "type": "pong",
+                        "client_sent_at_ms": payload.get("client_sent_at_ms"),
+                        "brain_sent_at_ms": unix_time_ms(),
+                    }
+                )
+    except asyncio.TimeoutError:
+        log.warning("SATELLITE_COORDINATION_HELLO_TIMEOUT remote=%s", remote)
+    except Exception:
+        log.exception(
+            "SATELLITE_COORDINATION_ERROR remote=%s source_id=%r",
+            remote,
+            source_id,
+        )
+    finally:
+        if source_id and connected_satellites.get(source_id) is ws:
+            connected_satellites.pop(source_id, None)
+            satellite_metadata.pop(source_id, None)
+            if _WAKEWORD_ARBITRATOR is not None:
+                _WAKEWORD_ARBITRATOR.unregister_source(source_id)
+            await _broadcast_satellite_cluster_state()
+        log.info(
+            "SATELLITE_COORDINATION_DISCONNECTED remote=%s source_id=%r",
+            remote,
+            source_id,
+        )
+    return ws
+
+
 async def handle_ws(request: web.Request) -> web.StreamResponse:
     # Native browser WebSocket clients cannot set arbitrary headers, so they
     # may use ?api_key=... as a compatibility fallback. Prefer X-API-Key or an
@@ -678,6 +969,7 @@ def _make_app() -> web.Application:
     app.router.add_post("/internal/audio/capture", handle_internal_audio_capture)
     app.router.add_post("/internal/audio/release", handle_internal_audio_release)
     app.router.add_post("/internal/audio/test-output", handle_internal_audio_test_output)
+    app.router.add_get("/satellite/ws", handle_satellite_ws)
     app.router.add_get("/ws", handle_ws)
     return app
 
@@ -694,11 +986,12 @@ def _thread_main() -> None:
     _PORT, kicks off the HA WS subscription as a long-running task, and
     runs the loop forever until shutdown() stops it.
     """
-    global _SERVER_LOOP, _SERVER_RUNNER
+    global _SERVER_LOOP, _SERVER_RUNNER, _WAKEWORD_ARBITRATOR
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     _SERVER_LOOP = loop
+    _WAKEWORD_ARBITRATOR = _build_wakeword_arbitrator()
 
     async def _bootstrap():
         global _SERVER_RUNNER

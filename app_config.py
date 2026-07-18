@@ -896,6 +896,16 @@ SATELLITE_SOURCE_ID = None
 SATELLITE_SOURCE_ROOM = None
 SATELLITE_COMMAND_TIMEOUT_SECONDS = 20.0
 
+# Wake-word satellites announce a candidate to the brain before playing their
+# acknowledgement cue. A one-node cluster is granted immediately; the hold is
+# used only when multiple eligible wake-word frontends are connected.
+WAKEWORD_ARBITRATION_ENABLED = True
+WAKEWORD_ARBITRATION_STARTUP_WAIT_SECONDS = 1.0
+WAKEWORD_ARBITRATION_DECISION_TIMEOUT_MS = 750
+WAKEWORD_ARBITRATION_ELECTION_WINDOW_MS = 180
+WAKEWORD_ARBITRATION_COHORT_WINDOW_MS = 700
+WAKEWORD_ARBITRATION_LEASE_SECONDS = 30.0
+
 # Assistant audio output policy for normal assistant responses.
 # Supported values:
 #   "local" = local PiPhone audio path

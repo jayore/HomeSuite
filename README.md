@@ -79,6 +79,8 @@ The voice stack includes:
 * streaming speech-to-text with bounded fallback behavior
 * VAD-based speech start and endpoint detection
 * configurable OpenWakeWord models, thresholds, near-miss logging, and rearm policy
+* pre-STT arbitration that lets one brain select the clearest wake-word satellite
+  and silence the others
 * wake-word-only asynchronous speech and barge-in support
 * silent `cancel` and `never mind` interaction dismissal
 
