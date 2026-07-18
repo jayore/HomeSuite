@@ -1,20 +1,16 @@
-"""Execute Home Suite console messages in preview or live mode.
+"""Forward browser chat messages to the live Home Suite runtime.
 
-Preview requests use the established command-runtime capture mode in this
-process. Live requests are forwarded to the production service's authenticated
-HTTP command endpoint, keeping production dialogue state and command ordering
-inside the process that owns them.
+The management console deliberately uses the production service's authenticated
+HTTP command endpoint. This keeps dialogue state, command ordering, and side
+effects inside the process that owns them. Safe capture remains available from
+the command-line test harness rather than as a second browser-chat mode.
 """
 
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
-import os
 import re
-import time
 import uuid
-from pathlib import Path
 from typing import Any, Optional
 
 import aiohttp
@@ -32,15 +28,11 @@ class ConsoleRuntimeError(RuntimeError):
 
 
 class ConsoleCommandRuntime:
-    """Own one sequential preview worker and proxy live commands."""
+    """Proxy authenticated browser chat to the production command service."""
 
     def __init__(self, *, api_key: str, live_api_url: str) -> None:
         self.api_key = str(api_key or "").strip()
         self.live_api_url = str(live_api_url or "").strip()
-        self._preview_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="homesuite_console_preview",
-        )
 
     @staticmethod
     def _session_id(value: Optional[str]) -> str:
@@ -59,55 +51,6 @@ class ConsoleCommandRuntime:
         except Exception:
             return None
 
-    def _preview_sync(self, text: str, session_id: str, room: Optional[str]) -> dict:
-        preview_log = Path(__file__).resolve().parent / "logs" / "console-preview.log"
-        preview_log.parent.mkdir(parents=True, exist_ok=True)
-        os.environ.setdefault("HOMESUITE_RUNTIME_LOG_PATH", str(preview_log))
-        import command_runtime
-        from interaction_flow import handle_text_interaction
-        from request_context import build_request_context, replace_current_request_context, set_current_request_context
-
-        started = time.monotonic()
-        runtime_module = command_runtime.initialize_runtime("capture")
-        context = build_request_context(
-            source_id=f"console_{session_id}",
-            source_type="console",
-            origin="console_preview",
-            source_room=room,
-            effective_target_room=room,
-        )
-        previous = replace_current_request_context(context)
-        try:
-            result = handle_text_interaction(runtime_module, text)
-        finally:
-            set_current_request_context(previous)
-
-        response = str(getattr(result, "response_text", "") or "").strip()
-        return {
-            "ok": True,
-            "mode": "test",
-            "simulated": True,
-            "handled": bool(getattr(result, "handled", False)),
-            "handler_reported_action": bool(getattr(result, "action_occurred", False)),
-            "action_occurred": False,
-            "response": response,
-            "text": response or None,
-            "source": str(getattr(result, "source", "") or "") or None,
-            "context": context.to_log_dict(),
-            "elapsed_ms": int((time.monotonic() - started) * 1000),
-            "session_id": session_id,
-        }
-
-    async def _preview(self, text: str, session_id: str, room: Optional[str]) -> dict:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._preview_executor,
-            self._preview_sync,
-            text,
-            session_id,
-            room,
-        )
-
     async def _live(self, text: str, session_id: str, room: Optional[str]) -> dict:
         if not self.api_key or not self.live_api_url:
             raise ConsoleRuntimeError("The live command API is not configured.", status=503)
@@ -118,9 +61,10 @@ class ConsoleCommandRuntime:
             "source_id": f"console_{session_id}",
             "source_type": "console",
             "origin": "console_live",
-            "source_room": room,
-            "effective_target_room": room,
         }
+        if room:
+            payload["source_room"] = room
+            payload["effective_target_room"] = room
         timeout = aiohttp.ClientTimeout(total=45)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -153,7 +97,6 @@ class ConsoleCommandRuntime:
         self,
         *,
         text: str,
-        mode: str,
         session_id: Optional[str],
         room: Optional[str],
     ) -> dict:
@@ -162,16 +105,11 @@ class ConsoleCommandRuntime:
             raise ConsoleRuntimeError("Enter a message first.", status=400)
         if len(command) > 4000:
             raise ConsoleRuntimeError("Message is too long.", status=400)
-        normalized_mode = str(mode or "test").strip().lower()
-        if normalized_mode not in {"test", "live"}:
-            raise ConsoleRuntimeError("Mode must be test or live.", status=400)
         safe_session = self._session_id(session_id)
         safe_room = self._room(room)
         if room and not safe_room:
             raise ConsoleRuntimeError("Choose a configured room.", status=400)
-        if normalized_mode == "live":
-            return await self._live(command, safe_session, safe_room)
-        return await self._preview(command, safe_session, safe_room)
+        return await self._live(command, safe_session, safe_room)
 
     def close(self) -> None:
-        self._preview_executor.shutdown(wait=False, cancel_futures=True)
+        """Retain a lifecycle hook for the aiohttp application."""

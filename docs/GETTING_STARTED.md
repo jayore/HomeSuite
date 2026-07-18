@@ -5,8 +5,8 @@ small: get Home Assistant and deterministic text commands working, then add
 conversation, voice, media, and homelab services one at a time.
 
 The goal of first setup is not to configure everything. The goal is to claim
-the browser console, pass the required checks, and get one safe plain-English
-phrase returning a sensible result before the live runtime starts.
+the browser console, configure the core runtime, pass the required checks, and
+get one plain-English phrase returning a sensible result in Chat.
 
 ## Before You Start
 
@@ -75,27 +75,14 @@ normal editors. It does not maintain a second configuration store.
 4. **Set up voice and audio**: this appears only for a voice role. Choose the
    microphone and playback device, configure OpenAI for the current hosted
    speech path, and run microphone calibration in the real room.
-5. **Try a command**: open the Test Console and verify a phrase before allowing
-   writes.
+5. **Choose wake words**: this appears only for a wake-word role. Activate one
+   or several available models, or add a compatible OpenWakeWord `.onnx` file.
 6. **Verify and activate**: run the required live checks and start the runtime.
 
 Optional providers such as Plex, Spotify, Telegram, Alpaca, Uptime Kuma, and
 YouTube can wait. Configure them later from **Integrations** as you need them.
 
-## 4. Try A Safe Command
-
-The Test Console always opens in **Test** mode. It reads real state so routing
-is realistic, but it blocks device writes and persistent actions. Try:
-
-```text
-what lights are on?
-service status
-```
-
-**Live** remains an explicit, confirmed toggle. It is useful after activation
-for end-to-end testing and can control real devices.
-
-## 5. Activate Home Suite
+## 4. Activate Home Suite
 
 Return to **Setup** and choose **Activate Home Suite**. The console repeats
 Home Suite Doctor with bounded live network checks. Required failures block
@@ -109,6 +96,24 @@ health endpoint and reports when Home Suite is active.
 
 No additional terminal command is required for the normal path.
 
+## 5. Start With Chat
+
+Once activation succeeds, choose **Open Chat**. Chat sends text through the
+same live deterministic and conversational runtime used by voice, Telegram,
+and companion clients. It is a useful first interface before those additional
+surfaces are configured, and it remains available afterward.
+
+Messages can control devices and create persistent actions. Start with a
+read-only question if you want to verify routing without changing anything:
+
+```text
+what lights are on?
+what is on my calendar today?
+```
+
+For a dry run that resolves against current Home Assistant state while blocking
+writes, use `homesuite test "phrase"` or `homesuite repl` from the CLI.
+
 ## 6. CLI Fallback
 
 The canonical node command remains available for advanced setup and recovery:
@@ -117,7 +122,7 @@ The canonical node command remains available for advanced setup and recovery:
 * `homesuite doctor --live` - include bounded provider and Home Assistant checks
 * `homesuite test "phrase"` - run one safe command against real HA state
 * `homesuite repl` - open the safe interactive command shell
-* `homesuite console` - run the browser management and text console
+* `homesuite console` - run the browser management console and Chat
 * `homesuite logs` - show the bounded runtime log
 * `homesuite support-bundle` - create a redacted diagnostic bundle
 

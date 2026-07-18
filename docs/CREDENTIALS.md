@@ -27,7 +27,7 @@ gitignored; only their `.example.py` templates should be committed.
 | Google Calendar through Home Assistant | Home Assistant integration OAuth | Google account authorized in Home Assistant | Calendar agendas and guarded event creation; no extra Home Suite secret |
 | Alpaca Market Data | API account | Alpaca account; Basic IEX data is sufficient | Read-only stock quotes and U.S. market hours |
 | Home Suite HTTP API | Locally generated key | None | Satellites, Raycast, menu-bar and custom clients |
-| Home Suite Console | Locally generated key or HTTP API key fallback | None | Authenticated browser management and text testing |
+| Home Suite Console | Locally generated key or HTTP API key fallback | None | Authenticated browser management and live Chat |
 | Plex | Existing-service token | Plex account and Plex Media Server | Library-grounded matching and playback |
 | Spotify | OAuth developer app | Spotify Premium currently required for development-mode apps | Search, private playlists, library and playlist operations |
 | Telegram | Bot token plus allowlists | Telegram account | Remote text frontend |
@@ -196,13 +196,14 @@ console stores an opaque HTTP-only session cookie after sign-in and never sends
 configured credential values during ordinary read-only use. See
 [CONSOLE.md](CONSOLE.md).
 
-After signing in, **Configuration > Edit configuration** can set, replace, or clear
-supported credentials. Entering Edit mode loads existing values into masked
-fields through an authenticated same-origin request; use the eye button to
-inspect one. Every field includes a short description, an example or format
-hint, and the relevant setup-document path. Review the proposed changes before
-applying them, then restart only the services named by the result. Replacing
-the HTTP API key also requires updating trusted clients that use it.
+After signing in, use **Integrations > Manage** for provider credentials and
+**Settings > Edit settings** for Home Suite access keys. Entering Edit mode
+loads existing values into masked fields through an authenticated same-origin
+request; use the eye button to inspect one. Every field includes a short
+description, an example or format hint, and the relevant setup-document path.
+Review the proposed changes before applying them, then restart only the services
+named by the result. Replacing the HTTP API key also requires updating trusted
+clients that use it.
 
 ### Alpaca Market Data
 

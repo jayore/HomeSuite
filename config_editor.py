@@ -404,7 +404,7 @@ class ConfigEditor:
                 for filename, source in sources.items()
             }
             sections: list[dict[str, Any]] = []
-            section_map: dict[str, dict[str, Any]] = {}
+            section_map: dict[tuple[str, str], dict[str, Any]] = {}
             fields: list[dict[str, Any]] = []
             for field in EDITABLE_FIELDS:
                 assignments = parsed[field.target_file]
@@ -418,6 +418,7 @@ class ConfigEditor:
                 row = {
                     "key": field.key,
                     "section": field.section,
+                    "surface": field.surface,
                     "label": field.label,
                     "description": field.description,
                     "placeholder": field.placeholder,
@@ -446,11 +447,13 @@ class ConfigEditor:
                     "restart_services": list(field.restart_services),
                 }
                 fields.append(row)
-                section = section_map.get(field.section)
+                section_key = (field.surface, field.section)
+                section = section_map.get(section_key)
                 if section is None:
                     section = {
                         "id": field.section,
                         "label": field.section_label,
+                        "surface": field.surface,
                         "field_keys": [],
                         "optional": field.section not in {
                             "node",
@@ -463,11 +466,11 @@ class ConfigEditor:
                             "network_credentials",
                         },
                     }
-                    section_map[field.section] = section
+                    section_map[section_key] = section
                     sections.append(section)
                 section["field_keys"].append(field.key)
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "sections": sections,
                 "fields": fields,
                 "inventory": build_config_inventory(

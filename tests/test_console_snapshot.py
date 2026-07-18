@@ -101,6 +101,8 @@ class ConsoleSnapshotTests(unittest.TestCase):
                     Check("Live checks", "FAIL", "Home Assistant reachable", "HTTP 401", required=True),
                     Check("Runtime readiness", "WARN", "configured audio input", "not found"),
                     Check("Rooms", "WARN", "room brightness", "missing entity"),
+                    Check("Physical controls", "WARN", "PTT GPIO pin", "conflict"),
+                    Check("Wake word", "WARN", "wake word model", "missing"),
                     Check("Config files", "FAIL", "local_prefs.py imports", "invalid", required=True),
                     Check("Config files", "OK", "private_config.py", "found", required=True),
                 ]
@@ -114,8 +116,10 @@ class ConsoleSnapshotTests(unittest.TestCase):
         self.assertEqual(report["checks"][0]["action"]["view"], "integrations")
         self.assertEqual(report["checks"][1]["action"]["view"], "audio")
         self.assertEqual(report["checks"][2]["action"]["view"], "rooms")
-        self.assertEqual(report["checks"][3]["action"]["view"], "configuration")
-        self.assertNotIn("action", report["checks"][4])
+        self.assertEqual(report["checks"][3]["action"]["view"], "controls")
+        self.assertEqual(report["checks"][4]["action"]["view"], "wakeword")
+        self.assertEqual(report["checks"][5]["action"]["view"], "settings")
+        self.assertNotIn("action", report["checks"][6])
 
 
 if __name__ == "__main__":

@@ -10,15 +10,15 @@ from console_runtime import ConsoleCommandRuntime, ConsoleRuntimeError
 
 
 class ConsoleRuntimeTests(unittest.TestCase):
-    def test_invalid_mode_is_rejected(self):
+    def test_empty_message_is_rejected(self):
         runtime = ConsoleCommandRuntime(api_key="key", live_api_url="http://127.0.0.1/command")
         try:
-            with self.assertRaisesRegex(ConsoleRuntimeError, "test or live"):
-                asyncio.run(runtime.execute(text="hello", mode="unsafe", session_id="session123", room=None))
+            with self.assertRaisesRegex(ConsoleRuntimeError, "Enter a message"):
+                asyncio.run(runtime.execute(text="", session_id="session123", room=None))
         finally:
             runtime.close()
 
-    def test_live_mode_forwards_context_and_authentication(self):
+    def test_chat_forwards_context_and_authentication(self):
         async def scenario():
             seen = {}
 
@@ -43,7 +43,6 @@ class ConsoleRuntimeTests(unittest.TestCase):
             try:
                 result = await runtime.execute(
                     text="turn it on",
-                    mode="live",
                     session_id="session123",
                     room=None,
                 )
@@ -53,10 +52,37 @@ class ConsoleRuntimeTests(unittest.TestCase):
 
             self.assertEqual(seen["key"], "shared-key")
             self.assertEqual(seen["payload"]["source_id"], "console_session123")
+            self.assertEqual(seen["payload"]["source_type"], "console")
             self.assertEqual(seen["payload"]["origin"], "console_live")
+            self.assertNotIn("source_room", seen["payload"])
+            self.assertNotIn("effective_target_room", seen["payload"])
             self.assertEqual(result["mode"], "live")
             self.assertFalse(result["simulated"])
             self.assertTrue(result["action_occurred"])
+
+        asyncio.run(scenario())
+
+    def test_explicit_chat_room_is_forwarded_as_a_pin(self):
+        async def scenario():
+            seen = {}
+
+            async def command(request):
+                seen["payload"] = await request.json()
+                return web.json_response({"ok": True, "response": "Okay."})
+
+            app = web.Application()
+            app.router.add_post("/command", command)
+            server = TestServer(app)
+            await server.start_server()
+            runtime = ConsoleCommandRuntime(api_key="key", live_api_url=str(server.make_url("/command")))
+            try:
+                await runtime.execute(text="turn on the lights", session_id="session123", room="living_room")
+            finally:
+                runtime.close()
+                await server.close()
+
+            self.assertEqual(seen["payload"]["source_room"], "living_room")
+            self.assertEqual(seen["payload"]["effective_target_room"], "living_room")
 
         asyncio.run(scenario())
 

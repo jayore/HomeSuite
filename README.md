@@ -196,7 +196,7 @@ The same command brain can be reached through:
 
 * a local Raspberry Pi PTT or wake-word voice appliance
 * the `homesuite` command (`doctor`, `test`, `repl`, `logs`, and support tools)
-* the authenticated management and text console on port `8766`
+* the authenticated management console and browser Chat on port `8766`
 * `pptest`, `pplive`, `ppchattest`, and `ppchat` legacy compatibility aliases
 * HTTP `POST /command` and WebSocket `/ws`
 * Telegram
@@ -254,7 +254,7 @@ Important entry points:
 * `command_dispatch.py` - deterministic natural-language routing pipeline
 * `interaction_flow.py` - shared interaction and response policy
 * `unified_server.py` - in-process HTTP and WebSocket server
-* `console_server.py` - separate authenticated management and text console
+* `console_server.py` - separate authenticated management console and browser Chat
 * `tools/homesuite_cli.py` - canonical node CLI behind the `homesuite` command
 * `command_repl.py` and `tools/test_commands.py` - safe and live command harnesses
 

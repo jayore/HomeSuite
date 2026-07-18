@@ -297,7 +297,9 @@ SOURCES: Dict[str, Dict[str, Any]] = {
     # an "I'm in the <room>" command. Stationary devices (the handset, physical
     # buttons, the out-loud wakeword option) are fixed to their room and must
     # refuse room changes. Portable frontends (the menubar app, Raycast,
-    # Telegram) are mobile and remember a sticky room per `device_group`/id.
+    # Telegram and browser Chat) are mobile and remember a sticky room per
+    # `device_group`/id. A source family may declare `source_id_prefix` when
+    # each client session needs a distinct continuity scope.
     "default_piphone": {
         "label": "Default PiPhone",
         "type": "piphone",
@@ -322,6 +324,16 @@ SOURCES: Dict[str, Dict[str, Any]] = {
     "http": {
         "label": "HTTP",
         "type": "http",
+        "room": None,
+        "mobile": True,
+        "default_scope": "none",
+        "focus_policy": "explicit_or_recent_room",
+        "output_mode": "inherit_request",
+    },
+    "console": {
+        "label": "Web console",
+        "type": "console",
+        "source_id_prefix": "console_",
         "room": None,
         "mobile": True,
         "default_scope": "none",

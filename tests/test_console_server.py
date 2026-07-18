@@ -131,7 +131,7 @@ class ConsoleServerTests(unittest.TestCase):
         async def scenario():
             runtime = mock.Mock()
             runtime.execute = mock.AsyncMock(
-                return_value={"ok": True, "mode": "test", "response": "Preview"}
+                return_value={"ok": True, "mode": "live", "response": "Turned it on."}
             )
             app = console_server.create_app(
                 console_key="console-passphrase",
@@ -173,8 +173,20 @@ class ConsoleServerTests(unittest.TestCase):
                     "/api/command",
                     json={"text": "turn on the light", "mode": "test", "session_id": "session123"},
                 )
+                self.assertEqual(response.status, 409)
+                self.assertIn("Refresh this page", (await response.json())["error"])
+                runtime.execute.assert_not_awaited()
+
+                response = await client.post(
+                    "/api/command",
+                    json={"text": "turn on the light", "session_id": "session123"},
+                )
                 self.assertEqual(response.status, 200)
-                runtime.execute.assert_awaited_once()
+                runtime.execute.assert_awaited_once_with(
+                    text="turn on the light",
+                    session_id="session123",
+                    room=None,
+                )
             finally:
                 await client.close()
 

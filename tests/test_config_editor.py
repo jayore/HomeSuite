@@ -88,11 +88,15 @@ class ConfigEditorTests(unittest.TestCase):
             state = editor.public_state()
 
         fields = {field["key"]: field for field in state["fields"]}
+        self.assertEqual(state["schema_version"], 2)
+        self.assertTrue(all(section["surface"] for section in state["sections"]))
         self.assertIsNone(fields["HA_TOKEN"]["value"])
         self.assertTrue(fields["HA_TOKEN"]["configured"])
         self.assertIn("Long-Lived Access Token", fields["HA_TOKEN"]["help_text"])
         self.assertEqual(fields["WAKEWORD_MODEL"]["placeholder"], "hal_v2")
         self.assertEqual(fields["WAKEWORD_MODEL"]["source"], "device")
+        self.assertEqual(fields["WAKEWORD_MODEL"]["surface"], "managed")
+        self.assertEqual(fields["PTT_GPIO_PIN"]["surface"], "controls")
         self.assertEqual(fields["DEFAULT_ROOM"]["source"], "deployment")
         self.assertIn(
             {"value": "office", "label": "Office"},

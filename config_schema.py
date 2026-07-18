@@ -25,6 +25,7 @@ class ConfigField:
     value_type: str
     label: str
     description: str
+    surface: str = "settings"
     placeholder: str = ""
     help_text: str = ""
     docs_path: str = ""
@@ -69,6 +70,7 @@ def _private(
     description: str,
     **kwargs,
 ) -> ConfigField:
+    kwargs.setdefault("surface", "integrations")
     return ConfigField(
         key=key,
         section=section,
@@ -104,6 +106,7 @@ EDITABLE_FIELDS = (
         "Uses a maintained GPIO input to open and close microphone listening sessions.",
         help_text="Enable for a held push-to-talk button, telephone hook, foot switch, or another control that remains in one state while Home Suite should listen.",
         docs_path="docs/PTT.md",
+        surface="controls",
     ),
     _local(
         "PTT_GPIO_PIN",
@@ -119,6 +122,7 @@ EDITABLE_FIELDS = (
         allow_empty=False,
         minimum=0,
         maximum=27,
+        surface="controls",
     ),
     _local(
         "PTT_LISTEN_LEVEL",
@@ -132,6 +136,7 @@ EDITABLE_FIELDS = (
         required=True,
         allow_empty=False,
         choices=(("low", "Low (connected to ground)"), ("high", "High (inverse wiring)")),
+        surface="controls",
     ),
     _local(
         "PTT_END_BEHAVIOR",
@@ -145,6 +150,7 @@ EDITABLE_FIELDS = (
         required=True,
         allow_empty=False,
         choices=(("submit", "Submit captured speech"), ("cancel", "Cancel captured speech")),
+        surface="controls",
     ),
     _local(
         "START_CHIME_DELAY_SECONDS",
@@ -158,6 +164,7 @@ EDITABLE_FIELDS = (
         docs_path="docs/PTT.md",
         minimum=0.0,
         maximum=5.0,
+        surface="controls",
     ),
     _local(
         "WAKEWORD_SUPPRESS_WHILE_PTT",
@@ -168,16 +175,18 @@ EDITABLE_FIELDS = (
         "Prevents the wake-word path from triggering while a PTT session is active.",
         help_text="Keep enabled when one device supports both interaction modes so PTT audio is not interpreted as a second wake-word interaction.",
         docs_path="docs/PTT.md",
+        surface="controls",
     ),
     _local(
         "WAKEWORD_ENABLED",
-        "node",
-        "Node and role",
+        "wakeword_models",
+        "Wake-word models",
         "boolean",
         "Wake-word listening",
         "Runs continuous wake-word detection on this node.",
         help_text="Enable only after the microphone and wake-word model are configured and calibrated.",
         docs_path="docs/WAKEWORD.md",
+        surface="managed",
     ),
     _local(
         "COMMAND_PROCESSING_MODE",
@@ -215,28 +224,31 @@ EDITABLE_FIELDS = (
         required=True,
         allow_empty=False,
         choices=(("openwakeword", "OpenWakeWord"), ("porcupine", "Porcupine")),
+        surface="wakeword",
     ),
     _local(
         "WAKEWORD_MODEL",
-        "wakeword",
-        "Wake word",
+        "wakeword_models",
+        "Wake-word models",
         "string",
         "Model label",
         "Model name used to select a wake word from the engine's loaded models.",
         placeholder="hal_v2",
         help_text="Use the label reported in WAKEWORD_ENGINE_OPENWAKEWORD_MODELS. It may be blank when model paths provide multiple labels.",
         docs_path="docs/WAKEWORD.md",
+        surface="managed",
     ),
     _local(
         "WAKEWORD_MODEL_PATHS",
-        "wakeword",
-        "Wake word",
+        "wakeword_models",
+        "Wake-word models",
         "list_string",
         "Custom model paths",
         "One local ONNX model path per line for custom OpenWakeWord models.",
         placeholder="/home/jayore/wake_models/hal.onnx",
         help_text="Leave empty to use models bundled with the selected engine. Paths must exist on this node.",
         docs_path="docs/WAKEWORD.md",
+        surface="managed",
     ),
     _local(
         "WAKEWORD_THRESHOLD",
@@ -250,6 +262,7 @@ EDITABLE_FIELDS = (
         docs_path="docs/WAKEWORD.md",
         minimum=0.0,
         maximum=1.0,
+        surface="wakeword",
     ),
     _local(
         "WAKEWORD_VAD_THRESHOLD",
@@ -263,6 +276,7 @@ EDITABLE_FIELDS = (
         docs_path="docs/WAKEWORD.md",
         minimum=0.0,
         maximum=1.0,
+        surface="wakeword",
     ),
     _local(
         "PHYSICAL_BUTTONS_ENABLED",
@@ -273,6 +287,7 @@ EDITABLE_FIELDS = (
         "Runs auxiliary GPIO buttons that execute configured Home Suite commands.",
         help_text="These buttons do not control microphone capture. Enable them only after assigning each button a unique BCM GPIO pin below.",
         docs_path="docs/GPIO_BUTTONS.md",
+        surface="controls",
     ),
     _local(
         "PHYSICAL_BUTTON_ACTIVE_LOW",
@@ -283,6 +298,7 @@ EDITABLE_FIELDS = (
         "Treats a low GPIO level as a pressed command button.",
         help_text="Keep enabled for the common wiring pattern GPIO to button to ground. Disable only when your button hardware drives the pin high when pressed.",
         docs_path="docs/GPIO_BUTTONS.md",
+        surface="controls",
     ),
     _local(
         "PHYSICAL_BUTTON_PULL_UP",
@@ -293,6 +309,7 @@ EDITABLE_FIELDS = (
         "Enables the Raspberry Pi's internal pull-up resistor on command-button pins.",
         help_text="Keep enabled for buttons wired between GPIO and ground unless your hardware already supplies a stable external pull resistor.",
         docs_path="docs/GPIO_BUTTONS.md",
+        surface="controls",
     ),
     _local(
         "PHYSICAL_BUTTON_PINS",
@@ -304,6 +321,7 @@ EDITABLE_FIELDS = (
         placeholder='{"1": 2, "2": 3}',
         help_text="The guided button mapper links each button ID to an unused BCM GPIO pin. Home Suite stores the result in this dictionary for the runtime.",
         docs_path="docs/GPIO_BUTTONS.md",
+        surface="controls",
     ),
     _local(
         "PHYSICAL_BUTTON_ACTIONS",
@@ -315,6 +333,7 @@ EDITABLE_FIELDS = (
         placeholder='{"1": {"press": "turn on the office light"}}',
         help_text="The guided button mapper supports single press, double press, and long press. Enter one command per line when a gesture should execute several commands in sequence.",
         docs_path="docs/GPIO_BUTTONS.md",
+        surface="controls",
     ),
     _local(
         "ASSISTANT_AUDIO_OUTPUT_MODE",
@@ -437,6 +456,7 @@ EDITABLE_FIELDS = (
         allow_empty=False,
         secret=True,
         restart_services=("homesuite.service", "homesuite-console.service"),
+        surface="settings",
     ),
     _private(
         "SATELLITE_BRAIN_API_KEY",
@@ -448,6 +468,7 @@ EDITABLE_FIELDS = (
         help_text="Leave empty when this node and the brain share HOMESUITE_HTTP_API_KEY. Enter the brain's companion API key when the two nodes use different local keys.",
         docs_path="docs/API.md",
         secret=True,
+        surface="settings",
     ),
     _private(
         "HOMESUITE_CONSOLE_KEY",
@@ -460,6 +481,7 @@ EDITABLE_FIELDS = (
         docs_path="docs/CONSOLE.md",
         secret=True,
         restart_services=("homesuite-console.service",),
+        surface="settings",
     ),
     _private(
         "PLEX_URL",

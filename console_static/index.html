@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#03a9f4">
   <title>Home Suite Console</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260716d">
+  <link rel="stylesheet" href="/static/styles.css?v=20260717b">
 </head>
 <body>
   <div id="login-screen" class="login-screen" hidden>
@@ -17,12 +17,13 @@
         <h1 id="login-title">Management Console</h1>
         <p id="login-intro" class="login-intro" hidden></p>
       </div>
-      <form id="login-form" class="login-form">
-        <input class="sr-only" name="username" type="text" value="homesuite-console" autocomplete="username" tabindex="-1">
+      <form id="login-form" class="login-form" action="/api/login" method="post" autocomplete="on">
+        <label class="sr-only" for="console-username">Username</label>
+        <input id="console-username" class="sr-only" name="username" type="text" value="homesuite-console" autocomplete="username" readonly tabindex="-1">
         <label for="console-key">Console passphrase</label>
-        <input id="console-key" name="key" type="password" autocomplete="current-password" required autofocus>
+        <input id="console-key" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required autofocus>
         <p id="login-error" class="form-error" role="alert" hidden></p>
-        <button class="button primary full-width" type="submit">Sign in</button>
+        <button id="login-submit" class="button primary full-width" type="submit">Sign in</button>
       </form>
       <form id="bootstrap-form" class="login-form" hidden>
         <label for="bootstrap-passphrase">Create a console passphrase</label>
@@ -54,27 +55,42 @@
         <button id="setup-nav" class="nav-item" type="button" data-view="setup" hidden>
           <span class="icon" data-icon="list-checks"></span><span>Setup</span>
         </button>
-        <button class="nav-item active" type="button" data-view="overview">
-          <span class="icon" data-icon="layout-dashboard"></span><span>Overview</span>
-        </button>
-        <button class="nav-item" type="button" data-view="configuration">
-          <span class="icon" data-icon="sliders-horizontal"></span><span>Configuration</span>
-        </button>
-        <button class="nav-item" type="button" data-view="audio">
-          <span class="icon" data-icon="mic"></span><span>Audio</span>
-        </button>
-        <button class="nav-item" type="button" data-view="rooms">
-          <span class="icon" data-icon="map-pin"></span><span>Rooms</span>
-        </button>
-        <button class="nav-item" type="button" data-view="integrations">
-          <span class="icon" data-icon="plug"></span><span>Integrations</span>
-        </button>
-        <button class="nav-item" type="button" data-view="console">
-          <span class="icon" data-icon="message-square"></span><span>Test Console</span>
-        </button>
-        <button class="nav-item" type="button" data-view="diagnostics">
-          <span class="icon" data-icon="activity"></span><span>Diagnostics</span>
-        </button>
+        <div class="nav-group" role="group" aria-labelledby="nav-system-label">
+          <span id="nav-system-label" class="nav-group-label">System</span>
+          <button class="nav-item active" type="button" data-view="overview">
+            <span class="icon" data-icon="layout-dashboard"></span><span>Overview</span>
+          </button>
+          <button class="nav-item" type="button" data-view="settings">
+            <span class="icon" data-icon="sliders-horizontal"></span><span>Settings</span>
+          </button>
+          <button class="nav-item" type="button" data-view="rooms">
+            <span class="icon" data-icon="map-pin"></span><span>Rooms</span>
+          </button>
+          <button class="nav-item" type="button" data-view="integrations">
+            <span class="icon" data-icon="plug"></span><span>Integrations</span>
+          </button>
+        </div>
+        <div class="nav-group" role="group" aria-labelledby="nav-device-label">
+          <span id="nav-device-label" class="nav-group-label">This device</span>
+          <button class="nav-item" type="button" data-view="audio">
+            <span class="icon" data-icon="mic"></span><span>Audio</span>
+          </button>
+          <button class="nav-item" type="button" data-view="wakeword">
+            <span class="icon" data-icon="audio-waveform"></span><span>Wake word</span>
+          </button>
+          <button class="nav-item" type="button" data-view="controls">
+            <span class="icon" data-icon="power"></span><span>Physical controls</span>
+          </button>
+        </div>
+        <div class="nav-group" role="group" aria-labelledby="nav-tools-label">
+          <span id="nav-tools-label" class="nav-group-label">Tools</span>
+          <button class="nav-item" type="button" data-view="console">
+            <span class="icon" data-icon="message-square"></span><span>Chat</span>
+          </button>
+          <button class="nav-item" type="button" data-view="diagnostics">
+            <span class="icon" data-icon="activity"></span><span>Diagnostics</span>
+          </button>
+        </div>
       </nav>
 
       <div class="sidebar-footer">
@@ -126,11 +142,11 @@
               <span class="icon" data-icon="refresh-cw"></span>
             </button>
           </div>
-          <div class="topbar-action-group button-row" data-actions-view="configuration" hidden>
-            <button id="edit-configuration" class="button primary" type="button" aria-label="Edit configuration">
-              <span class="icon" data-icon="pencil"></span><span>Edit configuration</span>
+          <div class="topbar-action-group button-row" data-actions-view="settings" hidden>
+            <button id="edit-settings" class="button primary" type="button" aria-label="Edit settings">
+              <span class="icon" data-icon="pencil"></span><span>Edit settings</span>
             </button>
-            <button id="cancel-configuration-edit" class="button secondary" type="button" aria-label="Cancel configuration editing" hidden>
+            <button id="cancel-settings-edit" class="button secondary" type="button" aria-label="Cancel settings editing" hidden>
               <span class="icon" data-icon="x"></span><span>Cancel</span>
             </button>
           </div>
@@ -140,6 +156,25 @@
             </button>
             <button id="edit-audio" class="button primary" type="button" title="Edit audio" aria-label="Edit audio">
               <span class="icon" data-icon="pencil"></span><span>Edit audio</span>
+            </button>
+          </div>
+          <div class="topbar-action-group button-row" data-actions-view="wakeword" hidden>
+            <button id="refresh-wakewords" class="icon-button" type="button" title="Refresh wake words" aria-label="Refresh wake words">
+              <span class="icon" data-icon="refresh-cw"></span>
+            </button>
+            <button id="edit-wakeword-detector" class="button secondary" type="button" title="Tune wake-word detection" aria-label="Tune wake-word detection">
+              <span class="icon" data-icon="sliders-horizontal"></span><span>Tune detector</span>
+            </button>
+            <button id="add-wakeword-model" class="button primary" type="button" title="Add wake-word model" aria-label="Add wake-word model">
+              <span class="icon" data-icon="upload"></span><span>Add model</span>
+            </button>
+          </div>
+          <div class="topbar-action-group button-row" data-actions-view="controls" hidden>
+            <button id="edit-controls" class="button primary" type="button" aria-label="Edit physical controls">
+              <span class="icon" data-icon="pencil"></span><span>Edit controls</span>
+            </button>
+            <button id="cancel-controls-edit" class="button secondary" type="button" aria-label="Cancel physical controls editing" hidden>
+              <span class="icon" data-icon="x"></span><span>Cancel</span>
             </button>
           </div>
           <div class="topbar-action-group button-row" data-actions-view="rooms" hidden>
@@ -224,9 +259,9 @@
           </div>
         </section>
 
-        <section id="view-configuration" class="view" data-title="Configuration">
+        <section id="view-settings" class="view" data-title="Settings">
           <div class="page-heading">
-            <div><h1>Configuration</h1><p>Review and manage this device's settings</p></div>
+            <div><h1>Settings</h1><p>General behavior, command processing, and access</p></div>
           </div>
           <div id="config-result" class="config-result" role="status" hidden></div>
           <div id="config-coverage" class="config-coverage loading-block"></div>
@@ -239,7 +274,7 @@
             <div class="config-section-control">
               <label for="config-section-jump">Section</label>
               <div class="select-control">
-                <select id="config-section-jump" aria-label="Jump to configuration section">
+                <select id="config-section-jump" aria-label="Jump to settings section">
                   <option value="">Jump to section</option>
                 </select>
                 <span class="icon select-control-icon" data-icon="chevron-down" aria-hidden="true"></span>
@@ -291,6 +326,80 @@
           </section>
         </section>
 
+        <section id="view-wakeword" class="view" data-title="Wake word">
+          <div class="page-heading">
+            <div><h1>Wake word</h1><p>Choose what gets this device's attention</p></div>
+          </div>
+          <div id="wakeword-result" class="config-result" role="status" hidden></div>
+          <div class="wakeword-summary-grid">
+            <section class="panel" aria-labelledby="wakeword-listening-title">
+              <div class="panel-heading"><h2 id="wakeword-listening-title">Listening</h2></div>
+              <div id="wakeword-listening-summary" class="wakeword-listening-summary loading-block"></div>
+            </section>
+            <section class="panel" aria-labelledby="wakeword-detector-title">
+              <div class="panel-heading"><h2 id="wakeword-detector-title">Detector</h2></div>
+              <dl id="wakeword-detector-summary" class="summary-list loading-block"></dl>
+            </section>
+          </div>
+          <section class="panel wakeword-model-panel" aria-labelledby="wakeword-model-title">
+            <div class="panel-heading wakeword-model-heading">
+              <div>
+                <h2 id="wakeword-model-title">Available wake words</h2>
+                <p>Select one or more. Home Suite can listen for several wake words at the same time.</p>
+              </div>
+              <span id="wakeword-selection-count" class="status-badge skip">None selected</span>
+            </div>
+            <div id="wakeword-model-list" class="wakeword-model-list loading-block"></div>
+          </section>
+          <section id="wakeword-dropzone" class="panel wakeword-upload-panel" aria-labelledby="wakeword-upload-title">
+            <div class="wakeword-upload-icon" aria-hidden="true"><span class="icon" data-icon="upload"></span></div>
+            <div class="wakeword-upload-copy">
+              <h2 id="wakeword-upload-title">Add your own model</h2>
+              <p>Drop an OpenWakeWord ONNX file here, or choose one from this device. Adding a model does not activate it automatically.</p>
+              <span>ONNX files only, up to 24 MB</span>
+            </div>
+            <button id="choose-wakeword-model" class="button secondary" type="button">
+              <span class="icon" data-icon="upload"></span><span>Choose file</span>
+            </button>
+            <input id="wakeword-model-file" type="file" accept=".onnx,application/octet-stream" hidden>
+          </section>
+          <div id="wakeword-editor-actions" class="config-editor-actions wakeword-editor-actions" hidden>
+            <div>
+              <strong id="wakeword-change-count">No pending changes</strong>
+              <button id="discard-wakeword-changes" class="text-button" type="button">Discard</button>
+            </div>
+            <button id="review-wakeword-changes" class="button primary" type="button">
+              <span class="icon" data-icon="save"></span><span>Review changes</span>
+            </button>
+          </div>
+        </section>
+
+        <section id="view-controls" class="view" data-title="Physical controls">
+          <div class="page-heading">
+            <div><h1>Physical controls</h1><p>Push-to-talk and GPIO command buttons on this device</p></div>
+          </div>
+          <div id="controls-result" class="config-result" role="status" hidden></div>
+          <div id="controls-summary" class="physical-controls-grid">
+            <section class="panel" aria-labelledby="ptt-summary-title">
+              <div class="panel-heading"><h2 id="ptt-summary-title">Push-to-talk</h2></div>
+              <div id="ptt-summary" class="physical-control-summary loading-block"></div>
+            </section>
+            <section class="panel" aria-labelledby="button-summary-title">
+              <div class="panel-heading"><h2 id="button-summary-title">Command buttons</h2></div>
+              <div id="button-summary" class="physical-control-summary loading-block"></div>
+            </section>
+          </div>
+          <form id="controls-editor" class="configuration-editor" hidden>
+            <div id="controls-groups" class="config-sections loading-block"></div>
+            <div id="controls-editor-actions" class="config-editor-actions" hidden>
+              <span id="controls-change-count">No pending changes</span>
+              <button id="review-controls-changes" class="button primary" type="submit" disabled>
+                <span class="icon" data-icon="save"></span><span>Review changes</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
         <section id="view-rooms" class="view" data-title="Rooms">
           <div class="page-heading">
             <div><h1>Rooms</h1><p id="rooms-subtitle">Configured room registry</p></div>
@@ -316,30 +425,23 @@
           <div id="integration-list" class="integration-grid loading-block"></div>
         </section>
 
-        <section id="view-console" class="view" data-title="Test Console">
+        <section id="view-console" class="view" data-title="Chat">
           <div class="page-heading compact">
-            <div><h1>Test Console</h1><p>Text interaction surface</p></div>
+            <div><h1>Chat</h1><p>Talk to Home Suite from this browser</p></div>
           </div>
-          <section id="chat-workspace" class="chat-workspace" aria-label="Home Suite text console">
+          <section id="chat-workspace" class="chat-workspace" aria-label="Chat with Home Suite">
             <div class="chat-toolbar">
               <div class="field-inline">
-                <label for="chat-room">Room</label>
+                <label for="chat-room">Location</label>
                 <div class="select-control">
-                  <select id="chat-room"></select>
+                  <select id="chat-room" title="Follow conversation lets room-focus phrases move this chat between rooms"></select>
                   <span class="icon select-control-icon" data-icon="chevron-down" aria-hidden="true"></span>
                 </div>
               </div>
-              <div class="segmented-control" aria-label="Execution mode">
-                <button class="active" type="button" data-mode="test">Test</button>
-                <button type="button" data-mode="live">Live</button>
-              </div>
+              <span class="status-badge configured chat-live-status" title="Messages use the live Home Suite runtime and can control devices">Live</span>
               <button id="clear-chat" class="icon-button" type="button" title="Clear messages" aria-label="Clear messages">
                 <span class="icon" data-icon="trash-2"></span>
               </button>
-            </div>
-            <div id="mode-notice" class="mode-notice test" role="status">
-              <span class="icon" data-icon="shield-check"></span>
-              <span>Preview only. Device writes and persistent actions are blocked.</span>
             </div>
             <div id="chat-messages" class="chat-messages" aria-live="polite">
               <div class="chat-empty">No messages in this session.</div>
@@ -372,10 +474,32 @@
     </div>
   </div>
 
+  <dialog id="wakeword-detector-dialog" class="room-edit-dialog integration-edit-dialog config-scope-dialog" aria-labelledby="wakeword-detector-edit-title">
+    <form id="wakeword-detector-form">
+      <div class="review-dialog-heading">
+        <div>
+          <span>Wake word</span>
+          <h2 id="wakeword-detector-edit-title">Tune detector</h2>
+        </div>
+        <button id="close-wakeword-detector" class="icon-button" type="button" title="Close detector settings" aria-label="Close detector settings">
+          <span class="icon" data-icon="x"></span>
+        </button>
+      </div>
+      <div id="wakeword-detector-groups" class="config-sections loading-block"></div>
+      <div class="dialog-form-actions config-editor-actions">
+        <span id="wakeword-detector-change-count">No pending changes</span>
+        <button id="cancel-wakeword-detector" class="button secondary" type="button">Cancel</button>
+        <button id="review-wakeword-detector-changes" class="button primary" type="submit" disabled>
+          <span class="icon" data-icon="save"></span><span>Review changes</span>
+        </button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="config-review-dialog" class="review-dialog" aria-labelledby="config-review-title">
     <div class="review-dialog-heading">
       <div>
-        <span>Configuration</span>
+        <span id="config-review-context">Settings</span>
         <h2 id="config-review-title">Review changes</h2>
       </div>
       <button id="close-config-review" class="icon-button" type="button" title="Close review" aria-label="Close review">
@@ -451,6 +575,26 @@
     <div class="review-dialog-actions">
       <button id="back-to-audio" class="button secondary" type="button">Back</button>
       <button id="apply-audio-changes" class="button primary" type="button">
+        <span class="icon" data-icon="circle-check"></span><span>Apply changes</span>
+      </button>
+    </div>
+  </dialog>
+
+  <dialog id="wakeword-review-dialog" class="review-dialog" aria-labelledby="wakeword-review-title">
+    <div class="review-dialog-heading">
+      <div>
+        <span>Wake-word listening</span>
+        <h2 id="wakeword-review-title">Review changes</h2>
+      </div>
+      <button id="close-wakeword-review" class="icon-button" type="button" title="Close review" aria-label="Close review">
+        <span class="icon" data-icon="x"></span>
+      </button>
+    </div>
+    <div id="wakeword-review-list" class="config-review-list"></div>
+    <div class="config-restart-notice">The voice service must restart before the updated wake-word selection takes effect.</div>
+    <div class="review-dialog-actions">
+      <button id="back-to-wakewords" class="button secondary" type="button">Back</button>
+      <button id="apply-wakeword-changes" class="button primary" type="button">
         <span class="icon" data-icon="circle-check"></span><span>Apply changes</span>
       </button>
     </div>
@@ -561,7 +705,7 @@
   <div id="room-datalists" hidden></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <script src="/static/icons.js?v=20260716d"></script>
-  <script src="/static/app.js?v=20260716d"></script>
+  <script src="/static/icons.js?v=20260717b"></script>
+  <script src="/static/app.js?v=20260717b"></script>
 </body>
 </html>

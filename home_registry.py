@@ -1,10 +1,11 @@
 """Describe rooms, source instances, and client-visible HomeSuite capabilities.
 
 ``ROOMS`` contains deployment-oriented defaults such as preferred lights and
-media outputs. ``SOURCES`` describes concrete clients/endpoints and associates
-them with room policy; entries are instances, not abstract source types. Lookup
-helpers use this data to build request context and the manifest served to UI
-clients.
+media outputs. ``SOURCES`` describes clients/endpoints and associates them with
+room policy. Most entries are concrete instances; an entry with
+``source_id_prefix`` describes a dynamic family whose instances need separate
+continuity state. Lookup helpers use this data to build request context and the
+manifest served to UI clients.
 
 Keep optional values explicit with ``None``. Increment
 ``MANIFEST_SCHEMA_VERSION`` only when a non-additive shape change requires
@@ -72,7 +73,17 @@ def get_room_label(room_id: Optional[str]) -> Optional[str]:
 def get_source(source_id: Optional[str]) -> Optional[Dict[str, Any]]:
     if not source_id:
         return None
-    return SOURCES.get(str(source_id).strip())
+    sid = str(source_id).strip()
+    exact = SOURCES.get(sid)
+    if isinstance(exact, dict):
+        return exact
+    for source in SOURCES.values():
+        if not isinstance(source, dict):
+            continue
+        prefix = str(source.get("source_id_prefix") or "").strip()
+        if prefix and sid.startswith(prefix):
+            return source
+    return None
 
 
 def get_source_room(source_id: Optional[str]) -> Optional[str]:
@@ -93,7 +104,8 @@ def is_source_mobile(source_id: Optional[str]) -> bool:
     Return True only for sources explicitly marked mobile in the registry.
 
     Unknown or unregistered sources default to False (not mobile) so that an
-    unrecognized frontend can never silently change room focus.
+    unrecognized frontend can never silently change room focus. Registered
+    dynamic source families inherit the mobility policy of their prefix entry.
     """
     src = get_source(source_id)
     if not isinstance(src, dict):

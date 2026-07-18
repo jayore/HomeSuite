@@ -89,19 +89,24 @@ reverse proxy with HTTPS if remote browser access is required.
   operates services.
 * **Overview** shows hostname, revision, enabled node roles, room count,
   integration count, and local Doctor readiness.
-* **Configuration** shows a curated set of effective node settings in labeled
-  Setting and Current value columns. Search filters by label, key, description,
-  or section, while the section menu jumps through the longer page. **Edit
-  configuration** opens the guided editor described below.
+* **Settings** shows general node behavior, assistant processing, network, and
+  access settings in labeled Setting and Current value columns. Search filters
+  by label, key, description, or section, while the section menu jumps through
+  the longer page. **Edit settings** opens the guided editor described below.
 * **Audio** shows the effective microphone profile, playback target, detected
   ALSA hardware, output testing, profile editing, and guided microphone
   calibration for this node.
+* **Wake word** lists models available on this node, activates one or several
+  local models, pauses wake-word listening, accepts compatible OpenWakeWord
+  `.onnx` uploads by file picker or drag and drop, and exposes detector tuning.
+* **Physical controls** manages PTT behavior, its BCM GPIO input and electrical
+  level, wake-word coexistence, and auxiliary buttons that execute commands.
 * **Rooms** shows and edits room identity, aliases, Home Assistant area,
   lighting and media targets, TV/Plex routing, and client controls.
 * **Integrations** reports ready, incomplete, or not-configured status and
   provides provider-scoped setup, semantic review, and explicit connection
   tests. Overview cards never return secret values.
-* **Test Console** runs text through the same deterministic and conversational
+* **Chat** sends text through the same live deterministic and conversational
   interaction layer used by other Home Suite surfaces.
 * **Diagnostics** runs Home Suite Doctor locally or with optional live network
   and topology checks, places warnings and failures first, routes unhealthy
@@ -110,11 +115,11 @@ reverse proxy with HTTPS if remote browser access is required.
 
 ## Guided Setup And Activation
 
-Setup is an orchestrator over the existing Configuration, Integrations, Rooms,
-Audio, Test Console, and Diagnostics surfaces. It does not duplicate their
-values or write a separate onboarding configuration. PTT and wake-word roles
-remain independent and can both be enabled; the audio step appears whenever
-either role is active.
+Setup is an orchestrator over the existing Settings, Integrations, Rooms,
+Audio, Wake word, Physical controls, Chat, and Diagnostics surfaces.
+It does not duplicate their values or write a separate onboarding
+configuration. PTT and wake-word roles remain independent and can both be
+enabled; the audio step appears whenever either role is active.
 
 While initial setup is incomplete, **Setup** remains in the primary navigation.
 Opening a setup step uses the full management view for that task and leaves a
@@ -148,7 +153,7 @@ The browser cannot provide a shell command, arbitrary file path, or service
 name. A configured node whose runtime is already healthy is treated as setup
 complete even when it predates the activation marker.
 
-Primary page actions such as **Edit configuration**, **Edit audio**, **Add room**,
+Primary page actions such as **Edit settings**, **Edit audio**, **Add room**,
 and page refresh live in the sticky top bar. Provider setup and connection
 tests stay on their corresponding integration cards. Actions remain available
 while reviewing long pages and collapse to icons on smaller screens.
@@ -156,26 +161,26 @@ The system status at the right of the top bar is also a Diagnostics shortcut;
 on narrow screens it retains a status icon and issue count instead of becoming
 an unexplained color indicator.
 
-## Edit Configuration
+## Edit Settings
 
 The editor is deliberately schema-driven rather than a general Python or YAML
-editor. It currently covers common node identity, runtime roles, wake-word and
-audio behavior, PTT and auxiliary GPIO inputs, assistant settings, network
-ports, core credentials, and optional integration credentials. Each control
-includes:
+editor. **Settings** covers general node identity and behavior, assistant
+processing, network ports, and core access credentials. The same validation and
+review system powers focused editors in **Physical controls**, **Wake word**,
+and **Integrations**, so a value has one logical home without creating separate
+configuration stores. Each control includes:
 
 * a plain-language description
 * an example or expected-format placeholder
 * setup guidance and a relevant documentation path when available
 * the current value, or configured/not-configured status for credentials
 
-Read-only configuration responses redact credentials. Entering **Edit
-configuration** loads existing credentials into masked fields over an authenticated,
-same-origin request; the eye button can reveal a value when needed. Leaving
-Edit mode with **Cancel**, signing out, or losing the session removes those
-values from the active configuration state. Optional private settings can be
-cleared, and device overrides can be reset to their inherited value when one
-exists.
+Read-only configuration responses redact credentials. Entering an authenticated
+edit view loads credentials for that surface into masked fields over a
+same-origin request; the eye button can reveal a value when needed. Leaving Edit
+mode with **Cancel**, signing out, or losing the session removes those values
+from the active configuration state. Optional private settings can be cleared,
+and device overrides can be reset to their inherited value when one exists.
 
 Because Edit mode can display working credentials, treat an unlocked console
 session like access to `private_config.py`: use it only on a trusted device and
@@ -189,8 +194,9 @@ depend on a CDN.
 
 Each device-scoped integration card opens a focused setup dialog containing
 only that provider's settings. The controls, descriptions, placeholders, and
-credential guidance come from the same schema as Configuration. Saves use the
-same type and URL validation, semantic preview, stale-revision protection,
+credential guidance come from the same schema as Settings and the other guided
+editors. Saves use the same type and URL validation, semantic preview,
+stale-revision protection,
 private backup, Python compilation, and atomic write path; the Integrations
 view is not a second configuration store.
 
@@ -227,6 +233,36 @@ The console does not restart either Home Suite service as part of a save. It
 records which service must reload and presents a sticky **Restart required**
 action instead. This keeps a configuration edit from unexpectedly interrupting
 PTT, wake-word capture, speech, alarms, or timers.
+
+## Manage Wake Word
+
+The **Wake word** view is the preferred place to manage model selection. It
+discovers `.onnx` files already configured on the node and files in Home
+Suite's local wake-model directories. Select **Listen for this** on as many
+local models as the device should recognize. A node can therefore respond to
+both a primary phrase and an alternate phrase without running a second
+listener.
+
+Drop a compatible OpenWakeWord `.onnx` file onto **Add your own model**, or use
+the file picker. The console validates the file in a bounded subprocess and
+stores it under the ignored local `wake_models/` directory. Uploading adds an
+available option; it does not silently activate the model. Duplicate uploads
+are deduplicated, while a genuinely different file with the same name receives
+a short content suffix.
+
+Choose **Review changes** before the selection is written. Saving updates the
+same `WAKEWORD_ENABLED`, `WAKEWORD_MODEL`, and `WAKEWORD_MODEL_PATHS` values
+used by the voice runtime. The running detector keeps its current selection
+until **Restart required** restarts `homesuite.service`. Pausing listening does
+not delete model files. An uploaded model must be deactivated and saved before
+its Remove button becomes available.
+
+OpenWakeWord's bundled selection and local custom models use different loading
+modes in the current runtime. Choosing a local model replaces a bundled
+selection, and choosing the bundled model replaces local selections; multiple
+local models can be active together. **Tune detector** edits the engine,
+threshold, and VAD settings on the same Wake word page. More advanced timing
+and audio-path behavior is documented in [WAKEWORD.md](WAKEWORD.md).
 
 ## Activate Saved Changes
 
@@ -279,7 +315,7 @@ control. Existing room IDs are locked because changing one can invalidate
 saved focus and source mappings. Add a new room or alias and migrate
 deliberately instead.
 
-The effective default room is still a per-node setting under Configuration.
+The effective default room is still a per-node setting under Settings.
 The Rooms editor will not remove that room. Change the node default first when
 retiring it. Restart `homesuite.service` after applying room changes so the
 voice and companion command runtime reload the shared topology.
@@ -328,22 +364,24 @@ Signal-processing values remain independently scoped inside the shared profile:
 wake-word detection, command transcription, and PTT each consume their own
 documented fields.
 
-## Configuration Organization
+## Console Setting Ownership
 
 The browser groups settings by what the user is configuring, not by the Python
 file that stores them:
 
-* **Node and role** contains identity and top-level interaction capabilities.
-* **Push-to-talk (PTT)** contains the PTT switch, BCM GPIO pin, electrical
-  listen level, submit-or-cancel behavior, cue delay, and wake-word coexistence
-  policy.
-* **Wake word** contains detector, model, and threshold settings.
-* **Additional GPIO buttons** contains command-button wiring and gesture maps.
-  These buttons execute commands and never control microphone capture. A
-  purpose-built mapper keeps button IDs, BCM pins, and gesture commands aligned.
-* Assistant, network, and integration sections own their corresponding runtime
-  settings and credentials. The dedicated Audio view owns microphone and local
-  playback setup.
+* **Settings** owns general node identity and behavior, assistant processing,
+  network ports, and access settings.
+* **Physical controls** owns the PTT switch, BCM GPIO pin, electrical listen
+  level, submit-or-cancel behavior, cue delay, wake-word coexistence policy,
+  and auxiliary command-button wiring and gesture maps. Command buttons execute
+  commands and never control microphone capture. A purpose-built mapper keeps
+  button IDs, BCM pins, and gesture commands aligned.
+* **Wake word** owns listening state, model selection and upload, detector
+  engine, threshold, and VAD tuning. One or several compatible models can be
+  active.
+* **Integrations** owns provider credentials and connection testing. **Audio**
+  owns microphone, local signal processing, playback, and calibration. **Rooms**
+  owns the shared room topology.
 
 The long-term contract is that supported per-node settings should be visible in
 the console. Simple values receive guided controls, nested values receive
@@ -351,12 +389,12 @@ purpose-built editors, and low-level tuning belongs in collapsed advanced
 sections. Deprecated compatibility aliases such as the original `HANDSET_*`
 names remain loadable but do not appear as duplicate user-facing settings.
 
-The **Configuration status** summary reports actionable configuration issues,
-guided settings, and advanced settings currently in use. The advanced
-inventory lists every effective file-managed override and opens its relevant
-documentation. Deprecated compatibility aliases and unrecognized assignments
-appear separately as settings needing attention. Credential values remain
-redacted in this inventory.
+The **Settings coverage** summary reports actionable configuration issues,
+guided settings owned by that page, and advanced settings currently in use. The
+advanced inventory lists every effective file-managed override and opens its
+relevant documentation. Deprecated compatibility aliases and unrecognized
+assignments appear separately as settings needing attention. Credential values
+remain redacted in this inventory.
 
 The inventory treats the three example files as the documented public
 configuration contract. This keeps `local_prefs.py`, `deployment_config.py`,
@@ -383,11 +421,12 @@ private configuration or environment is intentionally provided there.
 
 Doctor warnings and failures retain their redacted technical detail and add a
 plain next step when the console can identify the owning surface. **Open
-Integrations**, **Open Audio**, **Open Rooms**, or **Open Configuration** moves
-directly to that setup view; provider actions also bring the corresponding
-integration card into view. Groups and checks containing warnings or failures
-sort ahead of healthy results, and the report summary jumps to the first issue.
-Rerun local or live checks after making and activating a correction.
+Integrations**, **Open Audio**, **Open Rooms**, **Open Physical controls**,
+**Open Wake word**, or **Open Settings** moves directly to that setup view;
+provider actions also bring the corresponding integration card into view.
+Groups and checks containing warnings or failures sort ahead of healthy results,
+and the report summary jumps to the first issue. Rerun local or live checks after
+making and activating a correction.
 
 **Support bundle** runs the same established bundle builder as
 `homesuite support-bundle`. If the current report is live, the downloaded
@@ -401,38 +440,40 @@ identifiers from Doctor details, raw logs, and command text. It is designed to
 be attached to a support issue, but review any artifact before sharing it
 outside the trusted environment.
 
-## Test And Live Messages
+## Chat
 
-The text console always opens in **Test** mode.
+Chat is a live browser interface to Home Suite. Messages are forwarded to the
+authenticated `POST /command` endpoint owned by the running
+`homesuite.service`, so they can control devices and create persistent actions.
+Keeping execution in the production process preserves command ordering and
+dialogue state across follow-up messages.
 
-Test mode uses Home Suite's established capture runtime. It reads current Home
-Assistant state for realistic routing but blocks Home Assistant writes and
-persistent timers, alarms, schedules, and temporary restorations. It can still
-make configured read-only network calls and AI requests, so provider usage may
-still occur. The same runtime policy blocks direct applet lifecycle changes,
-Spotify library writes, YouTube playback and registry changes, Plex playback,
-announcements, and qBittorrent pause commands. Every result remains labeled as
-a Test preview.
+The browser uses one stable session ID so references such as "turn it off" stay
+scoped to that browser conversation. Clearing visible messages clears only the
+browser transcript. If the runtime or its HTTP API is unavailable, Chat reports
+that availability error rather than running a second command engine inside the
+management process.
 
-**Live** mode is an explicit toggle with a confirmation. Live messages are
-forwarded to the authenticated `POST /command` endpoint owned by the running
-`homesuite.service`; they can control devices and create persistent actions.
-This keeps live command ordering and dialogue state in the production process.
-If that service or its HTTP API is unavailable, Live returns an availability
-error while Test remains usable.
+The Location control defaults to **Follow conversation**. In that mode, phrases
+such as "I'm in the kitchen now" set a sticky room for this browser session, and
+later room-relative commands follow it just as they do in Telegram or Raycast.
+Selecting a named room pins requests to that room until **Follow conversation**
+is selected again.
 
-Test and Live keep separate runtime dialogue state. The browser uses one stable
-session ID so follow-up references remain scoped to that console session within
-the selected mode. Clearing visible messages only clears the browser transcript.
+Safe capture remains available to developers through `homesuite test` and
+`homesuite repl`. Those tools read current Home Assistant state while blocking
+writes and persistent actions; they are deliberately separate from browser
+Chat.
 
 ## Scope
 
 The console is a configuration and management surface, not a Home Assistant
-dashboard or a second place to control individual devices. Live text remains
-available because it is useful for setup, regression testing, and occasional
-interaction, but the console does not render device-control tiles.
+dashboard or a second set of device-control tiles. Chat remains available as a
+simple first interface, for setup and regression checks, and for continued text
+interaction when it is convenient.
 
-Use the guided Configuration, Audio, and Rooms editors for the fields they expose.
+Use the guided Settings, Physical controls, Wake word, Integrations, Audio, and
+Rooms editors for the fields they expose.
 Continue editing `deployment_config.py` directly for shared policies that do
 not yet have controls, and use `local_prefs.py` directly for advanced
 per-node values not yet in the schema. The console preserves unrelated code

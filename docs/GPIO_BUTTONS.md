@@ -4,8 +4,8 @@ Home Suite can map auxiliary Raspberry Pi GPIO buttons to ordinary command
 phrases. These controls are separate from push-to-talk: pressing one executes a
 configured command but does not open or close microphone capture.
 
-The management console's **Configuration > Additional GPIO buttons** section is
-the recommended setup path. It presents one row per physical button with its
+The management console's **Physical controls** page is the recommended setup
+path. Its command-button editor presents one row per physical button with its
 button ID, BCM pin, and commands for single press, double press, and long press.
 The same settings can still be maintained directly in `local_prefs.py`.
 

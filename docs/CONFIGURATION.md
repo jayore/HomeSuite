@@ -635,7 +635,8 @@ credentials; authenticated Edit mode loads them into masked, revealable
 fields. Home Suite shows a semantic review, creates a private backup, and
 validates the resulting Python before an atomic write. It does not restart
 services automatically. Low-level deployment policy remains a direct file
-edit. The separate text surface supports explicit Test and Live modes. See
+edit. The separate Chat surface sends messages through the running Home Suite
+service; safe dry runs remain available through the CLI. See
 [CONSOLE.md](CONSOLE.md).
 
 ## Plex

@@ -35,6 +35,11 @@ from console_service_manager import (
 from console_setup import ConsoleSetupError, ConsoleSetupManager
 from console_snapshot import build_doctor_report, build_snapshot
 from console_support import ConsoleSupportError, build_console_support_bundle
+from console_wakewords import (
+    MAX_WAKEWORD_MODEL_BYTES,
+    ConsoleWakewordError,
+    ConsoleWakewordManager,
+)
 from room_config_editor import RoomConfigEditor
 
 
@@ -151,6 +156,7 @@ AUDIO_RUNTIME_KEY = web.AppKey("audio_runtime", ConsoleAudioRuntime)
 SERVICE_MANAGER_KEY = web.AppKey("service_manager", ConsoleServiceManager)
 SERVICE_HEALTH_KEY = web.AppKey("service_health", dict)
 INTEGRATION_MANAGER_KEY = web.AppKey("integration_manager", dict)
+WAKEWORD_MANAGER_KEY = web.AppKey("wakeword_manager", dict)
 SUPPORT_BUNDLE_KEY = web.AppKey("support_bundle_builder", dict)
 BOOTSTRAP_KEY = web.AppKey("console_bootstrap", ConsoleBootstrap)
 BOOTSTRAP_LOCK_KEY = web.AppKey("console_bootstrap_lock", asyncio.Lock)
@@ -194,6 +200,7 @@ def create_app(
     service_manager: Optional[ConsoleServiceManager] = None,
     runtime_health_probe: Optional[Callable[[], Awaitable[bool]]] = None,
     integration_manager: Optional[ConsoleIntegrationManager] = None,
+    wakeword_manager: Optional[ConsoleWakewordManager] = None,
     support_bundle_builder: Optional[Callable[..., object]] = None,
     bootstrap_manager: Optional[ConsoleBootstrap] = None,
     setup_manager: Optional[ConsoleSetupManager] = None,
@@ -201,7 +208,10 @@ def create_app(
 ) -> web.Application:
     if not str(console_key or "").strip():
         raise ValueError("console_key must not be blank")
-    app = web.Application(middlewares=[_security_headers], client_max_size=256 * 1024)
+    app = web.Application(
+        middlewares=[_security_headers],
+        client_max_size=MAX_WAKEWORD_MODEL_BYTES + (2 * 1024 * 1024),
+    )
     app[CONSOLE_KEY] = {"value": str(console_key).strip()}
     app[SESSIONS_KEY] = SessionStore()
     app[RUNTIME_KEY] = runtime or ConsoleCommandRuntime(api_key=api_key, live_api_url=live_api_url)
@@ -216,6 +226,10 @@ def create_app(
     app[INTEGRATION_MANAGER_KEY] = {
         "value": integration_manager,
         "injected": integration_manager is not None,
+    }
+    app[WAKEWORD_MANAGER_KEY] = {
+        "value": wakeword_manager,
+        "injected": wakeword_manager is not None,
     }
     app[SUPPORT_BUNDLE_KEY] = {
         "value": support_bundle_builder or build_console_support_bundle,
@@ -273,6 +287,14 @@ def create_app(
             holder["value"] = current
         return current
 
+    def wakewords_manager() -> ConsoleWakewordManager:
+        holder = app[WAKEWORD_MANAGER_KEY]
+        current = holder["value"]
+        if current is None:
+            current = ConsoleWakewordManager(root=ROOT, editor=config_editor())
+            holder["value"] = current
+        return current
+
     def refresh_config_context() -> None:
         refresh_modules()
         for key in (
@@ -280,6 +302,7 @@ def create_app(
             ROOM_EDITOR_KEY,
             AUDIO_EDITOR_KEY,
             INTEGRATION_MANAGER_KEY,
+            WAKEWORD_MANAGER_KEY,
         ):
             holder = app[key]
             if not holder["injected"]:
@@ -778,6 +801,151 @@ def create_app(
         await track_required_restarts(payload, "Configuration")
         return web.json_response({"ok": True, **payload})
 
+    async def wakeword_state(request: web.Request) -> web.Response:
+        blocked = await require_auth(request)
+        if blocked is not None:
+            return blocked
+        try:
+            payload = await asyncio.to_thread(wakewords_manager().public_state)
+        except ConsoleWakewordError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=exc.status)
+        except Exception:
+            log.exception("CONSOLE_WAKEWORD_STATE_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "Wake-word models are unavailable. Check console logs."},
+                status=500,
+            )
+        return web.json_response({"ok": True, **payload})
+
+    async def wakeword_preview(request: web.Request) -> web.Response:
+        blocked = await require_auth(request)
+        if blocked is not None:
+            return blocked
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        if not isinstance(data, dict):
+            return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+        try:
+            payload = await asyncio.to_thread(
+                wakewords_manager().preview,
+                active_ids=data.get("active_ids"),
+                enabled=data.get("enabled"),
+            )
+        except ConsoleWakewordError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=exc.status)
+        except Exception:
+            log.exception("CONSOLE_WAKEWORD_PREVIEW_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "Wake-word changes could not be reviewed. Check console logs."},
+                status=500,
+            )
+        return web.json_response({"ok": True, **payload})
+
+    async def wakeword_apply(request: web.Request) -> web.Response:
+        blocked = await require_auth(request)
+        if blocked is not None:
+            return blocked
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        if not isinstance(data, dict):
+            return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+        try:
+            payload = await asyncio.to_thread(
+                wakewords_manager().apply,
+                active_ids=data.get("active_ids"),
+                enabled=data.get("enabled"),
+                revisions=data.get("revisions"),
+            )
+        except ConsoleWakewordError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=exc.status)
+        except Exception:
+            log.exception("CONSOLE_WAKEWORD_APPLY_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "Wake-word settings could not be saved. Check console logs."},
+                status=500,
+            )
+        if payload.get("applied"):
+            await asyncio.to_thread(refresh_config_context)
+        await track_required_restarts(payload, "Wake-word selection")
+        return web.json_response({"ok": True, **payload})
+
+    async def wakeword_upload(request: web.Request) -> web.Response:
+        blocked = await require_auth(request)
+        if blocked is not None:
+            return blocked
+        if not request.content_type.startswith("multipart/"):
+            return web.json_response(
+                {"ok": False, "error": "Upload one .onnx model using multipart form data."},
+                status=400,
+            )
+        manager = wakewords_manager()
+        temporary: Optional[Path] = None
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            if field is None or field.name != "model" or not field.filename:
+                raise ConsoleWakewordError("Choose an OpenWakeWord .onnx model file.")
+            if Path(field.filename).suffix.lower() != ".onnx":
+                raise ConsoleWakewordError("Choose an OpenWakeWord .onnx model file.")
+            temporary = await asyncio.to_thread(manager.create_upload_path)
+            size = 0
+            with temporary.open("wb") as handle:
+                while True:
+                    chunk = await field.read_chunk(size=64 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_WAKEWORD_MODEL_BYTES:
+                        raise ConsoleWakewordError("The model exceeds the 24 MB upload limit.", status=413)
+                    handle.write(chunk)
+            payload = await asyncio.to_thread(
+                manager.install_uploaded_file,
+                temporary,
+                field.filename,
+            )
+            temporary = None
+        except ConsoleWakewordError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=exc.status)
+        except (OSError, ValueError):
+            log.exception("CONSOLE_WAKEWORD_UPLOAD_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "The wake-word model could not be uploaded."},
+                status=500,
+            )
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return web.json_response({"ok": True, **payload})
+
+    async def wakeword_remove(request: web.Request) -> web.Response:
+        blocked = await require_auth(request)
+        if blocked is not None:
+            return blocked
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        if not isinstance(data, dict):
+            return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+        try:
+            payload = await asyncio.to_thread(
+                wakewords_manager().remove,
+                str(data.get("model_id") or ""),
+            )
+        except ConsoleWakewordError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=exc.status)
+        except Exception:
+            log.exception("CONSOLE_WAKEWORD_REMOVE_FAIL")
+            return web.json_response(
+                {"ok": False, "error": "The wake-word model could not be removed."},
+                status=500,
+            )
+        return web.json_response({"ok": True, **payload})
+
     async def rooms_state(request: web.Request) -> web.Response:
         blocked = await require_auth(request)
         if blocked is not None:
@@ -1030,10 +1198,17 @@ def create_app(
             return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
         if not isinstance(data, dict):
             return web.json_response({"ok": False, "error": "json_object_required"}, status=400)
+        if "mode" in data:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": "Refresh this page before chatting. Chat now uses the live Home Suite runtime.",
+                },
+                status=409,
+            )
         try:
             payload = await app[RUNTIME_KEY].execute(
                 text=data.get("text", ""),
-                mode=data.get("mode", "test"),
                 session_id=data.get("session_id"),
                 room=data.get("room"),
             )
@@ -1066,6 +1241,11 @@ def create_app(
     app.router.add_post("/api/config/edit-state", editable_config_with_secrets)
     app.router.add_post("/api/config/preview", config_preview)
     app.router.add_post("/api/config/apply", config_apply)
+    app.router.add_get("/api/wakewords", wakeword_state)
+    app.router.add_post("/api/wakewords/preview", wakeword_preview)
+    app.router.add_post("/api/wakewords/apply", wakeword_apply)
+    app.router.add_post("/api/wakewords/upload", wakeword_upload)
+    app.router.add_post("/api/wakewords/remove", wakeword_remove)
     app.router.add_get("/api/rooms", rooms_state)
     app.router.add_post("/api/rooms/catalog", rooms_catalog)
     app.router.add_post("/api/rooms/preview", rooms_preview)

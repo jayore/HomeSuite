@@ -307,11 +307,23 @@ def _diagnostic_action(row: dict[str, Any]) -> Optional[dict[str, str]]:
             "label": "Open Rooms",
             "guidance": "Review the affected room mapping and Home Assistant targets, then rerun diagnostics.",
         }
-    if any(word in combined for word in ("wakeword", "wake word", "ptt", "gpio", "api port", "config")):
+    if any(word in combined for word in ("ptt", "push-to-talk", "gpio", "command button")):
         return {
-            "view": "configuration",
-            "label": "Open Configuration",
-            "guidance": "Review the related device setting and its setup guidance, then rerun diagnostics.",
+            "view": "controls",
+            "label": "Open Physical controls",
+            "guidance": "Review the PTT or command-button wiring and behavior, then rerun diagnostics.",
+        }
+    if any(word in combined for word in ("wakeword", "wake word")):
+        return {
+            "view": "wakeword",
+            "label": "Open Wake word",
+            "guidance": "Review the detector and selected wake-word models, then rerun diagnostics.",
+        }
+    if any(word in combined for word in ("api port", "config", "setting")):
+        return {
+            "view": "settings",
+            "label": "Open Settings",
+            "guidance": "Review the related system setting and its setup guidance, then rerun diagnostics.",
         }
     return None
 

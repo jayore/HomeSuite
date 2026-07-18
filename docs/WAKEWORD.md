@@ -77,9 +77,21 @@ project dependencies.
 
 ## Configure a Model
 
-Put custom model files outside the public repository or in another intentionally
-managed local directory. Then set the device-specific values in
-`local_prefs.py`:
+The preferred path is the management console's **Wake word** view. It lists
+the `.onnx` models found on this node, makes clear which ones are active, and
+allows multiple local models to be selected together. Drag a compatible
+OpenWakeWord `.onnx` file onto the upload area or choose it with the file
+picker. The console validates and stores it under the ignored local
+`wake_models/` directory; uploading does not activate it automatically.
+
+Review and save the selection, then use the console's **Restart required**
+action to reload `homesuite.service`. Deactivating a model leaves its file in
+place. A model uploaded through the console can be removed after it is no
+longer active.
+
+For headless or advanced configuration, put custom model files outside the
+public repository or in another intentionally managed local directory. Then
+set the device-specific values in `local_prefs.py`:
 
 ```python
 WAKEWORD_ENABLED = True
@@ -95,6 +107,21 @@ WAKEWORD_VAD_THRESHOLD = 0.5
 
 PTT_ENABLED = False
 ```
+
+To recognize several custom wake words, list every model path and leave the
+single-label filter blank:
+
+```python
+WAKEWORD_MODEL_PATHS = [
+    "/home/your-user/homesuite/wake_models/hal_v2.onnx",
+    "/home/your-user/homesuite/wake_models/alternate_phrase.onnx",
+]
+WAKEWORD_MODEL = ""
+```
+
+The console writes this same representation. The OpenWakeWord process loads
+the paths into one shared detector, rather than starting one microphone stream
+per wake word.
 
 At startup, confirm that the selected label is actually among the loaded model
 labels:

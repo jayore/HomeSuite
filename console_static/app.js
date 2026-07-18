@@ -2,7 +2,7 @@
   "use strict";
 
   const SETUP_JOURNEY_STORAGE_KEY = "homesuite_setup_journey";
-  const SETUP_JOURNEY_VIEWS = ["integrations", "rooms", "configuration", "audio", "console", "diagnostics"];
+  const SETUP_JOURNEY_VIEWS = ["integrations", "rooms", "settings", "audio", "wakeword", "controls", "console", "diagnostics"];
 
   function loadSetupJourney() {
     try {
@@ -28,6 +28,7 @@
     diagnostics: null,
     editableConfig: null,
     configEditing: false,
+    configSurface: "settings",
     configDraft: {},
     configPreview: null,
     configClientError: null,
@@ -43,6 +44,11 @@
     audioPreview: null,
     audioLoadError: null,
     audioSuggestion: null,
+    wakewords: null,
+    wakewordDraft: null,
+    wakewordPreview: null,
+    wakewordLoadError: null,
+    wakewordUploadBusy: false,
     integrations: null,
     integrationConfig: null,
     integrationPreview: null,
@@ -58,7 +64,7 @@
     setupJourneyActive: initialSetupJourney.active,
     setupJourneyLabel: initialSetupJourney.label,
     setupJourneyView: initialSetupJourney.view,
-    setupTested: false,
+    loginBusy: false,
     audioCalibration: {
       token: null,
       stage: "idle",
@@ -67,7 +73,6 @@
       busy: false,
       error: null
     },
-    mode: "test",
     chatBusy: false,
     sessionId: getSessionId(),
     messages: []
@@ -82,6 +87,42 @@
     { key: "double_press", label: "Double press", aliases: ["double_press", "double"] },
     { key: "long_press", label: "Long press", aliases: ["long_press", "long", "hold"] }
   ];
+  const CONFIG_SURFACE_UI = {
+    settings: {
+      label: "Settings",
+      holder: "#configuration-groups",
+      form: "#configuration-editor",
+      edit: "#edit-settings",
+      cancel: "#cancel-settings-edit",
+      actions: "#config-editor-actions",
+      count: "#config-change-count",
+      review: "#review-config-changes",
+      result: "#config-result",
+      navigation: true,
+      inventory: true
+    },
+    controls: {
+      label: "Physical controls",
+      holder: "#controls-groups",
+      form: "#controls-editor",
+      edit: "#edit-controls",
+      cancel: "#cancel-controls-edit",
+      actions: "#controls-editor-actions",
+      count: "#controls-change-count",
+      review: "#review-controls-changes",
+      result: "#controls-result",
+      summary: "#controls-summary"
+    },
+    wakeword: {
+      label: "Wake word",
+      holder: "#wakeword-detector-groups",
+      form: "#wakeword-detector-form",
+      count: "#wakeword-detector-change-count",
+      review: "#review-wakeword-detector-changes",
+      result: "#wakeword-result",
+      modal: "#wakeword-detector-dialog"
+    }
+  };
   const INTEGRATION_VISUALS = {
     home_assistant: { icon: "house", color: "#18bcf2" },
     openai: { icon: "sparkles", color: "#10a37f" },
@@ -104,6 +145,18 @@
   const $ = function (selector, root) { return (root || document).querySelector(selector); };
   const $$ = function (selector, root) { return Array.from((root || document).querySelectorAll(selector)); };
 
+  function configSurfaceUi(surface) {
+    return CONFIG_SURFACE_UI[surface || state.configSurface] || CONFIG_SURFACE_UI.settings;
+  }
+
+  function configSurfaceRoot(surface) {
+    return $(configSurfaceUi(surface).holder);
+  }
+
+  function configSurfaceEditing(surface) {
+    return state.configEditing && state.configSurface === surface;
+  }
+
   function getSessionId() {
     const stored = window.sessionStorage.getItem("homesuite_console_session_id");
     if (stored && /^[a-zA-Z0-9_-]{8,64}$/.test(stored)) return stored;
@@ -112,17 +165,6 @@
       : Math.random().toString(36).slice(2) + Date.now().toString(36);
     window.sessionStorage.setItem("homesuite_console_session_id", generated);
     return generated;
-  }
-
-  function getSetupTested() {
-    try { return window.localStorage.getItem("homesuite_setup_tested") === "1"; }
-    catch (_error) { return false; }
-  }
-
-  function rememberSetupTested() {
-    state.setupTested = true;
-    try { window.localStorage.setItem("homesuite_setup_tested", "1"); }
-    catch (_error) { /* The setup hint can remain session-only. */ }
   }
 
   function element(tag, className, text) {
@@ -199,7 +241,8 @@
   async function api(path, options) {
     const opts = Object.assign({ credentials: "same-origin" }, options || {});
     opts.headers = Object.assign({}, opts.headers || {});
-    if (opts.body && typeof opts.body !== "string") {
+    const formData = typeof FormData !== "undefined" && opts.body instanceof FormData;
+    if (opts.body && typeof opts.body !== "string" && !formData) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(opts.body);
     }
@@ -222,13 +265,15 @@
   function showLogin(bootstrapRequired) {
     if (bootstrapRequired !== undefined) state.bootstrapRequired = Boolean(bootstrapRequired);
     redactEditableSecrets();
-    $$(".secret-input input", $("#configuration-groups")).forEach(function (control) {
+    $$(".secret-input input").forEach(function (control) {
       control.value = "";
     });
     $("#app-shell").hidden = true;
     $("#login-screen").hidden = false;
     $("#login-form").hidden = state.bootstrapRequired;
     $("#bootstrap-form").hidden = !state.bootstrapRequired;
+    state.loginBusy = false;
+    $("#login-submit").disabled = false;
     $("#login-title").textContent = state.bootstrapRequired ? "Set up your console" : "Management Console";
     $("#login-intro").hidden = !state.bootstrapRequired;
     $("#login-intro").textContent = state.bootstrapRequired
@@ -270,6 +315,7 @@
     );
     holder.title = label + ". Open Diagnostics";
     holder.setAttribute("aria-label", holder.title);
+    window.renderLucideIcons(holder);
   }
 
   function renderServiceRestartAction() {
@@ -585,8 +631,10 @@
           title: "Choose how this node listens",
           description: "This example is configured for " + setupRoleSummary(roles).toLowerCase() + ".",
           detail: "PTT and wake-word listening can be enabled together on the same device.",
-          actionLabel: "Choose roles",
-          action: "roles"
+          actions: [
+            { label: "Set up PTT", action: "roles_ptt" },
+            { label: "Set up wake word", action: "roles_wakeword" }
+          ]
         }
       ];
       if (voiceEnabled) {
@@ -599,24 +647,24 @@
           action: "audio"
         });
       }
-      steps.push(
-        {
-          id: "test",
-          title: "Try a command",
-          description: "Use the Test Console to verify understanding without allowing device writes.",
-          detail: "Live mode remains an explicit choice.",
-          actionLabel: "Open test",
-          action: "test"
-        },
-        {
-          id: "activate",
-          title: "Verify and activate",
-          description: "Home Suite Doctor runs required live checks before the runtime is started.",
-          detail: "Warnings do not block activation; required failures do.",
-          actionLabel: "Activate Home Suite",
-          action: "activate"
-        }
-      );
+      if (roles.includes("wakeword")) {
+        steps.push({
+          id: "wakeword",
+          title: "Choose wake words",
+          description: "Select one or more installed models, or add a compatible OpenWakeWord ONNX file.",
+          detail: "Several wake words can be active on the same device.",
+          actionLabel: "Choose wake words",
+          action: "wakeword"
+        });
+      }
+      steps.push({
+        id: "activate",
+        title: "Verify and activate",
+        description: "Home Suite Doctor runs required live checks before the runtime is started.",
+        detail: "When activation succeeds, Chat becomes the browser interface for talking to Home Suite.",
+        actionLabel: "Activate Home Suite",
+        action: "activate"
+      });
       return {
         preview: true,
         title: "Previewing a new " + setupRoleSummary(roles).toLowerCase() + " node",
@@ -645,6 +693,11 @@
       || (profile.device_index !== null && profile.device_index !== undefined)
     );
     const audioReady = !voiceEnabled || (microphoneReady && openAIReady);
+    const wakewordReady = !roles.includes("wakeword") || Boolean(
+      state.wakewords
+      && state.wakewords.enabled
+      && Number(state.wakewords.selected_count || 0) > 0
+    );
     const diagnosticsReady = Boolean(state.diagnostics && state.diagnostics.ok);
     const requiredFailures = state.diagnostics
       ? state.diagnostics.checks.filter(function (check) { return check.status === "FAIL" && check.required; }).length
@@ -681,8 +734,10 @@
         complete: Boolean(state.snapshot),
         description: "This node currently supports " + setupRoleSummary(roles).toLowerCase() + ".",
         detail: "PTT and wake-word listening can be enabled together on the same device.",
-        actionLabel: "Manage roles",
-        action: "roles"
+        actions: [
+          { label: roles.includes("ptt") ? "Review PTT" : "Set up PTT", action: "roles_ptt" },
+          { label: roles.includes("wakeword") ? "Review wake word" : "Set up wake word", action: "roles_wakeword" }
+        ]
       }
     ];
     if (voiceEnabled) {
@@ -698,18 +753,20 @@
         action: "audio"
       });
     }
-    steps.push({
-      id: "test",
-      title: "Try a command",
-      complete: Boolean(state.setupTested || runtimeHealthy),
-      description: state.setupTested || runtimeHealthy
-        ? "A browser command has been tested, or this runtime is already active."
-        : "Use the Test Console to verify understanding without allowing device writes.",
-      detail: "Live mode remains an explicit choice.",
-      actionLabel: "Open test",
-      action: "test"
-    });
-
+    if (roles.includes("wakeword")) {
+      const selectedCount = state.wakewords ? Number(state.wakewords.selected_count || 0) : 0;
+      steps.push({
+        id: "wakeword",
+        title: "Choose wake words",
+        complete: wakewordReady,
+        description: wakewordReady
+          ? selectedCount + " wake word" + (selectedCount === 1 ? " is" : "s are") + " active on this device."
+          : "Select one or more installed models, or add a compatible OpenWakeWord ONNX file.",
+        detail: "Several wake words can be active on the same device.",
+        actionLabel: wakewordReady ? "Review wake words" : "Choose wake words",
+        action: "wakeword"
+      });
+    }
     let activationDescription;
     let activationAction;
     let activationLabel;
@@ -717,8 +774,8 @@
     let activationDisabled = false;
     if (runtimeHealthy) {
       activationDescription = "The Home Suite runtime is healthy and ready for commands.";
-      activationAction = "overview";
-      activationLabel = "Open overview";
+      activationAction = "chat";
+      activationLabel = "Open Chat";
     } else if (activationRequested) {
       activationDescription = "Runtime startup has been requested. Open Diagnostics if it does not become healthy shortly.";
       activationAction = "refresh_setup";
@@ -748,7 +805,9 @@
       ready: activationReady,
       disabled: activationDisabled,
       description: activationDescription,
-      detail: "Warnings do not block activation; required failures do.",
+      detail: runtimeHealthy
+        ? "Chat uses the live runtime and can control devices or create persistent actions."
+        : "Warnings do not block activation; required failures do.",
       actionLabel: activationLabel,
       action: activationAction
     });
@@ -784,13 +843,17 @@
     else title.append(badge("FAIL", "Needs setup"));
     copy.append(title, element("p", "", step.description));
     if (step.detail) copy.append(element("small", "", step.detail));
-    const action = element("button", "button " + (step.action === "activate" && step.ready ? "primary" : "secondary") + " setup-step-action");
-    action.type = "button";
-    action.disabled = Boolean(preview || step.disabled || (step.action === "activate" && state.setupActivationBusy));
-    action.title = preview ? "Actions are disabled in onboarding preview" : step.actionLabel;
-    action.append(icon(step.action === "activate" ? "power" : "arrow-right"), element("span", "", step.actionLabel));
-    action.addEventListener("click", function () { performSetupAction(step.action, step.title); });
-    row.append(number, copy, action);
+    const actions = element("div", "setup-step-actions");
+    (step.actions || [{ label: step.actionLabel, action: step.action }]).forEach(function (definition) {
+      const action = element("button", "button " + (definition.action === "activate" && step.ready ? "primary" : "secondary") + " setup-step-action");
+      action.type = "button";
+      action.disabled = Boolean(preview || step.disabled || (definition.action === "activate" && state.setupActivationBusy));
+      action.title = preview ? "Actions are disabled in onboarding preview" : definition.label;
+      action.append(icon(definition.action === "activate" ? "power" : "arrow-right"), element("span", "", definition.label));
+      action.addEventListener("click", function () { performSetupAction(definition.action, step.title); });
+      actions.append(action);
+    });
+    row.append(number, copy, actions);
     return row;
   }
 
@@ -857,10 +920,14 @@
       if (roomId && state.roomDraft && state.roomDraft[roomId]) openRoomEditor(roomId, "edit");
       return;
     }
-    if (action === "roles") {
-      beginSetupDetour(label, "configuration");
-      navigate("configuration");
-      await beginConfigurationEdit();
+    if (action === "roles" || action === "roles_ptt" || action === "roles_wakeword") {
+      const roles = state.snapshot && state.snapshot.overview ? state.snapshot.overview.roles || [] : [];
+      const destination = action === "roles_ptt"
+        ? "controls"
+        : (action === "roles_wakeword" ? "wakeword" : (roles.includes("ptt") ? "controls" : "wakeword"));
+      beginSetupDetour(label, destination);
+      navigate(destination);
+      if (destination === "controls") await beginConfigurationEdit("controls");
       return;
     }
     if (action === "audio") {
@@ -868,7 +935,12 @@
       navigate("audio");
       return;
     }
-    if (action === "test") {
+    if (action === "wakeword") {
+      beginSetupDetour(label, "wakeword");
+      navigate("wakeword");
+      return;
+    }
+    if (action === "chat") {
       beginSetupDetour(label, "console");
       navigate("console");
       window.setTimeout(function () { $("#chat-input").focus(); }, 0);
@@ -939,7 +1011,7 @@
   function renderConfiguration() {
     if (!state.snapshot) return;
     if (state.editableConfig) {
-      renderConfigSurface();
+      renderConfigSurface(undefined, "settings");
       return;
     }
 
@@ -948,7 +1020,7 @@
 
     const groups = {};
     state.snapshot.node.forEach(function (row) { (groups[row.group] || (groups[row.group] = [])).push(row); });
-    const holder = $("#configuration-groups");
+    const holder = configSurfaceRoot("settings");
     holder.classList.remove("loading-block");
     holder.replaceChildren();
     Object.keys(groups).forEach(function (name) {
@@ -977,16 +1049,130 @@
     });
   }
 
+  function configFieldMap() {
+    const fields = {};
+    (state.editableConfig && state.editableConfig.fields || []).forEach(function (field) {
+      fields[field.key] = field;
+    });
+    return fields;
+  }
+
+  function configChoiceLabel(field) {
+    if (!field) return "Not configured";
+    const selected = (field.choices || []).find(function (choice) {
+      return String(choice.value) === String(field.value === null || field.value === undefined ? "" : field.value);
+    });
+    return selected ? selected.label : formatValue(field.value) || "Not configured";
+  }
+
+  function physicalSummaryRow(label, value, detail) {
+    const row = element("div");
+    row.append(element("dt", "", label));
+    const display = element("dd", "", value || "Not configured");
+    if (detail) display.append(element("small", "", detail));
+    row.append(display);
+    return row;
+  }
+
+  function renderPhysicalControlHeader(holder, enabled, enabledText, disabledText) {
+    const header = element("div", "physical-control-status");
+    const copy = element("div");
+    copy.append(
+      element("strong", "", enabled ? enabledText : disabledText),
+      element("p", "", enabled
+        ? "This interaction path is active on this device."
+        : "Its saved wiring remains available when you enable it.")
+    );
+    header.append(copy, badge(enabled ? "configured" : "SKIP", enabled ? "Enabled" : "Disabled"));
+    holder.append(header);
+  }
+
+  function renderPhysicalControls() {
+    const pttHolder = $("#ptt-summary");
+    const buttonHolder = $("#button-summary");
+    if (!state.editableConfig) {
+      [pttHolder, buttonHolder].forEach(function (holder) {
+        holder.classList.add("loading-block");
+        holder.textContent = "Loading physical controls...";
+      });
+      return;
+    }
+
+    const fields = configFieldMap();
+    const pttEnabled = Boolean(fields.PTT_ENABLED && fields.PTT_ENABLED.value);
+    pttHolder.classList.remove("loading-block");
+    pttHolder.replaceChildren();
+    renderPhysicalControlHeader(pttHolder, pttEnabled, "Push-to-talk is ready", "Push-to-talk is off");
+    const pttDetails = element("dl", "summary-list physical-control-details");
+    pttDetails.append(
+      physicalSummaryRow("Input", "BCM GPIO " + (fields.PTT_GPIO_PIN ? fields.PTT_GPIO_PIN.value : "Not set")),
+      physicalSummaryRow("Listen when", configChoiceLabel(fields.PTT_LISTEN_LEVEL)),
+      physicalSummaryRow("When listening ends", configChoiceLabel(fields.PTT_END_BEHAVIOR)),
+      physicalSummaryRow("Start cue", Number(fields.START_CHIME_DELAY_SECONDS && fields.START_CHIME_DELAY_SECONDS.value || 0) === 0
+        ? "Immediate"
+        : formatValue(fields.START_CHIME_DELAY_SECONDS.value) + " seconds"),
+      physicalSummaryRow(
+        "Wake word during PTT",
+        fields.WAKEWORD_SUPPRESS_WHILE_PTT && fields.WAKEWORD_SUPPRESS_WHILE_PTT.value ? "Paused" : "Still listening",
+        "Both modes can remain enabled on the same device"
+      )
+    );
+    pttHolder.append(pttDetails);
+
+    const buttonsEnabled = Boolean(fields.PHYSICAL_BUTTONS_ENABLED && fields.PHYSICAL_BUTTONS_ENABLED.value);
+    const models = buttonModels(fields);
+    buttonHolder.classList.remove("loading-block");
+    buttonHolder.replaceChildren();
+    renderPhysicalControlHeader(buttonHolder, buttonsEnabled, "Command buttons are ready", "Command buttons are off");
+    const buttonDetails = element("dl", "summary-list physical-control-details");
+    buttonDetails.append(
+      physicalSummaryRow("Configured buttons", String(models.length)),
+      physicalSummaryRow(
+        "Pressed input",
+        fields.PHYSICAL_BUTTON_ACTIVE_LOW && fields.PHYSICAL_BUTTON_ACTIVE_LOW.value ? "Low (connected to ground)" : "High"
+      ),
+      physicalSummaryRow(
+        "Internal pull-up",
+        fields.PHYSICAL_BUTTON_PULL_UP && fields.PHYSICAL_BUTTON_PULL_UP.value ? "Enabled" : "Disabled"
+      )
+    );
+    buttonHolder.append(buttonDetails);
+
+    const list = element("div", "physical-button-summary-list");
+    if (!models.length) {
+      list.append(element("p", "empty-value", "No command buttons are configured."));
+    } else {
+      models.forEach(function (model) {
+        const row = element("div", "physical-button-summary-row");
+        const identity = element("div");
+        identity.append(
+          element("strong", "", "Button " + model.id),
+          element("span", "", "BCM GPIO " + (model.pin === "" ? "not set" : model.pin))
+        );
+        const commands = [];
+        BUTTON_GESTURES.forEach(function (gesture) {
+          const entry = buttonGestureEntry(model.actionMap, gesture);
+          const phrases = entry ? buttonActionCommands(entry.action) : [];
+          if (phrases.length) commands.push(gesture.label + ": " + phrases.join("; "));
+        });
+        row.append(identity, element("span", commands.length ? "" : "empty-value", commands.join(" · ") || "No actions assigned"));
+        list.append(row);
+      });
+    }
+    buttonHolder.append(list);
+    window.renderLucideIcons($("#view-controls"));
+  }
+
   function configControlId(key) {
     return "config-field-" + String(key || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
   }
 
-  function configSectionDomId(sectionId) {
-    return "config-section-" + String(sectionId || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  function configSectionDomId(surface, sectionId) {
+    return "config-section-" + String(surface || "settings").toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + String(sectionId || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
   }
 
   function applyConfigFilter() {
-    const holder = $("#configuration-groups");
+    const holder = configSurfaceRoot("settings");
     const input = $("#config-search");
     if (!holder || !input) return;
     const query = input.value.trim().toLowerCase();
@@ -1030,7 +1216,7 @@
   }
 
   function renderConfigNavigation() {
-    const holder = $("#configuration-groups");
+    const holder = configSurfaceRoot("settings");
     const navigation = $("#config-navigation");
     const select = $("#config-section-jump");
     const previousValue = select.value;
@@ -1112,13 +1298,16 @@
     return Object.keys(state.configDraft).map(function (key) { return state.configDraft[key]; });
   }
 
-  function updateConfigChangeCount() {
+  function updateConfigChangeCount(surface) {
+    const scope = surface || state.configSurface;
+    const ui = configSurfaceUi(scope);
+    const root = configSurfaceRoot(scope);
     const count = Object.keys(state.configDraft).length;
-    $("#config-change-count").textContent = count
+    $(ui.count).textContent = count
       ? count + " pending change" + (count === 1 ? "" : "s")
       : "No pending changes";
-    $("#review-config-changes").disabled = count === 0 || Boolean(state.configClientError);
-    $$(".config-field-row", $("#configuration-groups")).forEach(function (row) {
+    $(ui.review).disabled = count === 0 || Boolean(state.configClientError);
+    $$(".config-field-row", root).forEach(function (row) {
       const keys = row.dataset.configKeys
         ? row.dataset.configKeys.split(",")
         : [row.dataset.configKey];
@@ -1147,7 +1336,7 @@
       };
     }
     state.configPreview = null;
-    if (["PTT_ENABLED", "PTT_GPIO_PIN", "PHYSICAL_BUTTONS_ENABLED"].includes(field.key) && $("#button-map-editor")) {
+    if (["PTT_ENABLED", "PTT_GPIO_PIN", "PHYSICAL_BUTTONS_ENABLED"].includes(field.key) && $("#button-map-editor", configSurfaceRoot())) {
       const fieldsByKey = {};
       state.editableConfig.fields.forEach(function (candidate) { fieldsByKey[candidate.key] = candidate; });
       stageButtonMapper(fieldsByKey);
@@ -1160,7 +1349,7 @@
     const current = state.configDraft[field.key];
     if (current && current.action === action) {
       delete state.configDraft[field.key];
-      const row = $$(".config-field-row", $("#configuration-groups")).find(function (candidate) {
+      const row = $$(".config-field-row", configSurfaceRoot()).find(function (candidate) {
         return candidate.dataset.configKey === field.key;
       });
       const control = row ? $("[data-config-control]", row) : null;
@@ -1585,7 +1774,7 @@
     copy.append(title, metadata, description);
     const help = element("details", "config-field-help");
     help.append(element("summary", "", "How to configure"));
-    help.append(element("p", "", "Button IDs link wiring, normal actions, and any applet button-mode layouts, so keep existing IDs stable once another mode uses them. Commands use the same language accepted by voice and the Test Console; enter one command per line to run several in sequence."));
+    help.append(element("p", "", "Button IDs link wiring, normal actions, and any applet button-mode layouts, so keep existing IDs stable once another mode uses them. Commands use the same language accepted by voice and Chat; enter one command per line to run several in sequence."));
     const docs = documentationLink("docs/GPIO_BUTTONS.md");
     if (docs) help.append(docs);
     copy.append(help);
@@ -1626,7 +1815,7 @@
     const editor = element("div", "config-field-control button-map-editor");
     editor.id = "button-map-editor";
     editor.dataset.configEditor = "true";
-    editor.hidden = !state.configEditing;
+    editor.hidden = !configSurfaceEditing("controls");
     const headings = element("div", "button-map-headings");
     ["Button ID", "BCM pin", "Single press", "Double press", "Long press", ""].forEach(function (heading) {
       headings.append(element("span", "", heading));
@@ -1654,8 +1843,10 @@
     return row;
   }
 
-  function captureConfigDisclosures() {
-    const holder = $("#configuration-groups");
+  function captureConfigDisclosures(surface) {
+    const scope = surface || state.configSurface;
+    const holder = configSurfaceRoot(scope);
+    const inventory = configSurfaceUi(scope).inventory ? $("#config-inventory") : null;
     return {
       sections: new Set($$("details.config-editor-section", holder).filter(function (section) {
         return section.dataset.filterWasOpen !== undefined
@@ -1668,7 +1859,7 @@
         const row = details.closest(".config-field-row");
         return row ? row.dataset.configKey : "";
       })),
-      inventory: new Set($$("details.config-inventory-section[open]", $("#config-inventory")).map(function (section) {
+      inventory: new Set((inventory ? $$("details.config-inventory-section[open]", inventory) : []).map(function (section) {
         return section.dataset.inventorySection;
       }))
     };
@@ -1688,26 +1879,29 @@
     if (!state.editableConfig || !state.editableConfig.inventory) return;
     const inventory = state.editableConfig.inventory;
     const summary = inventory.summary;
+    const managedHere = state.editableConfig.fields.filter(function (field) {
+      return field.surface === "settings";
+    }).length;
     const coverage = $("#config-coverage");
     coverage.classList.remove("loading-block");
     coverage.replaceChildren();
 
     const coverageCopy = element("div", "config-coverage-copy");
     coverageCopy.append(
-      element("strong", "", "Configuration status"),
+      element("strong", "", "Settings coverage"),
       element(
         "p",
         "",
         (summary.attention_count
           ? summary.attention_count + " setting" + (summary.attention_count === 1 ? " needs" : "s need") + " attention. "
           : "No configuration issues found. ") +
-          summary.guided_available + " settings can be managed here. " +
+          managedHere + " general and system settings can be managed here. " +
           summary.file_managed_available + " advanced settings are available in configuration files."
       )
     );
     const coverageStats = element("div", "config-coverage-stats");
     [
-      ["Settings in use", summary.active_assignments],
+      ["Managed here", managedHere],
       ["Advanced in use", summary.advanced_active],
       ["Needs attention", summary.attention_count]
     ].forEach(function (item) {
@@ -1826,21 +2020,26 @@
     return display;
   }
 
-  function renderConfigSurface(disclosures) {
+  function renderConfigSurface(disclosures, surface) {
     if (!state.editableConfig) return;
-    const holder = $("#configuration-groups");
-    const preserved = disclosures || captureConfigDisclosures();
+    const scope = surface || state.configSurface;
+    const ui = configSurfaceUi(scope);
+    const holder = configSurfaceRoot(scope);
+    const editing = configSurfaceEditing(scope);
+    const preserved = disclosures || captureConfigDisclosures(scope);
     holder.classList.remove("loading-block");
     holder.replaceChildren();
     const fieldsByKey = {};
     state.editableConfig.fields.forEach(function (field) { fieldsByKey[field.key] = field; });
 
-    state.editableConfig.sections.forEach(function (sectionData) {
+    state.editableConfig.sections.filter(function (sectionData) {
+      return String(sectionData.surface || "settings") === scope;
+    }).forEach(function (sectionData) {
       const section = element(sectionData.optional ? "details" : "section", "config-editor-section");
       section.dataset.configSection = sectionData.id;
       section.dataset.configSectionLabel = sectionData.label;
       section.dataset.configSearchText = String(sectionData.label || "").toLowerCase();
-      section.id = configSectionDomId(sectionData.id);
+      section.id = configSectionDomId(scope, sectionData.id);
       if (sectionData.optional) {
         section.open = preserved.sections.has(sectionData.id);
         section.append(element("summary", "", sectionData.label));
@@ -1851,7 +2050,7 @@
       const headings = element("div", "config-column-headings");
       headings.append(
         element("span", "", "Setting"),
-        element("span", "", state.configEditing ? "Edit value" : "Current value")
+        element("span", "", editing ? "Edit value" : "Current value")
       );
       rows.append(headings);
       sectionData.field_keys.forEach(function (key) {
@@ -1898,12 +2097,12 @@
 
         const valueHolder = element("div", "config-field-value");
         const display = renderConfigDisplayValue(field);
-        display.hidden = state.configEditing;
+        display.hidden = editing;
         valueHolder.append(display);
 
         const controlHolder = element("div", "config-field-control");
         controlHolder.dataset.configEditor = "true";
-        controlHolder.hidden = !state.configEditing;
+        controlHolder.hidden = !editing;
         const built = buildConfigControl(field);
         built.control.setAttribute("aria-describedby", description.id);
         controlHolder.append(built.holder);
@@ -1937,10 +2136,10 @@
       section.append(rows);
       holder.append(section);
     });
-    renderConfigNavigation();
-    renderConfigInventory(preserved);
+    if (ui.navigation) renderConfigNavigation();
+    if (ui.inventory) renderConfigInventory(preserved);
     window.renderLucideIcons(holder);
-    updateConfigChangeCount();
+    if (editing) updateConfigChangeCount(scope);
   }
 
   async function loadEditableConfig(includeSecrets) {
@@ -1958,53 +2157,76 @@
     });
   }
 
-  function showConfigurationEditMode(editing) {
+  function showConfigurationEditMode(editing, surface) {
+    const scope = surface || state.configSurface;
+    const ui = configSurfaceUi(scope);
     state.configEditing = editing;
-    $("#edit-configuration").hidden = editing;
-    $("#cancel-configuration-edit").hidden = !editing;
-    $("#config-editor-actions").hidden = !editing;
-    $("#configuration-editor").classList.toggle("editing", editing);
-    $$('[data-config-display="true"]', $("#configuration-groups")).forEach(function (display) {
+    state.configSurface = scope;
+    if (ui.edit) $(ui.edit).hidden = editing;
+    if (ui.cancel) $(ui.cancel).hidden = !editing;
+    if (ui.actions) $(ui.actions).hidden = !editing;
+    if (ui.summary) $(ui.summary).hidden = editing;
+    if (ui.form) {
+      $(ui.form).hidden = scope === "controls" ? !editing : false;
+      $(ui.form).classList.toggle("editing", editing);
+    }
+    const root = configSurfaceRoot(scope);
+    $$('[data-config-display="true"]', root).forEach(function (display) {
       display.hidden = editing;
     });
-    $$('[data-config-editor="true"]', $("#configuration-groups")).forEach(function (editor) {
+    $$('[data-config-editor="true"]', root).forEach(function (editor) {
       editor.hidden = !editing;
     });
-    updateConfigChangeCount();
+    if (editing) updateConfigChangeCount(scope);
   }
 
-  async function beginConfigurationEdit() {
-    const button = $("#edit-configuration");
-    button.disabled = true;
+  async function beginConfigurationEdit(surface) {
+    const scope = surface || "settings";
+    const ui = configSurfaceUi(scope);
+    const button = ui.edit ? $(ui.edit) : null;
+    if (
+      state.configEditing &&
+      state.configSurface !== scope &&
+      Object.keys(state.configDraft).length &&
+      !window.confirm("Discard the pending " + configSurfaceUi(state.configSurface).label.toLowerCase() + " changes?")
+    ) return;
+    if (button) button.disabled = true;
     try {
-      const disclosures = captureConfigDisclosures();
+      const disclosures = captureConfigDisclosures(scope);
       await loadEditableConfig(true);
       state.configDraft = {};
       state.configPreview = null;
       state.configClientError = null;
       state.configEditing = true;
-      renderConfigSurface(disclosures);
-      showConfigurationEditMode(true);
+      state.configSurface = scope;
+      renderConfigSurface(disclosures, scope);
+      showConfigurationEditMode(true, scope);
+      if (ui.modal && !$(ui.modal).open) $(ui.modal).showModal();
     } catch (error) {
       showToast(error.message);
     } finally {
-      button.disabled = false;
+      if (button) button.disabled = false;
     }
   }
 
-  function cancelConfigurationEdit() {
-    if (Object.keys(state.configDraft).length && !window.confirm("Discard the pending configuration changes?")) return;
-    const disclosures = captureConfigDisclosures();
+  function cancelConfigurationEdit(surface) {
+    const scope = surface || state.configSurface;
+    const ui = configSurfaceUi(scope);
+    if (Object.keys(state.configDraft).length && !window.confirm("Discard the pending " + ui.label.toLowerCase() + " changes?")) return;
+    const disclosures = captureConfigDisclosures(scope);
     state.configDraft = {};
     state.configPreview = null;
     state.configClientError = null;
     state.configEditing = false;
+    if (ui.modal && $(ui.modal).open) $(ui.modal).close();
     redactEditableSecrets();
-    renderConfigSurface(disclosures);
-    showConfigurationEditMode(false);
+    if (scope !== "wakeword") renderConfigSurface(disclosures, scope);
+    showConfigurationEditMode(false, scope);
+    if (scope === "controls") renderPhysicalControls();
   }
 
   function renderConfigReview(preview) {
+    $("#config-review-context").textContent = configSurfaceUi().label;
     const holder = $("#config-review-list");
     holder.replaceChildren();
     preview.changes.forEach(function (change) {
@@ -2033,7 +2255,8 @@
     }
     const changes = configDraftChanges();
     if (!changes.length) return;
-    const button = $("#review-config-changes");
+    const ui = configSurfaceUi();
+    const button = $(ui.review);
     button.disabled = true;
     try {
       const preview = await api("/api/config/preview", {
@@ -2048,6 +2271,7 @@
       }
       state.configPreview = preview;
       renderConfigReview(preview);
+      if (ui.modal && $(ui.modal).open) $(ui.modal).close();
       $("#config-review-dialog").showModal();
     } catch (error) {
       showToast(error.message);
@@ -2056,8 +2280,14 @@
     }
   }
 
-  function showConfigApplyResult(result) {
-    const holder = $("#config-result");
+  function backToConfigEditor() {
+    $("#config-review-dialog").close();
+    const ui = configSurfaceUi();
+    if (ui.modal && !$(ui.modal).open) $(ui.modal).showModal();
+  }
+
+  function showConfigApplyResult(result, surface) {
+    const holder = $(configSurfaceUi(surface).result);
     holder.replaceChildren(icon("circle-check"));
     const services = result.restart_services.length ? " Use Restart required above when you are ready to activate them." : "";
     const backup = result.backup_dir ? " Backup: " + result.backup_dir + "." : "";
@@ -2067,9 +2297,11 @@
 
   async function applyConfigurationChanges() {
     if (!state.configPreview) return;
+    const scope = state.configSurface;
+    const ui = configSurfaceUi(scope);
     const button = $("#apply-config-changes");
     button.disabled = true;
-    const disclosures = captureConfigDisclosures();
+    const disclosures = captureConfigDisclosures(scope);
     try {
       const result = await api("/api/config/apply", {
         method: "POST",
@@ -2084,10 +2316,18 @@
       state.configClientError = null;
       await loadEditableConfig(true);
       await loadServices().catch(function () {});
-      renderConfigSurface(disclosures);
-      showConfigurationEditMode(true);
-      showConfigApplyResult(result);
-      showToast("Configuration saved");
+      if (scope === "wakeword") {
+        state.configEditing = false;
+        redactEditableSecrets();
+        await loadWakewords(false).catch(function () {});
+        renderConfiguration();
+        renderPhysicalControls();
+      } else {
+        renderConfigSurface(disclosures, scope);
+        showConfigurationEditMode(true, scope);
+      }
+      showConfigApplyResult(result, scope);
+      showToast(ui.label + " saved");
     } catch (error) {
       showToast(error.message);
     } finally {
@@ -3674,6 +3914,376 @@
     }
   }
 
+  function wakewordSavedDraft() {
+    if (!state.wakewords) return { enabled: false, active_ids: [] };
+    return {
+      enabled: Boolean(state.wakewords.enabled),
+      active_ids: (state.wakewords.selected_ids || []).slice()
+    };
+  }
+
+  function normalizeWakewordIds(values) {
+    return Array.from(new Set((values || []).map(String))).sort();
+  }
+
+  function wakewordDraftChangeCount() {
+    if (!state.wakewords || !state.wakewordDraft) return 0;
+    const saved = new Set(normalizeWakewordIds(state.wakewords.selected_ids));
+    const draft = new Set(normalizeWakewordIds(state.wakewordDraft.active_ids));
+    let count = state.wakewords.enabled === state.wakewordDraft.enabled ? 0 : 1;
+    saved.forEach(function (modelId) { if (!draft.has(modelId)) count += 1; });
+    draft.forEach(function (modelId) { if (!saved.has(modelId)) count += 1; });
+    return count;
+  }
+
+  function updateWakewordActions() {
+    const count = wakewordDraftChangeCount();
+    $("#wakeword-editor-actions").hidden = count === 0;
+    $("#wakeword-change-count").textContent = count
+      ? count + " pending change" + (count === 1 ? "" : "s")
+      : "No pending changes";
+    $("#review-wakeword-changes").disabled = count === 0;
+  }
+
+  function formatModelSize(bytes) {
+    const value = Number(bytes || 0);
+    if (!value) return "";
+    if (value < 1024 * 1024) return Math.max(1, Math.round(value / 1024)) + " KB";
+    return (value / (1024 * 1024)).toFixed(value < 10 * 1024 * 1024 ? 1 : 0) + " MB";
+  }
+
+  function wakewordModelStatus(model, selected) {
+    if (!model.exists) return badge("FAIL", "Missing");
+    if (selected) return badge("OK", "Selected");
+    if (model.validation === "unverified") return badge("WARN", "Not validated");
+    return badge("SKIP", "Available");
+  }
+
+  function setWakewordModelSelected(model, selected) {
+    if (!state.wakewordDraft || !state.wakewords) return;
+    let active = normalizeWakewordIds(state.wakewordDraft.active_ids);
+    if (selected) {
+      const modelIsLocal = Boolean(model.path);
+      const byId = new Map((state.wakewords.models || []).map(function (row) { return [row.id, row]; }));
+      const hadDifferentSource = active.some(function (modelId) {
+        const other = byId.get(modelId);
+        return other && Boolean(other.path) !== modelIsLocal;
+      });
+      active = active.filter(function (modelId) {
+        const other = byId.get(modelId);
+        return other && Boolean(other.path) === modelIsLocal;
+      });
+      if (!active.includes(model.id)) active.push(model.id);
+      state.wakewordDraft.enabled = true;
+      if (hadDifferentSource) {
+        showToast(modelIsLocal
+          ? "Switched from the bundled model to local models"
+          : "Switched from local models to the bundled model");
+      }
+    } else {
+      active = active.filter(function (modelId) { return modelId !== model.id; });
+      if (!active.length) state.wakewordDraft.enabled = false;
+    }
+    state.wakewordDraft.active_ids = normalizeWakewordIds(active);
+    state.wakewordPreview = null;
+    renderWakewords();
+  }
+
+  function renderWakewords() {
+    const modelsHolder = $("#wakeword-model-list");
+    const listening = $("#wakeword-listening-summary");
+    const detector = $("#wakeword-detector-summary");
+    if (!state.wakewords) {
+      if (!state.wakewordLoadError) return;
+      [modelsHolder, listening, detector].forEach(function (holder) {
+        holder.classList.remove("loading-block");
+        holder.replaceChildren(element("div", "empty-state", state.wakewordLoadError));
+      });
+      return;
+    }
+    if (!state.wakewordDraft) state.wakewordDraft = wakewordSavedDraft();
+    const activeIds = new Set(state.wakewordDraft.active_ids || []);
+    const selectedCount = activeIds.size;
+
+    listening.classList.remove("loading-block");
+    listening.replaceChildren();
+    const listeningCopy = element("div", "wakeword-listening-copy");
+    listeningCopy.append(
+      element("strong", "", state.wakewordDraft.enabled ? "Wake-word listening is enabled" : "Wake-word listening is paused"),
+      element(
+        "p",
+        "",
+        selectedCount
+          ? selectedCount + " wake word" + (selectedCount === 1 ? " is" : "s are") + " selected on this device."
+          : "Select at least one model before enabling listening."
+      )
+    );
+    const listeningSwitch = element("label", "switch-control");
+    const listeningInput = element("input");
+    listeningInput.type = "checkbox";
+    listeningInput.checked = Boolean(state.wakewordDraft.enabled);
+    listeningInput.disabled = selectedCount === 0;
+    listeningInput.setAttribute("role", "switch");
+    listeningInput.setAttribute("aria-label", "Enable wake-word listening");
+    listeningSwitch.append(
+      listeningInput,
+      element("span", "switch-track"),
+      element("span", "switch-label", listeningInput.checked ? "Enabled" : "Paused")
+    );
+    listeningInput.addEventListener("change", function () {
+      state.wakewordDraft.enabled = listeningInput.checked;
+      state.wakewordPreview = null;
+      renderWakewords();
+    });
+    listening.append(listeningCopy, listeningSwitch);
+
+    detector.classList.remove("loading-block");
+    const engineLabel = state.wakewords.engine === "openwakeword"
+      ? "OpenWakeWord"
+      : titleFromKey(state.wakewords.engine || "openwakeword");
+    detector.replaceChildren(
+      audioSummaryRow("Engine", engineLabel),
+      audioSummaryRow("Detection threshold", Number(state.wakewords.threshold || 0).toFixed(2)),
+      audioSummaryRow("Selected models", String(selectedCount), "Multiple models are supported")
+    );
+
+    const countBadge = $("#wakeword-selection-count");
+    countBadge.className = "status-badge " + (selectedCount ? "ok" : "skip");
+    countBadge.textContent = selectedCount
+      ? selectedCount + " selected"
+      : "None selected";
+
+    modelsHolder.classList.remove("loading-block");
+    modelsHolder.replaceChildren();
+    const models = state.wakewords.models || [];
+    if (!models.length) {
+      const empty = element("div", "wakeword-empty-state");
+      empty.append(
+        icon("audio-waveform"),
+        element("strong", "", "No wake-word models found"),
+        element("p", "", "Add an ONNX model below. It will appear here as an available option.")
+      );
+      modelsHolder.append(empty);
+    }
+    models.forEach(function (model) {
+      const selected = activeIds.has(model.id);
+      const row = element("div", "wakeword-model-row");
+      if (selected !== Boolean(model.selected)) row.classList.add("pending-change");
+      const glyph = element("span", "wakeword-model-icon");
+      glyph.append(icon("audio-waveform"));
+      const copy = element("div", "wakeword-model-copy");
+      copy.append(element("strong", "", model.display_name));
+      const details = [model.source, model.filename];
+      const size = formatModelSize(model.size_bytes);
+      if (size) details.push(size);
+      copy.append(element("span", "", details.filter(Boolean).join(" · ")));
+      if (model.validation_warning) copy.append(element("small", "", model.validation_warning));
+      const status = wakewordModelStatus(model, selected);
+      const modelSwitch = element("label", "switch-control wakeword-model-switch");
+      const input = element("input");
+      input.type = "checkbox";
+      input.checked = selected;
+      input.disabled = !model.exists && !selected;
+      input.setAttribute("role", "switch");
+      input.setAttribute("aria-label", "Listen for " + model.display_name);
+      modelSwitch.append(
+        input,
+        element("span", "switch-track"),
+        element("span", "switch-label", "Listen for this")
+      );
+      input.addEventListener("change", function () { setWakewordModelSelected(model, input.checked); });
+      const actions = element("div", "wakeword-model-actions");
+      actions.append(status, modelSwitch);
+      if (model.managed) {
+        const remove = element("button", "icon-button wakeword-remove-model");
+        remove.type = "button";
+        remove.title = selected || model.selected ? "Deactivate before removing" : "Remove model";
+        remove.setAttribute("aria-label", "Remove " + model.display_name);
+        remove.disabled = selected || Boolean(model.selected);
+        remove.append(icon("trash-2"));
+        remove.addEventListener("click", function () { removeWakewordModel(model); });
+        actions.append(remove);
+      }
+      row.append(glyph, copy, actions);
+      modelsHolder.append(row);
+    });
+
+    const dropzone = $("#wakeword-dropzone");
+    dropzone.classList.toggle("busy", state.wakewordUploadBusy);
+    $("#choose-wakeword-model").disabled = state.wakewordUploadBusy;
+    $("#add-wakeword-model").disabled = state.wakewordUploadBusy;
+    updateWakewordActions();
+    window.renderLucideIcons($("#view-wakeword"));
+  }
+
+  function discardWakewordChanges() {
+    state.wakewordDraft = wakewordSavedDraft();
+    state.wakewordPreview = null;
+    renderWakewords();
+  }
+
+  function renderWakewordReview(preview) {
+    const holder = $("#wakeword-review-list");
+    holder.replaceChildren();
+
+    function appendReviewRow(label, key, before, after) {
+      const row = element("div", "config-review-row");
+      const copy = element("div");
+      copy.append(element("strong", "", label), element("code", "", key));
+      const values = element("div", "config-review-values");
+      values.append(
+        element("span", "", before),
+        element("span", "review-arrow", "to"),
+        element("span", "", after)
+      );
+      row.append(copy, values);
+      holder.append(row);
+    }
+
+    if (state.wakewords.enabled !== state.wakewordDraft.enabled) {
+      appendReviewRow(
+        "Wake-word listening",
+        "WAKEWORD_ENABLED",
+        state.wakewords.enabled ? "Enabled" : "Paused",
+        state.wakewordDraft.enabled ? "Enabled" : "Paused"
+      );
+    }
+
+    const byId = new Map((state.wakewords.models || []).map(function (model) {
+      return [model.id, model.display_name];
+    }));
+    function selectedNames(ids) {
+      const names = normalizeWakewordIds(ids).map(function (modelId) {
+        return byId.get(modelId) || "Unavailable model";
+      });
+      return names.length ? names.join(", ") : "None";
+    }
+    const savedIds = normalizeWakewordIds(state.wakewords.selected_ids);
+    const draftIds = normalizeWakewordIds(state.wakewordDraft.active_ids);
+    if (stableStringify(savedIds) !== stableStringify(draftIds)) {
+      appendReviewRow(
+        "Active wake words",
+        "WAKEWORD_MODEL_PATHS",
+        selectedNames(savedIds),
+        selectedNames(draftIds)
+      );
+    }
+    $("#apply-wakeword-changes").disabled = !preview.change_count;
+  }
+
+  async function reviewWakewordChanges() {
+    if (!state.wakewordDraft || !wakewordDraftChangeCount()) return;
+    const button = $("#review-wakeword-changes");
+    button.disabled = true;
+    try {
+      const preview = await api("/api/wakewords/preview", {
+        method: "POST",
+        body: state.wakewordDraft
+      });
+      if (!preview.change_count) {
+        discardWakewordChanges();
+        showToast("Those wake-word settings are already saved");
+        return;
+      }
+      state.wakewordPreview = preview;
+      renderWakewordReview(preview);
+      $("#wakeword-review-dialog").showModal();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      button.disabled = !wakewordDraftChangeCount();
+    }
+  }
+
+  async function applyWakewordChanges() {
+    if (!state.wakewordDraft || !state.wakewordPreview) return;
+    const button = $("#apply-wakeword-changes");
+    button.disabled = true;
+    try {
+      const result = await api("/api/wakewords/apply", {
+        method: "POST",
+        body: {
+          enabled: state.wakewordDraft.enabled,
+          active_ids: state.wakewordDraft.active_ids,
+          revisions: state.wakewordPreview.revisions
+        }
+      });
+      $("#wakeword-review-dialog").close();
+      state.wakewordPreview = null;
+      await loadWakewords(false);
+      await loadServices().catch(function () {});
+      const notice = $("#wakeword-result");
+      notice.hidden = false;
+      notice.replaceChildren(
+        icon("circle-check"),
+        element("span", "", result.applied
+          ? "Wake-word settings saved. Use Restart required to activate the new selection."
+          : "No wake-word settings changed.")
+      );
+      window.renderLucideIcons(notice);
+      showToast("Wake-word settings saved");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function uploadWakewordModel(file) {
+    if (!file || state.wakewordUploadBusy) return;
+    if (!/\.onnx$/i.test(file.name || "")) {
+      showToast("Choose an OpenWakeWord .onnx model file");
+      return;
+    }
+    if (file.size > 24 * 1024 * 1024) {
+      showToast("The model exceeds the 24 MB upload limit");
+      return;
+    }
+    const previousDraft = state.wakewordDraft ? deepClone(state.wakewordDraft) : null;
+    state.wakewordUploadBusy = true;
+    renderWakewords();
+    const form = new FormData();
+    form.append("model", file, file.name);
+    try {
+      const result = await api("/api/wakewords/upload", { method: "POST", body: form });
+      await loadWakewords(false);
+      if (previousDraft) {
+        const available = new Set((state.wakewords.models || []).map(function (model) { return model.id; }));
+        state.wakewordDraft = {
+          enabled: previousDraft.enabled,
+          active_ids: previousDraft.active_ids.filter(function (modelId) { return available.has(modelId); })
+        };
+      }
+      const notice = $("#wakeword-result");
+      notice.hidden = false;
+      notice.replaceChildren(icon("circle-check"), element("span", "", result.message));
+      showToast(result.message);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      state.wakewordUploadBusy = false;
+      $("#wakeword-model-file").value = "";
+      renderWakewords();
+    }
+  }
+
+  async function removeWakewordModel(model) {
+    if (!model || !window.confirm("Remove " + model.display_name + " from this device?")) return;
+    const previousDraft = state.wakewordDraft ? deepClone(state.wakewordDraft) : null;
+    try {
+      const result = await api("/api/wakewords/remove", {
+        method: "POST",
+        body: { model_id: model.id }
+      });
+      await loadWakewords(false);
+      if (previousDraft) state.wakewordDraft = previousDraft;
+      renderWakewords();
+      showToast(result.display_name + " removed");
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
+
   function integrationRows() {
     const managed = state.integrations ? (state.integrations.integrations || []) : [];
     const managedIds = new Set(managed.map(function (row) { return row.id; }));
@@ -4086,24 +4696,29 @@
   function renderChatRooms() {
     if (!state.snapshot && !state.roomConfig) return;
     const select = $("#chat-room");
-    const previous = select.value;
+    const previous = select.dataset.ready === "true" ? select.value : "";
     select.replaceChildren();
+    const follow = element("option", "", "Follow conversation");
+    follow.value = "";
+    select.append(follow);
     if (state.roomConfig) {
       Object.keys(state.roomConfig.rooms || {}).forEach(function (roomId) {
         const room = state.roomConfig.rooms[roomId] || {};
         const option = element("option", "", room.label || titleFromKey(roomId));
         option.value = roomId;
-        option.selected = roomId === (previous || state.roomConfig.default_room);
         select.append(option);
       });
     } else {
       state.snapshot.rooms.forEach(function (room) {
         const option = element("option", "", room.label);
         option.value = room.id;
-        option.selected = room.id === (previous || state.snapshot.overview.default_room);
         select.append(option);
       });
     }
+    select.value = Array.from(select.options).some(function (option) { return option.value === previous; })
+      ? previous
+      : "";
+    select.dataset.ready = "true";
   }
 
   function renderDiagnostics() {
@@ -4258,23 +4873,12 @@
     holder.scrollTop = holder.scrollHeight;
   }
 
-  function setMode(mode) {
-    state.mode = mode;
-    $$(".segmented-control button").forEach(function (button) { button.classList.toggle("active", button.dataset.mode === mode); });
-    const notice = $("#mode-notice");
-    notice.className = "mode-notice " + mode;
-    notice.replaceChildren(icon(mode === "live" ? "triangle-alert" : "shield-check"));
-    notice.append(element("span", "", mode === "live"
-      ? "Live. Commands can control devices and create persistent actions."
-      : "Preview only. Device writes and persistent actions are blocked."));
-  }
-
   async function sendMessage(text) {
     if (state.chatBusy) return;
     state.chatBusy = true;
     $("#send-message").disabled = true;
-    state.messages.push({ role: "user", text: text, meta: state.mode === "live" ? "Live" : "Test preview" });
-    const pending = { role: "assistant", text: "Working...", pending: true, meta: state.mode === "live" ? "Live" : "Test preview" };
+    state.messages.push({ role: "user", text: text });
+    const pending = { role: "assistant", text: "Working...", pending: true };
     state.messages.push(pending);
     renderMessages();
     try {
@@ -4282,24 +4886,16 @@
         method: "POST",
         body: {
           text: text,
-          mode: state.mode,
           room: $("#chat-room").value || null,
           session_id: state.sessionId
         }
       });
       pending.pending = false;
       pending.text = result.response || (result.source === "cancelled" ? "Dismissed." : "No spoken response.");
-      const parts = [result.mode === "live" ? "Live" : "Test preview"];
-      if (result.source) parts.push(result.source.replace(/_/g, " "));
-      if (result.elapsed_ms !== undefined) parts.push(result.elapsed_ms + " ms");
-      pending.meta = parts.join(" · ");
-      rememberSetupTested();
-      renderSetup();
     } catch (error) {
       pending.pending = false;
       pending.error = true;
       pending.text = error.message;
-      pending.meta = state.mode === "live" ? "Live request failed" : "Test request failed";
     } finally {
       state.chatBusy = false;
       $("#send-message").disabled = false;
@@ -4352,6 +4948,27 @@
     renderSetup();
   }
 
+  async function loadWakewords(preserveDraft) {
+    const previousDraft = preserveDraft && state.wakewordDraft
+      ? deepClone(state.wakewordDraft)
+      : null;
+    const data = await api("/api/wakewords");
+    state.wakewords = data;
+    state.wakewordLoadError = null;
+    state.wakewordPreview = null;
+    state.wakewordDraft = wakewordSavedDraft();
+    if (previousDraft) {
+      const available = new Set((data.models || []).map(function (model) { return model.id; }));
+      const activeIds = previousDraft.active_ids.filter(function (modelId) { return available.has(modelId); });
+      state.wakewordDraft = {
+        enabled: Boolean(previousDraft.enabled && activeIds.length),
+        active_ids: activeIds
+      };
+    }
+    renderWakewords();
+    return data;
+  }
+
   async function loadDiagnostics(live) {
     const buttons = [$("#run-local-diagnostics"), $("#run-live-diagnostics")];
     buttons.forEach(function (button) { button.disabled = true; });
@@ -4383,6 +5000,12 @@
           state.audioConfig = null;
           state.audioLoadError = error.message;
         }),
+        loadWakewords(false).catch(function (error) {
+          state.wakewords = null;
+          state.wakewordDraft = null;
+          state.wakewordLoadError = error.message;
+          renderWakewords();
+        }),
         loadServices().catch(function () {
           state.services = null;
           renderServiceRestartAction();
@@ -4394,6 +5017,7 @@
         })
       ]);
       renderConfiguration();
+      renderPhysicalControls();
       renderRooms();
       renderSetup();
       if (notify) showToast("Overview refreshed");
@@ -4465,25 +5089,38 @@
 
     $("#login-form").addEventListener("submit", async function (event) {
       event.preventDefault();
+      if (state.loginBusy) return;
       const key = $("#console-key").value;
       const error = $("#login-error");
+      const submit = $("#login-submit");
       error.hidden = true;
+      state.loginBusy = true;
+      submit.disabled = true;
       try {
         await api("/api/login", { method: "POST", body: { key: key } });
-        $("#console-key").value = "";
         showApp();
+        window.setTimeout(function () {
+          if ($("#login-screen").hidden) $("#console-key").value = "";
+        }, 1500);
         await refreshAll();
         if (!resumeSetupJourney() && (!state.setup || !state.setup.complete)) navigate("setup");
       } catch (exception) {
         error.textContent = exception.message === "invalid_key" ? "That passphrase was not accepted." : exception.message;
         error.hidden = false;
+      } finally {
+        state.loginBusy = false;
+        submit.disabled = false;
       }
+    });
+    $("#console-key").addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" || event.isComposing) return;
+      event.preventDefault();
+      if (!state.loginBusy) $("#login-form").requestSubmit($("#login-submit"));
     });
 
     $("#logout-button").addEventListener("click", async function () {
       if (state.audioCalibration.token) await releaseAudioCalibration("logout", true);
       try { await api("/api/logout", { method: "POST" }); } catch (_error) { /* session may already be gone */ }
-      state.mode = "test";
       state.messages = [];
       state.editableConfig = null;
       state.configEditing = false;
@@ -4502,6 +5139,11 @@
       state.audioPreview = null;
       state.audioLoadError = null;
       state.audioSuggestion = null;
+      state.wakewords = null;
+      state.wakewordDraft = null;
+      state.wakewordPreview = null;
+      state.wakewordLoadError = null;
+      state.wakewordUploadBusy = false;
       redactIntegrationConfig();
       state.integrations = null;
       state.integrationConfig = null;
@@ -4518,7 +5160,10 @@
       setSetupJourney(false);
       state.audioCalibration = { token: null, stage: "idle", noise: null, speech: null, busy: false, error: null };
       renderServiceRestartAction();
-      showConfigurationEditMode(false);
+      showConfigurationEditMode(false, "settings");
+      showConfigurationEditMode(false, "controls");
+      state.configSurface = "settings";
+      if ($("#wakeword-detector-dialog").open) $("#wakeword-detector-dialog").close();
       showLogin(false);
     });
     $$(".nav-item[data-view]").forEach(function (button) { button.addEventListener("click", function () { navigate(button.dataset.view); }); });
@@ -4575,10 +5220,67 @@
     $("#audio-suggestion-dialog").addEventListener("close", function () {
       state.audioSuggestion = null;
     });
+    $("#refresh-wakewords").addEventListener("click", function () {
+      const button = $("#refresh-wakewords");
+      button.disabled = true;
+      loadWakewords(false).then(function () {
+        showToast("Wake words refreshed");
+      }).catch(function (error) {
+        showToast(error.message);
+      }).finally(function () {
+        button.disabled = false;
+      });
+    });
+    $("#edit-wakeword-detector").addEventListener("click", function () {
+      beginConfigurationEdit("wakeword");
+    });
+    [$("#close-wakeword-detector"), $("#cancel-wakeword-detector")].forEach(function (button) {
+      button.addEventListener("click", function () { cancelConfigurationEdit("wakeword"); });
+    });
+    $("#wakeword-detector-dialog").addEventListener("cancel", function (event) {
+      event.preventDefault();
+      cancelConfigurationEdit("wakeword");
+    });
+    $("#wakeword-detector-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      reviewConfigurationChanges();
+    });
+    [$("#add-wakeword-model"), $("#choose-wakeword-model")].forEach(function (button) {
+      button.addEventListener("click", function () { $("#wakeword-model-file").click(); });
+    });
+    $("#wakeword-model-file").addEventListener("change", function (event) {
+      uploadWakewordModel(event.currentTarget.files && event.currentTarget.files[0]);
+    });
+    ["dragenter", "dragover"].forEach(function (eventName) {
+      $("#wakeword-dropzone").addEventListener(eventName, function (event) {
+        event.preventDefault();
+        if (!state.wakewordUploadBusy) event.currentTarget.classList.add("drag-active");
+      });
+    });
+    ["dragleave", "drop"].forEach(function (eventName) {
+      $("#wakeword-dropzone").addEventListener(eventName, function (event) {
+        event.preventDefault();
+        event.currentTarget.classList.remove("drag-active");
+      });
+    });
+    $("#wakeword-dropzone").addEventListener("drop", function (event) {
+      uploadWakewordModel(event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]);
+    });
+    $("#discard-wakeword-changes").addEventListener("click", discardWakewordChanges);
+    $("#review-wakeword-changes").addEventListener("click", reviewWakewordChanges);
+    $("#apply-wakeword-changes").addEventListener("click", applyWakewordChanges);
+    [$("#close-wakeword-review"), $("#back-to-wakewords")].forEach(function (button) {
+      button.addEventListener("click", function () { $("#wakeword-review-dialog").close(); });
+    });
+    $("#wakeword-review-dialog").addEventListener("cancel", function (event) {
+      event.preventDefault();
+      $("#wakeword-review-dialog").close();
+    });
     $("#open-service-restart").addEventListener("click", openServiceRestartDialog);
     $("#close-service-restart").addEventListener("click", closeServiceRestartDialog);
     $("#done-service-restart").addEventListener("click", closeServiceRestartDialog);
-    $("#edit-configuration").addEventListener("click", beginConfigurationEdit);
+    $("#edit-settings").addEventListener("click", function () { beginConfigurationEdit("settings"); });
+    $("#edit-controls").addEventListener("click", function () { beginConfigurationEdit("controls"); });
     $("#config-search").addEventListener("input", applyConfigFilter);
     $("#config-search").addEventListener("keydown", function (event) {
       if (event.key !== "Escape" || !event.currentTarget.value) return;
@@ -4611,13 +5313,22 @@
       backToIntegrationEditor();
     });
     $("#apply-integration-changes").addEventListener("click", applyIntegrationChanges);
-    $("#cancel-configuration-edit").addEventListener("click", cancelConfigurationEdit);
+    $("#cancel-settings-edit").addEventListener("click", function () { cancelConfigurationEdit("settings"); });
+    $("#cancel-controls-edit").addEventListener("click", function () { cancelConfigurationEdit("controls"); });
     $("#configuration-editor").addEventListener("submit", function (event) {
       event.preventDefault();
       reviewConfigurationChanges();
     });
-    $("#close-config-review").addEventListener("click", function () { $("#config-review-dialog").close(); });
-    $("#back-to-config").addEventListener("click", function () { $("#config-review-dialog").close(); });
+    $("#controls-editor").addEventListener("submit", function (event) {
+      event.preventDefault();
+      reviewConfigurationChanges();
+    });
+    $("#close-config-review").addEventListener("click", backToConfigEditor);
+    $("#back-to-config").addEventListener("click", backToConfigEditor);
+    $("#config-review-dialog").addEventListener("cancel", function (event) {
+      event.preventDefault();
+      backToConfigEditor();
+    });
     $("#apply-config-changes").addEventListener("click", applyConfigurationChanges);
     $("#add-room").addEventListener("click", function () { openRoomEditor(null, "add"); });
     $("#discard-room-changes").addEventListener("click", discardRoomChanges);
@@ -4631,14 +5342,6 @@
     $("#run-local-diagnostics").addEventListener("click", function () { loadDiagnostics(false).catch(function (error) { showToast(error.message); }); });
     $("#run-live-diagnostics").addEventListener("click", function () { loadDiagnostics(true).catch(function (error) { showToast(error.message); }); });
     $("#download-support-bundle").addEventListener("click", downloadSupportBundle);
-    $$(".segmented-control button").forEach(function (button) {
-      button.addEventListener("click", function () {
-        const target = button.dataset.mode;
-        if (target === state.mode) return;
-        if (target === "live" && !window.confirm("Switch to Live? Messages can control real devices and create persistent actions.")) return;
-        setMode(target);
-      });
-    });
     $("#clear-chat").addEventListener("click", function () { state.messages = []; renderMessages(); });
     $("#chat-form").addEventListener("submit", function (event) {
       event.preventDefault();
@@ -4658,9 +5361,7 @@
 
   async function boot() {
     window.renderLucideIcons(document);
-    state.setupTested = getSetupTested();
     bindEvents();
-    setMode("test");
     try {
       const session = await api("/api/session");
       if (!session.authenticated) {

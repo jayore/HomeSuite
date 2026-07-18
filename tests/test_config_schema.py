@@ -43,6 +43,17 @@ class ConfigSchemaTests(unittest.TestCase):
             with self.subTest(field=field.key):
                 self.assertTrue(field.choices or field.dynamic_choices)
 
+    def test_fields_have_one_console_owner(self):
+        fields = {field.key: field for field in EDITABLE_FIELDS}
+        allowed = {"settings", "controls", "wakeword", "integrations", "managed"}
+        self.assertTrue(all(field.surface in allowed for field in EDITABLE_FIELDS))
+        self.assertEqual(fields["PTT_ENABLED"].surface, "controls")
+        self.assertEqual(fields["PHYSICAL_BUTTON_ACTIONS"].surface, "controls")
+        self.assertEqual(fields["WAKEWORD_THRESHOLD"].surface, "wakeword")
+        self.assertEqual(fields["WAKEWORD_MODEL_PATHS"].surface, "managed")
+        self.assertEqual(fields["HA_TOKEN"].surface, "integrations")
+        self.assertEqual(fields["HOMESUITE_HTTP_API_KEY"].surface, "settings")
+
 
 if __name__ == "__main__":
     unittest.main()
