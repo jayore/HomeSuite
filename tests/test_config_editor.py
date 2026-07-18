@@ -15,6 +15,17 @@ class ConfigEditorTests(unittest.TestCase):
             'WAKEWORD_MODEL = "default_model"\n'
             'DEFAULT_ROOM: str = "living_room"\n'
             'WAKEWORD_ENABLED = False\n'
+            'WAKEWORD_THRESHOLD = 0.45\n'
+            'WAKEWORD_DEACTIVATION_THRESHOLD = 0.20\n'
+            'WAKEWORD_NEAR_MISS_MIN_SCORE = 0.25\n'
+            'WAKEWORD_ASYNC_TTS_ENABLED = False\n'
+            'WAKEWORD_BARGE_IN_ENABLED = False\n'
+            'WAKEWORD_STT_MODE = "realtime_stream"\n'
+            'WAKEWORD_USE_STREAMING_STT = True\n'
+            'WAKEWORD_STREAM_ENDPOINT_WINDOW_MS = 700\n'
+            'WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS = 80\n'
+            'WAKEWORD_CHIME_SOUND_FILE = "assets/Blow.mp3"\n'
+            'YOUTUBE_REEL_REFRESH_ENABLED = True\n'
             'PTT_ENABLED = False\n'
             'PTT_GPIO_PIN = 11\n'
             'PTT_LISTEN_LEVEL = "low"\n'
@@ -30,7 +41,7 @@ class ConfigEditorTests(unittest.TestCase):
         (root / "deployment_config.py").write_text(
             'DEFAULT_ROOM = "office"\n'
             'ASSISTANT_PROFILE = {"preferred_name": "", "locale": "", "units": "", "notes": []}\n'
-            'CALENDARS = {"personal": {"entity_id": "calendar.personal", "label": "Personal", "writable": True}}\n'
+            'CALENDARS = {"personal": {"entity_id": "calendar.personal", "label": "Personal", "writable": True}, "work": {"entity_id": "calendar.work", "label": "Work"}}\n'
             'DEFAULT_CALENDAR = "personal"\n'
             'CALENDAR_READS_ENABLED = True\n'
             'CALENDAR_WRITES_ENABLED = False\n'
@@ -40,9 +51,12 @@ class ConfigEditorTests(unittest.TestCase):
         )
         if not (root / "local_prefs.py").exists():
             (root / "local_prefs.py").write_text(
-                '# keep this comment\nWAKEWORD_MODEL = "old_model"  # keep inline\n',
+                '# keep this comment\nWAKEWORD_MODEL = "old_model"  # keep inline\nYOUTUBE_REEL_REFRESH_ENABLED = False\n',
                 encoding="utf-8",
             )
+        assets = root / "assets"
+        assets.mkdir(exist_ok=True)
+        (assets / "Blow.mp3").write_bytes(b"test-audio")
         if not (root / "private_config.py").exists():
             (root / "private_config.py").write_text(
                 'HA_URL = "http://ha.local:8123"\n'
@@ -57,6 +71,17 @@ class ConfigEditorTests(unittest.TestCase):
             WAKEWORD_MODEL="old_model",
             DEFAULT_ROOM="office",
             WAKEWORD_ENABLED=False,
+            WAKEWORD_THRESHOLD=0.45,
+            WAKEWORD_DEACTIVATION_THRESHOLD=0.20,
+            WAKEWORD_NEAR_MISS_MIN_SCORE=0.25,
+            WAKEWORD_ASYNC_TTS_ENABLED=False,
+            WAKEWORD_BARGE_IN_ENABLED=False,
+            WAKEWORD_STT_MODE="realtime_stream",
+            WAKEWORD_USE_STREAMING_STT=True,
+            WAKEWORD_STREAM_ENDPOINT_WINDOW_MS=700,
+            WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS=80,
+            WAKEWORD_CHIME_SOUND_FILE="assets/Blow.mp3",
+            YOUTUBE_REEL_REFRESH_ENABLED=False,
             PTT_ENABLED=False,
             PTT_GPIO_PIN=11,
             PTT_LISTEN_LEVEL="low",
@@ -67,7 +92,10 @@ class ConfigEditorTests(unittest.TestCase):
             COMMAND_PROCESSING_MODE="local",
             SATELLITE_BRAIN_URL="",
             ASSISTANT_PROFILE={"preferred_name": "", "locale": "", "units": "", "notes": []},
-            CALENDARS={"personal": {"entity_id": "calendar.personal", "label": "Personal", "writable": True}},
+            CALENDARS={
+                "personal": {"entity_id": "calendar.personal", "label": "Personal", "writable": True},
+                "work": {"entity_id": "calendar.work", "label": "Work"},
+            },
             DEFAULT_CALENDAR="personal",
             CALENDAR_READS_ENABLED=True,
             CALENDAR_WRITES_ENABLED=False,
@@ -89,7 +117,7 @@ class ConfigEditorTests(unittest.TestCase):
                 "CALENDAR_CONFIRM_WRITES",
                 "CALENDAR_DEFAULT_EVENT_DURATION_MINUTES",
             ],
-            LOCAL_PREFS_KEYS=["WAKEWORD_MODEL"],
+            LOCAL_PREFS_KEYS=["WAKEWORD_MODEL", "YOUTUBE_REEL_REFRESH_ENABLED"],
         )
         private_config = SimpleNamespace(
             HA_URL="http://ha.local:8123",
@@ -120,6 +148,14 @@ class ConfigEditorTests(unittest.TestCase):
         self.assertEqual(fields["WAKEWORD_MODEL"]["source"], "device")
         self.assertEqual(fields["WAKEWORD_MODEL"]["surface"], "managed")
         self.assertEqual(fields["PTT_GPIO_PIN"]["surface"], "controls")
+        self.assertEqual(fields["WAKEWORD_CHIME"]["surface"], "wakeword")
+        self.assertIn(
+            {"value": "assets/Blow.mp3", "label": "Blow"},
+            fields["WAKEWORD_CHIME_SOUND_FILE"]["choices"],
+        )
+        self.assertEqual(fields["YOUTUBE_REEL_REFRESH_ENABLED"]["surface"], "integrations")
+        self.assertEqual(fields["YOUTUBE_REEL_REFRESH_ENABLED"]["target_file"], "local_prefs.py")
+        self.assertTrue(fields["YOUTUBE_REEL_REFRESH_ENABLED"]["can_reset"])
         self.assertEqual(fields["DEFAULT_ROOM"]["source"], "deployment")
         self.assertIn(
             {"value": "office", "label": "Office"},
@@ -179,6 +215,54 @@ class ConfigEditorTests(unittest.TestCase):
                 editor.preview(
                     [{"key": "ASSISTANT_PROFILE", "action": "set", "value": {"notes": "not a list"}}]
                 )
+
+    def test_dynamic_calendar_choice_can_be_saved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            editor = self.make_editor(Path(directory))
+            preview = editor.preview(
+                [{"key": "DEFAULT_CALENDAR", "action": "set", "value": "work"}]
+            )
+
+        self.assertEqual(preview["changes"][0]["after"], "work")
+
+    def test_wakeword_relationships_are_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            editor = self.make_editor(Path(directory))
+            with self.assertRaisesRegex(ConfigEditError, "Rearm score"):
+                editor.preview(
+                    [{"key": "WAKEWORD_DEACTIVATION_THRESHOLD", "action": "set", "value": 0.5}]
+                )
+            with self.assertRaisesRegex(ConfigEditError, "background spoken responses"):
+                editor.preview(
+                    [{"key": "WAKEWORD_BARGE_IN_ENABLED", "action": "set", "value": True}]
+                )
+            with self.assertRaisesRegex(ConfigEditError, "Realtime transcription"):
+                editor.preview(
+                    [{"key": "WAKEWORD_STT_MODE", "action": "set", "value": "whisper"}]
+                )
+            with self.assertRaisesRegex(ConfigEditError, "Trailing silence"):
+                editor.preview(
+                    [{"key": "WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS", "action": "set", "value": 800}]
+                )
+
+    def test_valid_wakeword_setting_pairs_can_be_previewed_together(self):
+        with tempfile.TemporaryDirectory() as directory:
+            editor = self.make_editor(Path(directory))
+            barge_in = editor.preview(
+                [
+                    {"key": "WAKEWORD_ASYNC_TTS_ENABLED", "action": "set", "value": True},
+                    {"key": "WAKEWORD_BARGE_IN_ENABLED", "action": "set", "value": True},
+                ]
+            )
+            recorded_audio = editor.preview(
+                [
+                    {"key": "WAKEWORD_USE_STREAMING_STT", "action": "set", "value": False},
+                    {"key": "WAKEWORD_STT_MODE", "action": "set", "value": "whisper"},
+                ]
+            )
+
+        self.assertEqual(len(barge_in["changes"]), 2)
+        self.assertEqual(len(recorded_audio["changes"]), 2)
 
     def test_authenticated_edit_state_uses_legacy_api_key_fallback(self):
         with tempfile.TemporaryDirectory() as directory:

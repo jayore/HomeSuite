@@ -275,14 +275,17 @@ def _rt_stream_create_runtime(
     manual_commit: bool = False,
     transcriber=None,
     fast_48k_downsample: bool = False,
+    force: bool = False,
 ):
     """
     Create a small runtime object for shared realtime-streaming STT capture.
 
     This centralizes the previously PTT-only logic so both PTT and wakeword
-    capture can feed the same streaming transcription path.
+    capture can feed the same streaming transcription path. ``force`` lets the
+    wake-word-specific setting opt into streaming without changing PTT's
+    process-wide STT mode.
     """
-    if not _rt_stream_mode_enabled():
+    if not force and not _rt_stream_mode_enabled():
         return None
 
     rt_model = (os.getenv("PIPHONE_RT_MODEL", "") or "").strip() or "gpt-4o-transcribe"

@@ -166,6 +166,60 @@ class ConfigInventoryTests(unittest.TestCase):
             self.assertIsNone(rows[key]["replacement"])
             self.assertTrue(rows[key]["guidance"])
 
+    def test_deployed_wakeword_and_youtube_overrides_are_guided(self):
+        assignments = {
+            "WAKEWORD_ASYNC_TTS_ENABLED": True,
+            "WAKEWORD_BARGE_IN_ENABLED": True,
+            "WAKEWORD_BARGE_IN_THRESHOLD": 0.55,
+            "WAKEWORD_CHIME": True,
+            "WAKEWORD_CHIME_SOUND_FILE": "assets/Blow.mp3",
+            "WAKEWORD_CHIME_VOLUME": 1.0,
+            "WAKEWORD_ONE_BREATH_MAX_SPEECH_START_MS": 450,
+            "WAKEWORD_PAUSE_MEDIA_DURING_CAPTURE": False,
+            "WAKEWORD_REARM_SFX_DRAIN_MAX_SEC": 0.0,
+            "WAKEWORD_STREAM_CUE_GUARD_MS": 1000,
+            "WAKEWORD_STREAM_ENDPOINT_MIN_SILENCE_RATIO": 0.70,
+            "WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS": 80,
+            "WAKEWORD_STREAM_ENDPOINT_WINDOW_MS": 700,
+            "WAKEWORD_STREAM_MAX_SECONDS": 7.0,
+            "WAKEWORD_STREAM_POST_MEDIA_PAUSE_DRAIN_MS": 0,
+            "WAKEWORD_STREAM_PRETRIGGER_INCLUDE_MS": 300,
+            "WAKEWORD_STREAM_VAD_ARM_DELAY_MS": 180,
+            "WAKEWORD_STT_MODE": "realtime_stream",
+            "WAKEWORD_SUPPRESS_DURING_SFX": False,
+            "WAKEWORD_USE_STREAMING_STT": True,
+            "YOUTUBE_REEL_REFRESH_ENABLED": False,
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            local_source = "".join(
+                f"{key} = {value!r}\n" for key, value in assignments.items()
+            )
+            (root / "app_config.py").write_text(local_source, encoding="utf-8")
+            (root / "local_prefs.py").write_text(local_source, encoding="utf-8")
+            (root / "local_prefs.example.py").write_text("", encoding="utf-8")
+            for name in (
+                "deployment_config.py",
+                "deployment_config.example.py",
+                "private_config.py",
+                "private_config.example.py",
+            ):
+                (root / name).write_text("", encoding="utf-8")
+
+            inventory = build_config_inventory(
+                root=root,
+                app_config=SimpleNamespace(**assignments),
+                private_config=SimpleNamespace(),
+            )
+
+        rows = {row["key"]: row for row in inventory["rows"]}
+        self.assertEqual(set(rows), set(assignments))
+        self.assertTrue(all(row["classification"] == "guided" for row in rows.values()))
+        self.assertEqual(inventory["summary"]["guided_active"], len(assignments))
+        self.assertEqual(inventory["summary"]["advanced_active"], 0)
+        self.assertEqual(inventory["summary"]["unknown_active"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

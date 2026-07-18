@@ -104,6 +104,7 @@ INTEGRATION_SPECS = (
             _credential("YOUTUBE_OAUTH_CLIENT_SECRET"),
             _credential("YOUTUBE_OAUTH_REFRESH_TOKEN"),
         ),
+        ("YOUTUBE_REEL_REFRESH_ENABLED",),
     ),
     IntegrationSpec(
         "alpaca",

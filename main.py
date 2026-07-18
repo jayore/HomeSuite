@@ -1866,6 +1866,7 @@ def _record_audio_with_vad_wakeword_stream(
             rt_stream_runtime = _rt_stream_create_runtime(
                 wake_pre_roll_frames,
                 manual_commit=True,
+                force=True,
             )
             if rt_stream_runtime and rt_stream_runtime.get("rt") is not None:
                 logging.info(

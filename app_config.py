@@ -816,19 +816,17 @@ WAKEWORD_STREAM_POST_MEDIA_PAUSE_DRAIN_MS = 150
 # normal users plenty of time to speak; pathological hangs are bounded.
 WAKEWORD_STREAM_FIRST_SPEECH_TIMEOUT_MS = 4000
 
-# Step 7 (2026-05-14): control whether the wakeword capture uses the realtime
-# streaming STT during capture. The realtime websocket setup
-# (_rt_stream_create_runtime) takes 0.4-2.5 seconds and was the dominant
-# cause of the silent gap between the user saying the wake word and the
-# chime acknowledging it. With this False, capture writes a WAV and
-# transcribe_audio() post-transcribes via realtime_streaming_stt's file
-# upload path (same gpt-4o-transcribe model, no websocket setup).
-# True restores the previous streaming-during-capture behavior.
+# Control whether wake-word capture feeds the realtime transcription session
+# while local VAD is recording. The acknowledgement cue plays before session
+# setup, and continuous capture retains audio during connection startup. When
+# disabled, Home Suite finishes and cleans the WAV before sending it to the
+# provider selected by WAKEWORD_STT_MODE.
 WAKEWORD_USE_STREAMING_STT = True
 
-# Wakeword capture is post-transcribed from a completed WAV. Keep this separate
-# from PTT's realtime-streaming mode; the realtime websocket file feeder can
-# collapse otherwise valid far-field recordings to a single syllable.
+# Provider used when process_audio consumes a completed wake-word recording.
+# A live streaming sidecar is preferred when available; otherwise
+# realtime_stream uploads the completed WAV through the same transcription
+# provider. Keep this separate from PTT's process-wide STT mode.
 WAKEWORD_STT_MODE = "realtime_stream"
 
 # Below this score, OWW didn't think the audio sounded like the wake word

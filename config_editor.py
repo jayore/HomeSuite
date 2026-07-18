@@ -400,6 +400,21 @@ class ConfigEditor:
                     continue
                 label = str(calendar.get("label") or str(calendar_id).replace("_", " ").title())
                 choices.append({"value": str(calendar_id), "label": label})
+        if field.dynamic_choices == "wakeword_sounds":
+            known = {str(choice["value"]) for choice in choices}
+            assets = self.root / "assets"
+            if assets.is_dir():
+                for path in sorted(assets.iterdir(), key=lambda item: item.name.lower()):
+                    if not path.is_file() or path.suffix.lower() not in {".aiff", ".mp3", ".wav"}:
+                        continue
+                    value = path.relative_to(self.root).as_posix()
+                    if value in known:
+                        continue
+                    choices.append({"value": value, "label": path.stem.replace("_", " ")})
+                    known.add(value)
+            configured = str(getattr(self.app_config, field.key, "") or "").strip()
+            if configured and configured not in known:
+                choices.append({"value": configured, "label": f"{Path(configured).name} (configured)"})
         return choices
 
     def public_state(self, *, include_secrets: bool = False) -> dict:
@@ -471,6 +486,8 @@ class ConfigEditor:
                             "node",
                             "ptt",
                             "wakeword",
+                            "wakeword_experience",
+                            "wakeword_transcription",
                             "audio",
                             "assistant",
                             "network",
@@ -554,9 +571,7 @@ class ConfigEditor:
             raise ConfigEditError(f"{field.label} cannot be empty.")
 
         if kind == "choice" and not empty:
-            allowed = {choice[0] for choice in field.choices}
-            if field.dynamic_choices in {"rooms", "rooms_optional"}:
-                allowed.update(str(key) for key in (getattr(self.app_config, "ROOMS", {}) or {}))
+            allowed = {str(choice["value"]) for choice in self._choices(field)}
             if normalized not in allowed:
                 raise ConfigEditError(f"Choose a valid value for {field.label}.")
 
@@ -686,6 +701,46 @@ class ConfigEditor:
             for key in ("preferred_name", "locale", "units"):
                 if key in profile and not isinstance(profile[key], str):
                     raise ConfigEditError(f"Assistant profile {key} must be text.")
+
+        detection_keys = {
+            "WAKEWORD_THRESHOLD",
+            "WAKEWORD_DEACTIVATION_THRESHOLD",
+            "WAKEWORD_NEAR_MISS_MIN_SCORE",
+        }
+        if detection_keys.intersection(by_key):
+            threshold = resulting("WAKEWORD_THRESHOLD")
+            rearm_threshold = resulting("WAKEWORD_DEACTIVATION_THRESHOLD")
+            near_miss = resulting("WAKEWORD_NEAR_MISS_MIN_SCORE")
+            if threshold is not None and rearm_threshold is not None and float(rearm_threshold) >= float(threshold):
+                raise ConfigEditError("Rearm score must be lower than the normal detection threshold.")
+            if threshold is not None and near_miss is not None and float(near_miss) > float(threshold):
+                raise ConfigEditError("Near-miss logging score cannot exceed the normal detection threshold.")
+
+        interruption_keys = {
+            "WAKEWORD_ASYNC_TTS_ENABLED",
+            "WAKEWORD_BARGE_IN_ENABLED",
+        }
+        if interruption_keys.intersection(by_key):
+            if bool(resulting("WAKEWORD_BARGE_IN_ENABLED")) and not bool(resulting("WAKEWORD_ASYNC_TTS_ENABLED")):
+                raise ConfigEditError("Enable background spoken responses before enabling interruption.")
+
+        transcription_keys = {
+            "WAKEWORD_STT_MODE",
+            "WAKEWORD_USE_STREAMING_STT",
+        }
+        if transcription_keys.intersection(by_key):
+            if bool(resulting("WAKEWORD_USE_STREAMING_STT")) and resulting("WAKEWORD_STT_MODE") != "realtime_stream":
+                raise ConfigEditError("Transcribe while listening requires OpenAI Realtime transcription.")
+
+        endpoint_keys = {
+            "WAKEWORD_STREAM_ENDPOINT_WINDOW_MS",
+            "WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS",
+        }
+        if endpoint_keys.intersection(by_key):
+            window_ms = resulting("WAKEWORD_STREAM_ENDPOINT_WINDOW_MS")
+            trailing_ms = resulting("WAKEWORD_STREAM_ENDPOINT_TRAILING_SILENCE_MS")
+            if window_ms is not None and trailing_ms is not None and float(window_ms) > 0 and float(trailing_ms) > float(window_ms):
+                raise ConfigEditError("Trailing silence floor cannot exceed the rolling endpoint window.")
 
         calendar_keys = {
             "CALENDARS",

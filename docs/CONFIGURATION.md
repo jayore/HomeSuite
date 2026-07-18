@@ -784,9 +784,12 @@ The URL should be the base Kuma URL; the slug is the part after `/status/`.
 
 ## Wake Word Engines
 
-Wake-word settings belong in `local_prefs.py` because microphone hardware,
-models, gain, and interaction timing differ by device. The current recommended
-engine is OpenWakeWord:
+Wake-word settings are device-local because microphone hardware, models, gain,
+and interaction timing differ by device. Use **Wake Word** in the management
+console to install and activate models, then choose **Settings** for detection,
+listening behavior, transcription, and advanced timing. The equivalent direct
+configuration belongs in `local_prefs.py`; the current recommended engine is
+OpenWakeWord:
 
 ```python
 WAKEWORD_ENABLED = True

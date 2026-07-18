@@ -146,8 +146,13 @@ class ConsoleUiContractTests(unittest.TestCase):
         self.assertIn('id="ptt-summary"', html)
         self.assertIn('id="button-summary"', html)
         self.assertIn('id="wakeword-detector-dialog"', html)
+        self.assertIn('<span>Settings</span>', html)
+        self.assertIn('Wake-word settings</h2>', html)
         self.assertIn('beginConfigurationEdit("controls")', javascript)
         self.assertIn('beginConfigurationEdit("wakeword")', javascript)
+        self.assertIn('"Listening cue"', javascript)
+        self.assertIn('"Transcription"', javascript)
+        self.assertIn('"Response interruption"', javascript)
         self.assertIn('sectionData.surface || "settings"', javascript)
         self.assertIn('action: "roles_ptt"', javascript)
         self.assertIn('action: "roles_wakeword"', javascript)
@@ -156,6 +161,16 @@ class ConsoleUiContractTests(unittest.TestCase):
         self.assertIn('.physical-controls-grid { display: grid; grid-template-columns: minmax(0, 1fr);', stylesheet)
         self.assertIn('const collapsible = sectionData.optional && scope !== "settings";', javascript)
         self.assertIn('const section = element("section", "config-inventory-section");', javascript)
+
+    def test_integration_editor_supports_device_behavior_and_reset(self):
+        javascript = (ROOT / "console_static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('integrationResetKeys: new Set()', javascript)
+        self.assertIn('state.integrationResetKeys.has(field.key)', javascript)
+        self.assertIn('"Use inherited value"', javascript)
+        self.assertIn('control.dataset.integrationControl = field.key;', javascript)
+        self.assertIn('control.setAttribute("role", "switch");', javascript)
+        self.assertIn('"Credentials remain private, while device behavior settings apply only to this Home Suite instance."', javascript)
 
     def test_collapsible_sections_use_drawn_disclosure_triangles(self):
         stylesheet = (ROOT / "console_static" / "styles.css").read_text(encoding="utf-8")

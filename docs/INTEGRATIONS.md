@@ -256,6 +256,11 @@ YOUTUBE_OAUTH_CLIENT_SECRET = "..."
 YOUTUBE_OAUTH_REFRESH_TOKEN = "..."
 ```
 
+Use **Integrations → YouTube → Manage** to maintain these credentials and the
+device-local **Refresh generated playlists** switch. Enable automatic refresh
+on only one always-on Home Suite instance; leave it disabled on voice
+satellites so multiple nodes do not rebuild the same playlists.
+
 Home Suite includes helper scripts:
 
 ```bash

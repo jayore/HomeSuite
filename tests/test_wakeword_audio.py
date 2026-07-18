@@ -49,6 +49,19 @@ class _SequenceVad:
         return self.decisions.pop(0)
 
 
+class RealtimeWakewordConfigTests(unittest.TestCase):
+    def test_force_allows_wakeword_streaming_without_changing_ptt_mode(self):
+        from audio_capture import _rt_stream_create_runtime
+
+        transcriber = object()
+        with mock.patch.dict("os.environ", {"PIPHONE_STT_MODE": "whisper"}, clear=False):
+            self.assertIsNone(_rt_stream_create_runtime(4, transcriber=transcriber))
+            runtime = _rt_stream_create_runtime(4, transcriber=transcriber, force=True)
+
+        self.assertIs(runtime["rt"], transcriber)
+        self.assertEqual(runtime["pre_roll_pcm"].maxlen, 4)
+
+
 class ContinuousAudioSourceTests(unittest.TestCase):
     def test_cursor_reports_ring_overrun_and_reads_in_sequence(self):
         from wakeword_audio_source import ContinuousAudioSource

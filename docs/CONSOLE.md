@@ -399,6 +399,14 @@ control and opens their relevant documentation. Deprecated compatibility aliases
 assignments appear separately as settings needing attention. Credential values
 remain redacted in this inventory.
 
+Configuration ownership follows the console's feature pages rather than one
+global advanced-settings form. Wake-word detection, listening behavior,
+transcription, and timing live under **Wake Word → Settings**. Integration
+behavior lives beside its credentials in the integration's **Manage** dialog;
+for example, YouTube playlist refresh is a device-local YouTube setting.
+The Settings-page Advanced inventory remains a reference for supported values
+that do not yet have a safe domain control and does not duplicate owned fields.
+
 The inventory treats the three example files as the documented public
 configuration contract. This keeps `local_prefs.py`, `deployment_config.py`,
 `private_config.py`, Doctor, and the browser accountable to the same set of

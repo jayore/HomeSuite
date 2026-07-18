@@ -242,6 +242,25 @@ journalctl -u homesuite.service -b --no-pager \
   | grep -E 'MIC_PROFILE|WAKEWORD_AUDIO_PROFILE|WAKEWORD_ENGINE_OPENWAKEWORD_READY'
 ```
 
+## Manage Wake-Word Behavior in the Console
+
+Open **Wake Word**, then choose **Settings** in the top bar. The editor keeps
+the controls with the behavior they affect:
+
+* **Detection** contains the engine and normal trigger thresholds.
+* **Listening experience** contains cues, rearm behavior, media pausing, and
+  spoken-response interruption.
+* **Transcription** chooses completed-recording transcription and whether
+  audio is streamed while local VAD is still listening.
+* **Advanced detection** contains debounce and score hysteresis.
+* **Advanced command capture** contains one-breath recovery, VAD handoff, and
+  endpoint timing.
+
+Home Suite previews these edits, validates related settings together, writes
+device-local overrides atomically, and preserves an inherited-value reset for
+existing overrides. The examples below remain useful for understanding and
+recovery, but routine tuning no longer requires editing `local_prefs.py`.
+
 ## Command Capture and Endpointing
 
 The wake-word path does not wait for the acknowledgement cue to finish before
@@ -302,8 +321,9 @@ Wakeword barge-in lets a new detection stop local assistant speech and begin a
 replacement command capture. It is wakeword-only; PTT keeps hang-up as its
 authoritative interruption gesture.
 
-Enable asynchronous local response speech and barge-in together in the
-wakeword device's `local_prefs.py`:
+Enable **Background spoken responses** and **Interrupt spoken responses**
+together under **Wake Word → Settings → Listening experience**. The equivalent
+device-local values are:
 
 ```python
 ASSISTANT_AUDIO_OUTPUT_MODE = "local"
@@ -349,6 +369,10 @@ For live wake-word transcription:
 WAKEWORD_USE_STREAMING_STT = True
 WAKEWORD_STT_MODE = "realtime_stream"
 ```
+
+These are exposed as **Transcription service** and **Transcribe while
+listening** under **Wake Word → Settings → Transcription**. The live-streaming
+toggle is wake-word-specific and does not change PTT's process-wide STT mode.
 
 The live session receives mono 24 kHz PCM during capture. It uses manual commit
 because a pre-triggered wake-word prefix can otherwise be auto-committed as its

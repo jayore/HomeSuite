@@ -52,6 +52,7 @@
     integrations: null,
     integrationConfig: null,
     integrationPreview: null,
+    integrationResetKeys: new Set(),
     integrationTests: {},
     integrationTestBusy: null,
     services: null,
@@ -4041,11 +4042,35 @@
     const engineLabel = state.wakewords.engine === "openwakeword"
       ? "OpenWakeWord"
       : titleFromKey(state.wakewords.engine || "openwakeword");
-    detector.replaceChildren(
+    const wakewordFields = configFieldMap();
+    const detectorRows = [
       audioSummaryRow("Engine", engineLabel),
       audioSummaryRow("Detection threshold", Number(state.wakewords.threshold || 0).toFixed(2)),
       audioSummaryRow("Selected models", String(selectedCount), "Multiple models are supported")
-    );
+    ];
+    if (wakewordFields.WAKEWORD_CHIME) {
+      detectorRows.push(audioSummaryRow(
+        "Listening cue",
+        wakewordFields.WAKEWORD_CHIME.value ? "Enabled" : "Disabled",
+        wakewordFields.WAKEWORD_CHIME.value
+          ? configChoiceLabel(wakewordFields.WAKEWORD_CHIME_SOUND_FILE)
+          : null
+      ));
+    }
+    if (wakewordFields.WAKEWORD_USE_STREAMING_STT) {
+      detectorRows.push(audioSummaryRow(
+        "Transcription",
+        wakewordFields.WAKEWORD_USE_STREAMING_STT.value ? "While listening" : "After recording",
+        configChoiceLabel(wakewordFields.WAKEWORD_STT_MODE)
+      ));
+    }
+    if (wakewordFields.WAKEWORD_BARGE_IN_ENABLED) {
+      detectorRows.push(audioSummaryRow(
+        "Response interruption",
+        wakewordFields.WAKEWORD_BARGE_IN_ENABLED.value ? "Enabled" : "Disabled"
+      ));
+    }
+    detector.replaceChildren.apply(detector, detectorRows);
 
     const countBadge = $("#wakeword-selection-count");
     countBadge.className = "status-badge " + (selectedCount ? "ok" : "skip");
@@ -4415,6 +4440,22 @@
   function buildIntegrationControl(field) {
     const id = integrationControlId(field.key);
     let control;
+    if (field.type === "boolean") {
+      const wrapper = element("label", "switch-control");
+      wrapper.htmlFor = id;
+      control = element("input");
+      control.type = "checkbox";
+      control.checked = Boolean(field.value);
+      control.id = id;
+      control.dataset.integrationControl = field.key;
+      control.setAttribute("role", "switch");
+      const label = element("span", "switch-label", control.checked ? "Enabled" : "Disabled");
+      control.addEventListener("change", function () {
+        label.textContent = control.checked ? "Enabled" : "Disabled";
+      });
+      wrapper.append(control, element("span", "switch-track"), label);
+      return { holder: wrapper, control: control };
+    }
     if (field.type === "list_integer" || field.type === "list_string" || field.type === "json_object") {
       control = element("textarea");
       control.rows = field.type === "json_object" ? 7 : 3;
@@ -4429,8 +4470,14 @@
       control.value = String(editorValue(field));
     } else {
       control = element("input");
-      control.type = field.secret ? "password" : (field.type === "url" ? "url" : "text");
+      control.type = field.secret
+        ? "password"
+        : (field.type === "url" ? "url" : (field.type === "number" || field.type === "integer" ? "number" : "text"));
       control.value = editorValue(field);
+      if (field.type === "number") control.step = "any";
+      if (field.type === "integer") control.step = "1";
+      if (field.minimum !== null && field.minimum !== undefined) control.min = field.minimum;
+      if (field.maximum !== null && field.maximum !== undefined) control.max = field.maximum;
       if (field.secret) control.autocomplete = "new-password";
     }
     control.id = id;
@@ -4469,10 +4516,21 @@
     $("#integration-edit-title").textContent = integration.label;
     const holder = $("#integration-edit-fields");
     holder.replaceChildren();
+    const targets = new Set((state.integrationConfig.fields || []).map(function (field) {
+      return field.target_file;
+    }));
+    const hasPrivateValues = targets.has("private_config.py");
+    const hasDeviceBehavior = targets.has("local_prefs.py");
+    let intro = "These settings apply to this Home Suite instance.";
+    if (hasPrivateValues && hasDeviceBehavior) {
+      intro = "Credentials remain private, while device behavior settings apply only to this Home Suite instance.";
+    } else if (hasPrivateValues) {
+      intro = "These credentials remain private and are shown only inside this authenticated session so they can be reviewed and maintained in one place.";
+    }
     holder.append(element(
       "p",
       "integration-form-intro",
-      "These values are stored in this device's private configuration. Existing credentials are shown only inside this authenticated session so they can be reviewed and maintained in one place."
+      intro
     ));
     const grid = element("div", "integration-form-grid");
     (state.integrationConfig.fields || []).forEach(function (field) {
@@ -4494,7 +4552,23 @@
       }
       const controlHolder = element("div", "integration-form-control");
       const built = buildIntegrationControl(field);
+      const resetting = state.integrationResetKeys.has(field.key);
+      built.control.disabled = resetting;
       controlHolder.append(built.holder);
+      if (field.can_reset) {
+        const reset = element("button", "field-action integration-reset-action");
+        reset.type = "button";
+        reset.append(
+          icon(resetting ? "undo-2" : "rotate-ccw"),
+          element("span", "", resetting ? "Keep device value" : "Use inherited value")
+        );
+        reset.addEventListener("click", function () {
+          if (resetting) state.integrationResetKeys.delete(field.key);
+          else state.integrationResetKeys.add(field.key);
+          renderIntegrationEditForm();
+        });
+        controlHolder.append(reset);
+      }
       if (field.can_clear) {
         controlHolder.append(element("span", "integration-field-note", "Clear this field to remove the saved value."));
       } else if (credentialKeys.has(field.key) && !field.required) {
@@ -4516,6 +4590,7 @@
         body: { integration_id: integrationId }
       });
       state.integrationPreview = null;
+      state.integrationResetKeys = new Set();
       renderIntegrationEditForm();
       $("#integration-edit-dialog").showModal();
     } catch (error) {
@@ -4538,6 +4613,7 @@
     redactIntegrationConfig();
     state.integrationConfig = null;
     state.integrationPreview = null;
+    state.integrationResetKeys = new Set();
   }
 
   function integrationValuePresent(value) {
@@ -4551,6 +4627,10 @@
     if (!state.integrationConfig) return [];
     const changes = [];
     (state.integrationConfig.fields || []).forEach(function (field) {
+      if (state.integrationResetKeys.has(field.key)) {
+        changes.push({ key: field.key, action: "reset" });
+        return;
+      }
       const control = $("[data-integration-control='" + field.key + "']", $("#integration-edit-fields"));
       if (!control) return;
       const rawValue = field.type === "boolean" ? control.checked : control.value;
@@ -4644,6 +4724,7 @@
       redactIntegrationConfig();
       state.integrationConfig = null;
       state.integrationPreview = null;
+      state.integrationResetKeys = new Set();
       clearIntegrationTestDismissTimer(integration.id);
       delete state.integrationTests[integration.id];
       await Promise.all([

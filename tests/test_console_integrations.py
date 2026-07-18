@@ -80,6 +80,41 @@ class ConsoleIntegrationManagerTests(unittest.TestCase):
         self.assertEqual(state["fields"][1]["value"], "token")
         self.assertNotIn("other", repr(state))
 
+    def test_youtube_editor_includes_device_owned_refresh_behavior(self):
+        fields = [
+            {"key": "YOUTUBE_OAUTH_CLIENT_ID", "label": "Client", "configured": True, "value": "client", "secret": False},
+            {"key": "YOUTUBE_OAUTH_CLIENT_SECRET", "label": "Secret", "configured": True, "value": "secret", "secret": True},
+            {"key": "YOUTUBE_OAUTH_REFRESH_TOKEN", "label": "Token", "configured": True, "value": "token", "secret": True},
+            {
+                "key": "YOUTUBE_REEL_REFRESH_ENABLED",
+                "label": "Refresh generated playlists",
+                "configured": True,
+                "value": False,
+                "secret": False,
+                "target_file": "local_prefs.py",
+                "can_reset": True,
+            },
+        ]
+        manager = ConsoleIntegrationManager(
+            editor=_Editor(fields),
+            private_config=SimpleNamespace(),
+            app_config=SimpleNamespace(),
+            environ={},
+            tester=SimpleNamespace(supports=lambda _value: True),
+        )
+
+        state = manager.edit_state("youtube")
+
+        self.assertEqual(
+            [field["key"] for field in state["fields"]],
+            [
+                "YOUTUBE_OAUTH_CLIENT_ID",
+                "YOUTUBE_OAUTH_CLIENT_SECRET",
+                "YOUTUBE_OAUTH_REFRESH_TOKEN",
+                "YOUTUBE_REEL_REFRESH_ENABLED",
+            ],
+        )
+
 
 class IntegrationConnectionTesterTests(unittest.TestCase):
     def test_home_assistant_test_uses_bearer_token_without_returning_it(self):
