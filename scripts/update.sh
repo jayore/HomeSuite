@@ -23,7 +23,7 @@ Usage:
   scripts/update.sh [--restart] [--skip-deps]
 
 Options:
-  --restart    restart homesuite.service after a successful required-config check
+  --restart    restart active Home Suite services after a successful required-config check
   --skip-deps  skip Python dependency installation
 
 Environment overrides:
@@ -104,9 +104,26 @@ if [[ "$RESTART_SERVICE" == "1" ]]; then
   else
     SUDO=""
   fi
+
+  restart_active_service() {
+    local service="$1"
+    if ! $SUDO systemctl is-active --quiet "$service"; then
+      echo "Skipping $service (not active)."
+      return
+    fi
+    echo "Restarting $service..."
+    $SUDO systemctl restart "$service"
+    $SUDO systemctl --no-pager --full status "$service"
+  }
+
   echo "Restarting homesuite.service..."
   $SUDO systemctl restart homesuite.service
   $SUDO systemctl --no-pager --full status homesuite.service
+
+  # These processes import the same checkout independently. Reload active
+  # frontends too so an update cannot leave them running stale Python modules.
+  restart_active_service homesuite-console.service
+  restart_active_service piphone-telegram.service
 fi
 
 echo "Update complete. Run 'homesuite doctor --live' and the relevant acceptance checks before relying on the node."

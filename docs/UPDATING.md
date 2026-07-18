@@ -17,15 +17,20 @@ bash scripts/update.sh
 homesuite doctor --live
 ```
 
-Restart the service only after the doctor and the relevant acceptance checks
-pass:
+Restart the active services only after the doctor and the relevant acceptance
+checks pass. The management console and Telegram frontend are separate Python
+processes, so code updates must reload them when they are running:
 
 ```bash
 sudo systemctl restart homesuite.service
+sudo systemctl try-restart homesuite-console.service
+sudo systemctl try-restart piphone-telegram.service
 homesuite status
 ```
 
-For an already validated update, the updater can perform that final restart:
+For an already validated update, prefer having the updater perform that final
+coordinated restart. It always restarts the runtime and reloads the console and
+Telegram frontend when those optional processes are active:
 
 ```bash
 bash scripts/update.sh --restart
@@ -47,7 +52,7 @@ GitHub.
 
 `scripts/update.sh` installs from `requirements.txt` by default. Use
 `--skip-deps` only when dependencies have already been updated deliberately.
-It runs non-live Doctor checks before restarting a service, but it cannot prove
+It runs non-live Doctor checks before restarting services, but it cannot prove
 microphone placement, wakeword recognition, OAuth consent, or the behavior of
 every configured device. Follow the node's section in
 [Acceptance checks](ACCEPTANCE.md) after a meaningful update.
