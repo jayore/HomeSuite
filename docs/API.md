@@ -144,33 +144,33 @@ HTTP `400` means malformed JSON or missing text, `403` means authentication
 failed, `404` means an unknown room on the state route, and `500` means command
 or state processing failed.
 
-## Voice Satellite Mode
+## Forwarding Voice Commands
 
 A wake-word or PTT node can use the companion API as its command boundary while
 retaining its existing local audio experience:
 
 ```python
-# local_prefs.py on the satellite
+# local_prefs.py on the microphone device
 COMMAND_PROCESSING_MODE = "satellite"
-SATELLITE_BRAIN_URL = "http://homesuite-brain.local:8765"
+SATELLITE_BRAIN_URL = "http://another-homesuite.local:8765"
 ```
 
-The satellite continues to own microphone capture, wake-word/PTT behavior,
+The microphone device continues to own microphone capture, wake-word/PTT behavior,
 transcription, acknowledgement cues, local response speech, and barge-in. After
-STT, it sends the transcript to the brain. The brain owns deterministic routing,
+STT, it sends the transcript to the other Home Suite instance. That instance owns deterministic routing,
 source-scoped continuity and confirmations, AI fallback, and action execution,
-then returns a structured result for the satellite to render.
+then returns a structured result for the microphone device to render.
 
 By default, the request uses the satellite hostname as its stable `source_id`,
-`DEFAULT_ROOM` as its physical room, and the local `HOMESUITE_HTTP_API_KEY` as
-the brain credential. Advanced deployments can override
+`DEFAULT_ROOM` as its physical room, and the local `HOMESUITE_HTTP_API_KEY` for
+authentication. Advanced deployments can override
 `SATELLITE_SOURCE_ID`, `SATELLITE_SOURCE_ROOM`, and
 `SATELLITE_COMMAND_TIMEOUT_SECONDS` in `local_prefs.py`. Set
-`SATELLITE_BRAIN_API_KEY` in `private_config.py` only when the brain uses a
+`SATELLITE_BRAIN_API_KEY` in `private_config.py` only when the other instance uses a
 different companion API key.
 
-Satellite forwarding fails closed. If the brain is unreachable or rejects the
-request, the satellite uses its normal failure cue and does not retry through
+Command forwarding fails closed. If the other instance is unreachable or rejects the
+request, the microphone device uses its normal failure cue and does not retry through
 its local command runtime; this prevents duplicate actions and split continuity.
 Exact dismissals such as `never mind` are forwarded so the authoritative brain
 can clear its pending confirmation or clarification before the satellite ends

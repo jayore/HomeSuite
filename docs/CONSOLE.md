@@ -383,16 +383,19 @@ file that stores them:
   owns microphone, local signal processing, playback, and calibration. **Rooms**
   owns the shared room topology.
 
-The long-term contract is that supported per-node settings should be visible in
-the console. Simple values receive guided controls, nested values receive
-purpose-built editors, and low-level tuning belongs in collapsed advanced
-sections. Deprecated compatibility aliases such as the original `HANDSET_*`
+The long-term contract is that supported settings should be visible in the
+console. Simple values receive guided controls, nested values receive
+purpose-built editors, and low-level tuning remains grouped under **Advanced**
+until it has a safe control. Deprecated compatibility aliases such as the original `HANDSET_*`
 names remain loadable but do not appear as duplicate user-facing settings.
 
 The **Settings coverage** summary reports actionable configuration issues,
-guided settings owned by that page, and advanced settings currently in use. The
-advanced inventory lists every effective file-managed override and opens its
-relevant documentation. Deprecated compatibility aliases and unrecognized
+guided settings owned by that page, and advanced settings currently in use.
+Settings sections remain expanded so view and edit modes preserve the same
+page structure. Assistant context and common calendar policy now edit shared
+`deployment_config.py` values through the same reviewed, backed-up write path.
+The Advanced inventory lists effective overrides that do not yet have a safe
+control and opens their relevant documentation. Deprecated compatibility aliases and unrecognized
 assignments appear separately as settings needing attention. Credential values
 remain redacted in this inventory.
 

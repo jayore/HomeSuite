@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 
 from config_inventory import build_config_inventory
 from config_schema import (
+    DEPLOYMENT_CONFIG_FILE,
     EDITABLE_FIELDS,
     LOCAL_PREFS_FILE,
     PRIVATE_CONFIG_FILE,
@@ -304,7 +305,7 @@ class ConfigEditor:
         self._lock = threading.RLock()
 
     def _path(self, filename: str) -> Path:
-        if filename not in {LOCAL_PREFS_FILE, PRIVATE_CONFIG_FILE}:
+        if filename not in {DEPLOYMENT_CONFIG_FILE, LOCAL_PREFS_FILE, PRIVATE_CONFIG_FILE}:
             raise ConfigEditError("That configuration target is not editable.")
         path = self.root / filename
         if not path.exists():
@@ -319,7 +320,7 @@ class ConfigEditor:
     def _read_sources(self) -> dict[str, str]:
         return {
             filename: self._path(filename).read_text(encoding="utf-8")
-            for filename in (LOCAL_PREFS_FILE, PRIVATE_CONFIG_FILE)
+            for filename in (DEPLOYMENT_CONFIG_FILE, LOCAL_PREFS_FILE, PRIVATE_CONFIG_FILE)
         }
 
     @staticmethod
@@ -340,7 +341,8 @@ class ConfigEditor:
             return getattr(module, field.key, None)
         if field.target_file == LOCAL_PREFS_FILE:
             return self._inherited_value(field.key)
-        return getattr(self.private_config, field.key, None)
+        module = self.private_config if field.target_file == PRIVATE_CONFIG_FILE else self.app_config
+        return getattr(module, field.key, None)
 
     def _inherited_value(self, key: str) -> Any:
         """Read the deployment/default value without reusing a local override."""
@@ -372,6 +374,8 @@ class ConfigEditor:
     ) -> str:
         if field.target_file == PRIVATE_CONFIG_FILE:
             return "private"
+        if field.target_file == DEPLOYMENT_CONFIG_FILE:
+            return "deployment"
         if assignments.get(field.key):
             return "device"
         deployment_keys = set(getattr(self.app_config, "DEPLOYMENT_CONFIG_KEYS", ()) or ())
@@ -388,6 +392,14 @@ class ConfigEditor:
                     continue
                 label = str(room.get("label") or str(room_id).replace("_", " ").title())
                 choices.append({"value": str(room_id), "label": label})
+        if field.dynamic_choices == "calendars_optional":
+            choices.append({"value": "", "label": "Automatic"})
+            calendars = getattr(self.app_config, "CALENDARS", {}) or {}
+            for calendar_id, calendar in calendars.items():
+                if not isinstance(calendar, dict):
+                    continue
+                label = str(calendar.get("label") or str(calendar_id).replace("_", " ").title())
+                choices.append({"value": str(calendar_id), "label": label})
         return choices
 
     def public_state(self, *, include_secrets: bool = False) -> dict:
@@ -655,14 +667,54 @@ class ConfigEditor:
         }
         if satellite_keys.intersection(by_key) and resulting("COMMAND_PROCESSING_MODE") == "satellite":
             if not _has_value(resulting("SATELLITE_BRAIN_URL")):
-                raise ConfigEditError("Enter a brain URL before enabling satellite command processing.")
+                raise ConfigEditError("Enter the other Home Suite URL before forwarding command processing.")
             if not (
                 _has_value(resulting("SATELLITE_BRAIN_API_KEY"))
                 or _has_value(resulting("HOMESUITE_HTTP_API_KEY"))
             ):
                 raise ConfigEditError(
-                    "Satellite command processing requires the brain API key or a shared companion API key."
+                    "Forwarded command processing requires the other Home Suite API key or a shared companion API key."
                 )
+
+        if "ASSISTANT_PROFILE" in by_key:
+            profile = resulting("ASSISTANT_PROFILE")
+            if not isinstance(profile, dict):
+                raise ConfigEditError("About this household must be a JSON object.")
+            notes = profile.get("notes", [])
+            if not isinstance(notes, list) or any(not isinstance(note, str) for note in notes):
+                raise ConfigEditError("Assistant profile notes must be a list of text values.")
+            for key in ("preferred_name", "locale", "units"):
+                if key in profile and not isinstance(profile[key], str):
+                    raise ConfigEditError(f"Assistant profile {key} must be text.")
+
+        calendar_keys = {
+            "CALENDARS",
+            "DEFAULT_CALENDAR",
+            "CALENDAR_WRITES_ENABLED",
+        }
+        if calendar_keys.intersection(by_key):
+            calendars = resulting("CALENDARS") or {}
+            if not isinstance(calendars, dict):
+                raise ConfigEditError("Available calendars must be a JSON object.")
+            writable = False
+            for calendar_id, calendar in calendars.items():
+                if not str(calendar_id).strip() or not isinstance(calendar, dict):
+                    raise ConfigEditError("Each calendar needs a name and a JSON object of settings.")
+                entity_id = str(calendar.get("entity_id") or "").strip()
+                if not entity_id.startswith("calendar."):
+                    raise ConfigEditError(f"Calendar {calendar_id} needs a calendar.* entity ID.")
+                aliases = calendar.get("aliases", [])
+                if not isinstance(aliases, list) or any(not isinstance(alias, str) for alias in aliases):
+                    raise ConfigEditError(f"Calendar {calendar_id} aliases must be a list of text values.")
+                for flag in ("writable", "include_in_agenda"):
+                    if flag in calendar and not isinstance(calendar[flag], bool):
+                        raise ConfigEditError(f"Calendar {calendar_id} {flag} must be true or false.")
+                writable = writable or bool(calendar.get("writable"))
+            default_calendar = str(resulting("DEFAULT_CALENDAR") or "").strip()
+            if default_calendar and default_calendar not in calendars:
+                raise ConfigEditError("Default calendar must match one of the available calendar names.")
+            if bool(resulting("CALENDAR_WRITES_ENABLED")) and not writable:
+                raise ConfigEditError("Mark at least one available calendar writable before enabling event creation.")
 
         gpio_keys = {
             "PTT_ENABLED",

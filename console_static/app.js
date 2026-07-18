@@ -1896,7 +1896,7 @@
           ? summary.attention_count + " setting" + (summary.attention_count === 1 ? " needs" : "s need") + " attention. "
           : "No configuration issues found. ") +
           managedHere + " general and system settings can be managed here. " +
-          summary.file_managed_available + " advanced settings are available in configuration files."
+          summary.file_managed_available + " additional advanced settings remain available."
       )
     );
     const coverageStats = element("div", "config-coverage-stats");
@@ -1936,8 +1936,8 @@
       },
       {
         id: "advanced",
-        label: "Advanced file-managed settings",
-        description: "Supported settings that are visible here but do not yet have a guided editor.",
+        label: "Advanced",
+        description: "Supported settings that are visible here but do not yet have a guided control.",
         rows: visibleRows.filter(function (row) { return row.classification === "advanced"; }),
         open: false
       }
@@ -1945,10 +1945,9 @@
 
     groups.forEach(function (group) {
       if (!group.rows.length) return;
-      const section = element("details", "config-inventory-section");
+      const section = element("section", "config-inventory-section");
       section.dataset.inventorySection = group.id;
-      section.open = group.open || preserved.has(group.id);
-      const summaryRow = element("summary");
+      const summaryRow = element("div", "config-inventory-section-heading");
       const summaryCopy = element("div");
       summaryCopy.append(
         element("strong", "", group.label),
@@ -2035,13 +2034,14 @@
     state.editableConfig.sections.filter(function (sectionData) {
       return String(sectionData.surface || "settings") === scope;
     }).forEach(function (sectionData) {
-      const section = element(sectionData.optional ? "details" : "section", "config-editor-section");
+      const collapsible = sectionData.optional && scope !== "settings";
+      const section = element(collapsible ? "details" : "section", "config-editor-section");
       section.dataset.configSection = sectionData.id;
       section.dataset.configSectionLabel = sectionData.label;
       section.dataset.configSearchText = String(sectionData.label || "").toLowerCase();
       section.id = configSectionDomId(scope, sectionData.id);
-      if (sectionData.optional) {
-        section.open = preserved.sections.has(sectionData.id);
+      if (collapsible) {
+        section.open = scope === "controls" || preserved.sections.has(sectionData.id);
         section.append(element("summary", "", sectionData.label));
       } else {
         section.append(element("h2", "", sectionData.label));

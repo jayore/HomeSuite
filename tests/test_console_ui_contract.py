@@ -140,6 +140,7 @@ class ConsoleUiContractTests(unittest.TestCase):
     def test_physical_controls_and_detector_use_shared_config_editor(self):
         html = (ROOT / "console_static" / "index.html").read_text(encoding="utf-8")
         javascript = (ROOT / "console_static" / "app.js").read_text(encoding="utf-8")
+        stylesheet = (ROOT / "console_static" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('id="controls-editor"', html)
         self.assertIn('id="ptt-summary"', html)
@@ -151,6 +152,16 @@ class ConsoleUiContractTests(unittest.TestCase):
         self.assertIn('action: "roles_ptt"', javascript)
         self.assertIn('action: "roles_wakeword"', javascript)
         self.assertIn('window.renderLucideIcons(holder);', javascript)
+        self.assertIn('section.open = scope === "controls" || preserved.sections.has(sectionData.id);', javascript)
+        self.assertIn('.physical-controls-grid { display: grid; grid-template-columns: minmax(0, 1fr);', stylesheet)
+        self.assertIn('const collapsible = sectionData.optional && scope !== "settings";', javascript)
+        self.assertIn('const section = element("section", "config-inventory-section");', javascript)
+
+    def test_collapsible_sections_use_drawn_disclosure_triangles(self):
+        stylesheet = (ROOT / "console_static" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertNotIn('content: ">"', stylesheet)
+        self.assertGreaterEqual(stylesheet.count("border-left: 7px solid var(--text-faint)"), 2)
 
 
 if __name__ == "__main__":

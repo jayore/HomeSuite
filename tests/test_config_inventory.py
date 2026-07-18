@@ -74,7 +74,7 @@ class ConfigInventoryTests(unittest.TestCase):
         )
         self.assertEqual(
             rows[("deployment", "CALENDARS")]["classification"],
-            "advanced",
+            "guided",
         )
         self.assertEqual(
             rows[("device", "HANDSET_PRESENT")]["replacement"],
@@ -92,7 +92,7 @@ class ConfigInventoryTests(unittest.TestCase):
         self.assertEqual(inventory["summary"]["deprecated_active"], 2)
         self.assertEqual(inventory["summary"]["unknown_active"], 1)
         self.assertEqual(inventory["summary"]["documented_available"], 5)
-        self.assertEqual(inventory["summary"]["file_managed_available"], 2)
+        self.assertEqual(inventory["summary"]["file_managed_available"], 1)
 
     def test_deployment_assignment_reports_when_device_override_wins(self):
         with tempfile.TemporaryDirectory() as directory:

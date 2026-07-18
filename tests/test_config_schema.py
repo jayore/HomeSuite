@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from config_schema import EDITABLE_FIELDS, LOCAL_PREFS_FILE, PRIVATE_CONFIG_FILE
+from config_schema import (
+    DEPLOYMENT_CONFIG_FILE,
+    EDITABLE_FIELDS,
+    LOCAL_PREFS_FILE,
+    PRIVATE_CONFIG_FILE,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +28,10 @@ class ConfigSchemaTests(unittest.TestCase):
         self.assertIn("PHYSICAL_BUTTON_PINS", keys)
         self.assertIn("PHYSICAL_BUTTON_ACTIONS", keys)
         for field in EDITABLE_FIELDS:
-            self.assertIn(field.target_file, {LOCAL_PREFS_FILE, PRIVATE_CONFIG_FILE})
+            self.assertIn(
+                field.target_file,
+                {DEPLOYMENT_CONFIG_FILE, LOCAL_PREFS_FILE, PRIVATE_CONFIG_FILE},
+            )
 
     def test_guidance_and_document_references_are_present(self):
         for field in EDITABLE_FIELDS:

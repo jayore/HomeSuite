@@ -28,7 +28,14 @@ class ConfigEditorTests(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "deployment_config.py").write_text(
-            'DEFAULT_ROOM = "office"\n',
+            'DEFAULT_ROOM = "office"\n'
+            'ASSISTANT_PROFILE = {"preferred_name": "", "locale": "", "units": "", "notes": []}\n'
+            'CALENDARS = {"personal": {"entity_id": "calendar.personal", "label": "Personal", "writable": True}}\n'
+            'DEFAULT_CALENDAR = "personal"\n'
+            'CALENDAR_READS_ENABLED = True\n'
+            'CALENDAR_WRITES_ENABLED = False\n'
+            'CALENDAR_CONFIRM_WRITES = True\n'
+            'CALENDAR_DEFAULT_EVENT_DURATION_MINUTES = 60\n',
             encoding="utf-8",
         )
         if not (root / "local_prefs.py").exists():
@@ -59,13 +66,29 @@ class ConfigEditorTests(unittest.TestCase):
             PHYSICAL_BUTTON_ACTIONS={},
             COMMAND_PROCESSING_MODE="local",
             SATELLITE_BRAIN_URL="",
+            ASSISTANT_PROFILE={"preferred_name": "", "locale": "", "units": "", "notes": []},
+            CALENDARS={"personal": {"entity_id": "calendar.personal", "label": "Personal", "writable": True}},
+            DEFAULT_CALENDAR="personal",
+            CALENDAR_READS_ENABLED=True,
+            CALENDAR_WRITES_ENABLED=False,
+            CALENDAR_CONFIRM_WRITES=True,
+            CALENDAR_DEFAULT_EVENT_DURATION_MINUTES=60,
             UNIFIED_SERVER_PORT=8765,
             CONSOLE_PORT=8766,
             ROOMS={
                 "living_room": {"label": "Living room"},
                 "office": {"label": "Office"},
             },
-            DEPLOYMENT_CONFIG_KEYS=["DEFAULT_ROOM"],
+            DEPLOYMENT_CONFIG_KEYS=[
+                "DEFAULT_ROOM",
+                "ASSISTANT_PROFILE",
+                "CALENDARS",
+                "DEFAULT_CALENDAR",
+                "CALENDAR_READS_ENABLED",
+                "CALENDAR_WRITES_ENABLED",
+                "CALENDAR_CONFIRM_WRITES",
+                "CALENDAR_DEFAULT_EVENT_DURATION_MINUTES",
+            ],
             LOCAL_PREFS_KEYS=["WAKEWORD_MODEL"],
         )
         private_config = SimpleNamespace(
@@ -113,6 +136,49 @@ class ConfigEditorTests(unittest.TestCase):
         fields = {field["key"]: field for field in state["fields"]}
         self.assertEqual(fields["HA_TOKEN"]["value"], "old-ha-token")
         self.assertEqual(fields["HOMESUITE_HTTP_API_KEY"]["value"], "api-key")
+
+    def test_deployment_settings_are_exposed_and_written_atomically(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            editor = self.make_editor(root)
+            state = editor.public_state()
+            fields = {field["key"]: field for field in state["fields"]}
+
+            self.assertEqual(fields["ASSISTANT_PROFILE"]["target_file"], "deployment_config.py")
+            self.assertIn(
+                {"value": "personal", "label": "Personal"},
+                fields["DEFAULT_CALENDAR"]["choices"],
+            )
+            changes = [
+                {"key": "CALENDAR_WRITES_ENABLED", "action": "set", "value": True},
+                {"key": "CALENDAR_DEFAULT_EVENT_DURATION_MINUTES", "action": "set", "value": 45},
+            ]
+            preview = editor.preview(changes)
+            result = editor.apply(changes, preview["revisions"])
+            source = (root / "deployment_config.py").read_text(encoding="utf-8")
+
+        self.assertEqual(result["written_files"], ["deployment_config.py"])
+        self.assertIn("CALENDAR_WRITES_ENABLED = True", source)
+        self.assertIn("CALENDAR_DEFAULT_EVENT_DURATION_MINUTES = 45", source)
+
+    def test_deployment_structures_are_validated_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            editor = self.make_editor(Path(directory))
+            with self.assertRaisesRegex(ConfigEditError, r"calendar\.\* entity ID"):
+                editor.preview(
+                    [{"key": "CALENDARS", "action": "set", "value": {"personal": {"entity_id": "sensor.calendar"}}}]
+                )
+            with self.assertRaisesRegex(ConfigEditError, "Mark at least one"):
+                editor.preview(
+                    [
+                        {"key": "CALENDARS", "action": "set", "value": {"personal": {"entity_id": "calendar.personal"}}},
+                        {"key": "CALENDAR_WRITES_ENABLED", "action": "set", "value": True},
+                    ]
+                )
+            with self.assertRaisesRegex(ConfigEditError, "notes must be a list"):
+                editor.preview(
+                    [{"key": "ASSISTANT_PROFILE", "action": "set", "value": {"notes": "not a list"}}]
+                )
 
     def test_authenticated_edit_state_uses_legacy_api_key_fallback(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -230,7 +296,7 @@ class ConfigEditorTests(unittest.TestCase):
     def test_satellite_mode_requires_a_brain_url_and_accepts_shared_api_key(self):
         with tempfile.TemporaryDirectory() as directory:
             editor = self.make_editor(Path(directory))
-            with self.assertRaisesRegex(ConfigEditError, "Enter a brain URL"):
+            with self.assertRaisesRegex(ConfigEditError, "Enter the other Home Suite URL"):
                 editor.preview(
                     [{"key": "COMMAND_PROCESSING_MODE", "action": "set", "value": "satellite"}]
                 )
