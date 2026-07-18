@@ -41,7 +41,13 @@ When in doubt, make the thing sensible in Home Assistant first. Add direct Home 
 
 ## What Should I Run First?
 
-After install and config edits:
+After the installer finishes, open the console address it prints, create the
+first passphrase, and follow **Setup**. Connect Home Assistant, review one room,
+choose the node's roles, pass the required checks, and activate the runtime.
+Then open **Chat** and start with a read-only phrase such as `what lights are
+on?`.
+
+For advanced setup, recovery, or a terminal-only check, use:
 
 ```bash
 homesuite doctor
@@ -49,13 +55,10 @@ homesuite doctor --live
 homesuite repl
 ```
 
-Then type `what lights are on?` at the prompt. For one-shot debugging,
-`homesuite test "what lights are on?"` also works.
-
-Use `homesuite repl` and `homesuite test` while setting up. They read real HA
-state but block writes. Use `homesuite repl --live`, `homesuite test --live`,
-`ppchat`, or the systemd service only when you are ready for commands to affect
-real devices.
+`homesuite repl` and `homesuite test` read real Home Assistant state but block
+writes. Use `homesuite repl --live` or `homesuite test --live` only when you are
+ready for commands to affect real devices. Browser Chat and the running service
+are always live.
 
 ## What Are The Configuration Files For?
 
@@ -78,7 +81,7 @@ real devices.
 * default room
 * audio output mode
 * wake-word behavior
-* handset or push-to-talk hardware
+* PTT and auxiliary GPIO controls
 * speaker routing defaults
 
 If you eventually run multiple Home Suite devices, they may share similar `private_config.py` values but have different `local_prefs.py` files.
@@ -86,6 +89,10 @@ If you eventually run multiple Home Suite devices, they may share similar `priva
 `app_config.py` supplies tracked application defaults. Fresh public installs
 should normally override topology in ignored `deployment_config.py` so upstream
 updates remain fast-forwardable.
+
+The browser console writes normal settings to these files through reviewed,
+validated editors. Direct file editing remains useful for expert catalogs,
+low-level policy, and recovery, but it is not required for normal setup.
 
 ## Do I Need Every Service In The Example Config?
 
@@ -106,12 +113,11 @@ Blank optional services should show as `SKIP`, not `FAIL`.
 
 Yes. Start with text:
 
-```bash
-homesuite repl
-ppchattest
-```
+* use browser **Chat** after setup for live interaction
+* use `homesuite repl` or `homesuite test "phrase"` for a safe CLI dry run
+* use the authenticated HTTP or WebSocket API from a companion client
 
-Voice, wake word, handset behavior, and Sonos-routed speech can be added later.
+Voice, wake word, PTT behavior, and Sonos-routed speech can be added later.
 
 ## Can I Use It From Other Apps?
 
@@ -145,7 +151,9 @@ Then see [INTEGRATIONS.md](INTEGRATIONS.md) for the keys that service needs.
 
 ## Where Should I Look When Something Behaves Weirdly?
 
-Use this loop:
+Start with the browser's **Diagnostics** view, which runs the same Doctor checks
+and links failures to the owning setup page. For deeper command debugging, use
+this loop:
 
 1. `homesuite doctor --live`
 2. `homesuite repl`, then type the exact phrase, or run

@@ -1,8 +1,8 @@
 # Features
 
-This is an advanced alpha overview of what Home Suite can do while it moves
-toward beta. Exact behavior depends on your Home Assistant entities, room
-names, media libraries, and configured services.
+This is an overview of the capabilities supported in the Home Suite beta.
+Exact behavior depends on your Home Assistant entities, room names, media
+libraries, hardware, and configured services.
 
 For a categorized list of phrases to try, see [COMMANDS.md](COMMANDS.md).
 
@@ -186,16 +186,18 @@ The same command brain can be used from a local handset or wake-word appliance, 
 
 Raycast, menu-bar, and other satellite-style clients should become separate repos that link back to Home Suite's HTTP/WebSocket API.
 
-## Experimental Hardware And Applets
+## Physical Controls And Experimental Applets
 
-Home Suite includes an auxiliary physical-button mapper and a small applet
-lifecycle registry. Buttons translate gestures into normal command strings, so
-they reuse the same deterministic router. Applets can run an independent
-subprocess or temporarily remap buttons for a mode such as an Apple TV remote.
+Home Suite includes a maintained PTT path and auxiliary physical-button mapper.
+Buttons translate gestures into normal command strings, so they reuse the same
+deterministic router. A separate experimental applet lifecycle registry can run
+an independent subprocess or temporarily remap buttons for a mode such as an
+Apple TV remote.
 
-These are extension points rather than polished portable features today. Pin
-maps, gestures, and `PHYSICAL_BUTTON_ACTIONS` belong in `local_prefs.py`.
-Applet registrations currently live in `applet_controls.py` and may require
-device-specific dependencies or exclusive microphone ownership. See the
-[experimental applet guide](../applets/README.md) for the supported Note Lights
-host and optional installation step.
+The browser console's **Physical controls** page manages supported PTT and
+auxiliary GPIO pin and gesture mappings; the underlying assignments remain in
+`local_prefs.py` for portability and recovery. Applets are still experimental:
+their registrations live in `applet_controls.py` and may require device-specific
+dependencies or exclusive microphone ownership. See the [experimental applet
+guide](../applets/README.md) for the supported Note Lights host and optional
+installation step.

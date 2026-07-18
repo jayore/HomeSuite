@@ -1,6 +1,6 @@
 # Home Suite install guide
 
-This is the current beta-readiness install path for Home Suite. It targets a native
+This is the supported beta install path for Home Suite. It targets a native
 Raspberry Pi OS or Debian-like install because Home Suite currently touches local
 audio, optional GPIO, systemd, Home Assistant, and optional wake-word hardware
 directly.
@@ -108,7 +108,7 @@ Fresh installs use three local configuration files:
 * `private_config.py` contains credentials, tokens, URLs, and service API keys.
 * `deployment_config.py` contains shared rooms, entities, and non-secret home topology.
 * `local_prefs.py` contains per-device overrides such as room, audio routing,
-  handset mode, wake-word mode, and device-specific timing.
+  PTT behavior, wake-word behavior, and device-specific timing.
 
 Public deployments should track only:
 
@@ -192,7 +192,7 @@ curl -sS http://localhost:8766/health
 curl -sS http://localhost:8765/health
 ```
 
-## Current beta-readiness gaps
+## Known Beta Limits
 
 The browser now covers the normal first-run path, but each user still needs to
 identify their own Home Assistant areas and entities, choose audio hardware,
@@ -200,8 +200,8 @@ and authorize any optional providers they want to use.
 
 Known areas that still need more public-release polish:
 
-* generated Home Assistant/entity mapping helpers
-* clearer OAuth setup helpers for media services
+* automatic discovery and mapping suggestions for Home Assistant areas and entities
+* browser-first OAuth authorization for providers that still use CLI or external helpers
 * a server-only mode with fewer local audio/GPIO assumptions
-* satellite install mode
+* a streamlined thin-satellite install mode
 * Docker packaging for the central brain role

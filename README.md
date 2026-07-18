@@ -1,7 +1,7 @@
 # Home Suite
 
-**Natural, room-aware control for Home Assistant across voice, text, Telegram,
-and HTTP.**
+**A self-hosted, room-aware command layer for Home Assistant across voice,
+text, and companion clients.**
 
 Home Suite gives your Home Assistant setup one context-aware command brain. It
 understands rooms, active media, configured devices, and recent interaction
@@ -13,9 +13,11 @@ and state. Home Suite adds a shared language and interaction layer above it, so
 you can speak in terms of what you want without losing the ability to name a
 specific device when precision matters.
 
-> **Status:** Advanced alpha, moving toward beta. Home Suite is used daily in
-> its original deployment; beta readiness work focuses on reproducible node
-> roles, diagnostics, operational privacy, and a clearer first-run path.
+> **Status: Beta.** Home Suite is a daily driver in its original deployment and
+> now has browser-first setup and management, authenticated control surfaces,
+> automated command-contract coverage, and real-hardware validation on
+> representative Raspberry Pi nodes. Home Assistant topology, audio hardware,
+> and optional provider authorization remain deployment-specific.
 
 ## Room Context In Practice
 
@@ -59,16 +61,16 @@ Current capabilities include:
 * optional persistent user profile and coarse home context for conversational answers
 * optional web search for current questions such as news and recent events
 * HTTP and WebSocket APIs for companion clients
-* an authenticated browser console for configuration visibility, diagnostics, and test/live text interaction
+* an authenticated browser console for guided management, diagnostics, and live Chat
 
 See [Features](docs/FEATURES.md) for the broader overview and
 [Integrations](docs/INTEGRATIONS.md) for service-specific behavior.
 
 ## Voice And Interaction
 
-Handset push-to-talk and wake-word appliances feed the same interaction and
-routing layers used by text clients. Trigger-specific audio mechanics remain
-isolated so tuning wake-word behavior does not silently alter PTT.
+Push-to-talk and wake-word appliances feed the same interaction and routing
+layers used by text clients. Trigger-specific audio mechanics remain isolated
+so tuning wake-word behavior does not silently alter PTT.
 
 The voice stack includes:
 
@@ -154,7 +156,7 @@ configuration or operating services. The terminal editor and CLI Doctor remain
 available as advanced fallback paths, but they are not required for a normal
 fresh install. See
 [Management console](docs/CONSOLE.md) for authentication, configuration
-backups, service operation, and the Test/Live contract.
+backups, service operation, and the browser Chat contract.
 
 Start with [Getting started](docs/GETTING_STARTED.md) for the guided path or
 [Install](docs/INSTALL.md) for all installer and systemd options.
@@ -185,6 +187,12 @@ Home Suite separates configuration by responsibility:
 Only the corresponding `*.example.py` templates are committed for local files.
 Optional integrations can remain blank; unavailable services should be reported
 without preventing the core runtime from starting.
+
+The browser console owns normal setup and maintenance through feature-specific
+pages. Specialized catalogs, thresholds, and low-level policy remain available
+as documented file-managed settings and appear in the console inventory when
+active; direct editing is an advanced or recovery path, not a first-run
+requirement.
 
 See [Configuration](docs/CONFIGURATION.md),
 [Credentials](docs/CREDENTIALS.md), and
@@ -237,14 +245,21 @@ authentication contract.
 
 ## Status
 
-Home Suite is advanced alpha software and a daily driver in its original
-deployment. It is being prepared for beta; hardware differences, OAuth flows,
-and entity naming still need deliberate setup attention.
+Home Suite is beta software and a daily driver in its original deployment. Its
+normal fresh-install path is browser-first, and the same console supports later
+configuration, diagnostics, integration testing, and runtime activation. The
+portable full test suite runs on CPython 3.9 and 3.13; representative Pi 3B PTT
+and Pi 4 wake-word/satellite nodes exercise the hardware paths.
+
+Beta does not mean a turnkey consumer appliance. Each deployment still needs to
+map its own Home Assistant rooms and entities, select compatible audio hardware,
+and authorize any optional providers it uses. Direct file edits and log
+inspection remain available for expert tuning and recovery rather than normal
+onboarding.
 
 The first supported target is a native Raspberry Pi OS or Debian-like
-deployment. Docker and streamlined satellite packaging may come later. Today,
-expect to edit configuration files and inspect logs while adapting Home Suite
-to your home.
+deployment. Docker packaging and a streamlined thin-satellite install may come
+later.
 
 ## Project Guide
 

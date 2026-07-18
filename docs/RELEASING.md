@@ -1,8 +1,8 @@
 # Release Checklist
 
-This checklist is for maintainers preparing a beta release. A release should be
-boring: tested code, clear upgrade notes, and a rollback point before it reaches
-household devices.
+This checklist is for maintainers preparing a beta release or beta update. A
+release should be boring: tested code, clear upgrade notes, and a rollback
+point before it reaches household devices.
 
 1. Start from a clean branch and run the full test suite in a configured
    environment:
@@ -18,8 +18,10 @@ household devices.
 
 2. Review [Acceptance checks](ACCEPTANCE.md) and run the relevant text/API,
    PTT, and wakeword checks on real supported hardware.
-3. Run `homesuite doctor --live` on each representative node and create a
-   redacted `homesuite support-bundle --live` only if diagnostics need review.
+3. Run `homesuite doctor --live` on each representative node. Confirm there are
+   no active deprecated or unrecognized settings, and review any intentional
+   file-managed overrides shown under **Settings → Advanced**. Create a redacted
+   `homesuite support-bundle --live` only if diagnostics need review.
 4. Summarize user-visible behavior, configuration changes, migration steps,
    and known limits in the release notes. Do not include credentials, room
    names, raw logs, or command transcripts.

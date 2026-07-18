@@ -5,6 +5,9 @@ not a release promise. Current behavior belongs in `README.md`, feature guides,
 and `docs/DEV_AND_TESTING.md`; completed work should not remain here as a
 future-looking idea.
 
+Home Suite is currently beta. Items below improve portability, measurement, and
+public usability; they are not all blockers for using the supported beta today.
+
 ## Current Baseline
 
 Home Suite already includes:
@@ -23,8 +26,12 @@ Home Suite already includes:
   conversational web-enabled AI fallback
 * continuous OpenWakeWord detection, one-breath command handoff, streaming STT,
   microphone profiles, guided browser/CLI calibration, and local-TTS barge-in
-* a public installer, example configuration, operating documentation, and a
-  sanitized public GitHub export
+* a public installer, authenticated browser setup and management console,
+  example configuration, operating documentation, and a sanitized public
+  GitHub export
+* guided domain owners for normal settings across roles, rooms, audio, physical
+  controls, wake words, integrations, diagnostics, and runtime activation, with
+  an accountable inventory for expert file-managed overrides
 * portable GitHub Actions coverage of the unit and command-contract suite on
   CPython 3.9 and 3.13; real Pi audio and GPIO validation remains deliberate
 
@@ -56,6 +63,8 @@ next steps include:
   unresolved language, and source-scoped continuity
 * replayable regression cases derived from real failures without committing
   private utterance history
+* browser-level smoke coverage for first-run claim, guided setup navigation,
+  reviewed configuration writes, reload persistence, and runtime activation
 
 ### Operational Feedback And Privacy
 
@@ -90,6 +99,24 @@ Small, periodic passes should:
 * keep configuration examples synchronized with `app_config.py`
 * expose useful existing phrasing that is easy to overlook
 * preserve clear boundaries between supported, experimental, and planned work
+
+### Configuration Ownership
+
+Normal first-run and routine settings already have domain owners in the browser.
+Remaining file-managed controls are mostly expert vocabulary catalogs,
+diagnostic retention, compatibility values, and domain-specific policy
+thresholds. Promote them only when a structured editor makes the behavior safer
+or substantially easier to understand. Useful future owners include:
+
+* Diagnostics for command-text privacy and log-retention controls
+* language tooling for aliases, phonetic repairs, labels, and pronunciation
+* integration-specific advanced panels for weather, astronomy, stocks, media,
+  scheduling, and temporary-action policy
+* guarded satellite and network helpers that validate reachability and avoid
+  locking a user out of the console
+
+A generic raw-Python or YAML editor is not the goal; expert assignments should
+remain visible and documented until their domain has a safer control.
 
 ## Candidate User-Facing Extensions
 

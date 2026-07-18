@@ -146,6 +146,16 @@ usually describes one specific Pi, room, audio device, or speaker target.
 
 
 # ---------------------------------------------------------------------------
+# Device-local integration jobs
+# ---------------------------------------------------------------------------
+
+# Automatic YouTube playlist refresh should run on only one always-on Home
+# Suite instance. It is disabled in the public device example and should remain
+# disabled on voice satellites to avoid duplicate refresh jobs.
+YOUTUBE_REEL_REFRESH_ENABLED = False
+
+
+# ---------------------------------------------------------------------------
 # Companion API
 # ---------------------------------------------------------------------------
 

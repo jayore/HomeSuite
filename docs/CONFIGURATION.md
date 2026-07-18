@@ -28,6 +28,15 @@ guided, advanced, deprecated, or unrecognized, so a setting remains visible
 even before it receives a dedicated editor. `homesuite doctor` reports the
 same deprecated and unrecognized assignments.
 
+Normal first-run and day-to-day settings belong to a feature page: **Settings**,
+**Physical controls**, **Wake word**, **Audio**, **Rooms**, or **Integrations**.
+The settings needed by the currently exercised text/API, PTT, wake-word, and
+satellite roles have guided owners. Remaining documented expert controls are
+specialized catalogs, policy thresholds, diagnostic retention, or low-level
+compatibility values. They stay file-managed until they have a safe
+domain-specific editor and appear under **Settings → Advanced** whenever they
+are active. They are not hidden first-run requirements.
+
 Use `deployment_config.py` for non-secret values shared by every device, such
 as `ROOMS`, `HOME_LOCATION`, and entity labels. Use `private_config.py` for
 shared secrets and endpoints. Use `local_prefs.py` for one device's audio,
@@ -669,10 +678,10 @@ Create a Spotify app in the Spotify Developer Dashboard. Spotify's app page expl
 
 * https://developer.spotify.com/documentation/web-api/concepts/apps
 
-The refresh-token flow is still rough in this advanced alpha build. Expect to
-use your own OAuth helper or future Home Suite tooling to obtain
+The console stores Spotify credentials but does not yet conduct the Spotify
+OAuth authorization itself. Use an external OAuth helper to obtain
 `SPOTIFY_REFRESH_TOKEN` with the scopes needed for playback, library, and
-playlist access.
+playlist access, then enter the result under **Integrations → Spotify**.
 
 ## Telegram
 
@@ -725,8 +734,9 @@ homesuite-youtube-pair
 homesuite-youtube-oauth
 ```
 
-These are still advanced alpha quality and may need refinement for a clean
-first-run setup.
+These CLI helpers complete pairing and OAuth outside the browser. The console
+can store the resulting credentials, but it does not yet host the complete
+YouTube authorization flow.
 
 ## qBittorrent
 

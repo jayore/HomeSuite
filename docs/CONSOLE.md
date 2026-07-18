@@ -6,9 +6,10 @@ runs as a separate process from `homesuite.service` on port `8766` by default.
 A console restart does not restart PTT, wake-word capture, alarms, or the live
 command runtime.
 
-The console shows effective configuration and provides guided editing for a
-curated set of common node, credential, and shared room settings. The separate
-text surface has the Test and explicit Live behavior described below.
+The console shows effective configuration and provides guided editing for
+common node, credential, and shared room settings. Its Chat surface forwards
+messages to the running live command service; safe dry runs remain deliberately
+separate in the CLI.
 
 ## Start the Console
 
@@ -383,7 +384,7 @@ file that stores them:
   owns microphone, local signal processing, playback, and calibration. **Rooms**
   owns the shared room topology.
 
-The long-term contract is that supported settings should be visible in the
+The contract is that normal setup and maintenance settings are visible in the
 console. Simple values receive guided controls, nested values receive
 purpose-built editors, and low-level tuning remains grouped under **Advanced**
 until it has a safe control. Deprecated compatibility aliases such as the original `HANDSET_*`
@@ -421,8 +422,13 @@ metadata is preserved unless that gesture is edited.
 
 Structured `ROOMS` mappings use the purpose-built Rooms editor, and
 `AUDIO_INPUT_PROFILE` uses the purpose-built Audio editor. Deployment-wide
-policies without guided controls remain direct file edits; none of these
-structured settings are exposed as unvalidated free-form text fields.
+catalogs and expert policies without guided controls remain direct file edits;
+none of these structured settings are exposed as unvalidated free-form text
+fields. Likely future owners include Diagnostics for privacy and retention,
+language tooling for aliases and pronunciation, and each integration for its
+own advanced thresholds. The console's own bind address and port also remain a
+deliberate file-managed recovery setting so a browser edit cannot silently lock
+the user out of the console.
 
 Integration readiness is local to the node serving the console. A credential
 configured on one Pi does not make it available to another Pi unless the same

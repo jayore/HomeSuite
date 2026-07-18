@@ -237,8 +237,10 @@ Create a Spotify app in the Spotify Developer Dashboard.
 
 Docs: https://developer.spotify.com/documentation/web-api/concepts/apps
 
-The refresh-token setup still needs more polish in this advanced alpha build.
-You need scopes appropriate to playback, library, and playlist operations.
+The console stores Spotify credentials but does not yet conduct Spotify OAuth.
+Obtain the refresh token with an external OAuth helper using scopes appropriate
+to playback, library, and playlist operations, then enter it under
+**Integrations → Spotify**.
 
 ### YouTube
 

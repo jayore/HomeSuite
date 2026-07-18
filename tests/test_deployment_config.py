@@ -117,12 +117,16 @@ class DeploymentConfigTests(unittest.TestCase):
             "light.*scene_trigger*",
             values["ASSISTANT_BULK_EXCLUDED_ENTITY_PATTERNS"],
         )
-        self.assertFalse(values["YOUTUBE_REEL_REFRESH_ENABLED"])
         self.assertEqual(values["ASSISTANT_PROFILE"]["preferred_name"], "")
         self.assertEqual(values["ASSISTANT_PROFILE"]["notes"], [])
         self.assertIsNone(values["HOME_LOCATION"]["city"])
         self.assertIsNone(values["HOME_LOCATION"]["region"])
         self.assertIsNone(values["HOME_LOCATION"]["country"])
+
+    def test_public_local_preferences_disable_device_local_youtube_refresh(self):
+        values = runpy.run_path(str(ROOT / "local_prefs.example.py"))
+
+        self.assertFalse(values["YOUTUBE_REEL_REFRESH_ENABLED"])
 
     def test_error_inside_deployment_config_is_not_silently_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
