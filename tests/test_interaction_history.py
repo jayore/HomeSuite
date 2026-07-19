@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 
 class _NowPlayingRuntime:
@@ -35,6 +37,29 @@ class _ChatRuntime:
 
     def _looks_like_joke_request(self, _text):
         return False
+
+    def get_chatgpt_response(self, text):
+        self.ai_requests.append(text)
+        return f"AI: {text}"
+
+
+class _JokeRuntime:
+    def __init__(self):
+        self._ACTION_OCCURRED = False
+        self.joke_requests = []
+        self.ai_requests = []
+
+    def process_device_commands(self, _text):
+        return None
+
+    def _looks_like_joke_request(self, text):
+        from interaction_flow import looks_like_joke_request
+
+        return looks_like_joke_request(text)
+
+    def get_chatgpt_joke_response(self, text):
+        self.joke_requests.append(text)
+        return f"Joke {len(self.joke_requests)}"
 
     def get_chatgpt_response(self, text):
         self.ai_requests.append(text)
@@ -137,6 +162,82 @@ class InteractionHistoryTests(unittest.TestCase):
                 "the one with neo",
             ],
         )
+
+    def test_another_after_joke_stays_in_dedicated_joke_mode(self):
+        from interaction_flow import get_history_snapshot, handle_text_interaction
+
+        runtime = _JokeRuntime()
+        first = handle_text_interaction(runtime, "tell me a joke")
+        second = handle_text_interaction(runtime, "another")
+
+        self.assertEqual(
+            (first.response_text, second.response_text),
+            ("Joke 1", "Joke 2"),
+        )
+        self.assertEqual(runtime.joke_requests, ["tell me a joke", "another"])
+        self.assertEqual(runtime.ai_requests, [])
+        self.assertEqual(
+            get_history_snapshot()[-4:],
+            [
+                {"role": "user", "content": "tell me a joke"},
+                {"role": "assistant", "content": "Joke 1"},
+                {"role": "user", "content": "another"},
+                {"role": "assistant", "content": "Joke 2"},
+            ],
+        )
+
+    def test_joke_followup_is_source_scoped_and_cleared_by_new_ai_topic(self):
+        from interaction_flow import handle_text_interaction, looks_like_joke_request
+        from request_context import RequestContext, set_current_request_context
+
+        runtime = _JokeRuntime()
+        handle_text_interaction(runtime, "tell me a joke")
+        self.assertTrue(looks_like_joke_request("another"))
+
+        set_current_request_context(
+            RequestContext(source_id="default_piphone", source_type="wakeword")
+        )
+        self.assertFalse(looks_like_joke_request("another"))
+
+        set_current_request_context(
+            RequestContext(source_id="telegram", source_type="telegram")
+        )
+        handle_text_interaction(runtime, "explain photosynthesis")
+        self.assertFalse(looks_like_joke_request("another"))
+        self.assertEqual(runtime.ai_requests, ["explain photosynthesis"])
+
+    def test_recent_jokes_are_sent_to_the_next_joke_request(self):
+        import main
+
+        main.recent_jokes.clear()
+        client = mock.Mock()
+        client.chat.completions.create.side_effect = [
+            SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="First joke"))]
+            ),
+            SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="Second joke"))]
+            ),
+        ]
+
+        try:
+            with mock.patch.object(main, "OPENAI_CLIENT", client):
+                self.assertEqual(
+                    main.get_chatgpt_joke_response("tell me a joke"),
+                    "First joke",
+                )
+                self.assertEqual(
+                    main.get_chatgpt_joke_response("another"),
+                    "Second joke",
+                )
+
+            second_prompt = client.chat.completions.create.call_args_list[1].kwargs[
+                "messages"
+            ][1]["content"]
+            self.assertIn("First joke", second_prompt)
+            self.assertEqual(list(main.recent_jokes), ["First joke", "Second joke"])
+        finally:
+            main.recent_jokes.clear()
 
     def test_one_word_ai_followup_uses_only_the_current_source_recency(self):
         from interaction_flow import handle_text_interaction

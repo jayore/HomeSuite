@@ -451,7 +451,12 @@ Use `say` for local speech/TTS testing. Use `announce` when you want the message
 
 AI can answer conversational questions and leave short-lived context breadcrumbs. Follow-up actions still route through deterministic Plex, Spotify, or Home Assistant handlers.
 
+Dedicated joke requests avoid recently generated jokes. Immediate follow-ups
+such as `another` stay in joke mode only for the same request source.
+
 * `what's the latest news?`
+* `tell me a joke`
+* `another`
 * `what is the most popular Beatles song?`
 * `play it`
 * `what movie has Darth Vader telling Luke he is his father?`

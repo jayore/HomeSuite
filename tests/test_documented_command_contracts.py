@@ -27,6 +27,7 @@ AI_SECTION = "Chat, AI Fallback, And Follow-Ups"
 EXTERNAL_SECTION = "External Interfaces"
 
 AI_COMMANDS = {
+    "tell me a joke",
     "what's the latest news?",
     "what is the most popular Beatles song?",
     "what movie has Darth Vader telling Luke he is his father?",
@@ -35,6 +36,10 @@ AI_COMMANDS = {
     "how far is that by car?",
     "how far is that to drive?",
     "how long would that take?",
+}
+
+CONTEXTUAL_AI_COMMANDS = {
+    "another",
 }
 
 CONTEXTUAL_DEVICE_COMMANDS = {
@@ -66,16 +71,29 @@ class DocumentedCommandRoutingContractTests(unittest.TestCase):
                 if section == EXTERNAL_SECTION:
                     continue
                 if section == AI_SECTION:
-                    self.assertIn(command, AI_COMMANDS | CONTEXTUAL_DEVICE_COMMANDS)
-                    expected = (
-                        RouteOutcome.CHATGPT
-                        if command in AI_COMMANDS
-                        else RouteOutcome.DEVICE
+                    self.assertIn(
+                        command,
+                        AI_COMMANDS
+                        | CONTEXTUAL_AI_COMMANDS
+                        | CONTEXTUAL_DEVICE_COMMANDS,
                     )
+                    if command in AI_COMMANDS:
+                        expected = RouteOutcome.CHATGPT
+                        route_kwargs = {}
+                    elif command in CONTEXTUAL_AI_COMMANDS:
+                        expected = RouteOutcome.CHATGPT
+                        route_kwargs = {"now_ts": 100.0, "last_chatgpt_ts": 99.0}
+                    else:
+                        expected = RouteOutcome.DEVICE
+                        route_kwargs = {}
                 else:
                     expected = RouteOutcome.DEVICE
+                    route_kwargs = {}
 
-                self.assertEqual(route_utterance(text=command).outcome, expected)
+                self.assertEqual(
+                    route_utterance(text=command, **route_kwargs).outcome,
+                    expected,
+                )
 
     def test_ai_section_cannot_grow_without_an_explicit_contract(self):
         documented = {
@@ -84,7 +102,10 @@ class DocumentedCommandRoutingContractTests(unittest.TestCase):
             if section == AI_SECTION
         }
 
-        self.assertEqual(documented, AI_COMMANDS | CONTEXTUAL_DEVICE_COMMANDS)
+        self.assertEqual(
+            documented,
+            AI_COMMANDS | CONTEXTUAL_AI_COMMANDS | CONTEXTUAL_DEVICE_COMMANDS,
+        )
 
 
 if __name__ == "__main__":

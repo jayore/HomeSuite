@@ -3628,14 +3628,7 @@ def record_audio_with_vad() -> Optional[str]:
 # =========================
 
 def _looks_like_joke_request(text: str) -> bool:
-    t = (text or "").strip().lower()
-    if not t:
-        return False
-    if re.search(r"\b(tell me a joke|tell a joke|joke)\b", t):
-        return True
-    if re.fullmatch(r"(another one|one more|more|again)", t):
-        return True
-    return False
+    return interaction_flow.looks_like_joke_request(text)
 
 def get_chatgpt_joke_response(text: str) -> str:
     # Joke mode: higher variety + explicit no-repeat list
@@ -4449,6 +4442,7 @@ def process_audio(
             # - local utility returned a non-empty string (time/weather)
             if command_dispatch._ACTION_OCCURRED or (device_response is not None and device_response.strip()):
                 action_result = ActionResult.DEVICE
+                interaction_flow.clear_joke_turn()
             # Semantic router (DEVICE vs CHATGPT vs ERROR)
             if action_result == ActionResult.NONE and ptt_session_active:
                 now_ts = _now_ts()
@@ -4458,15 +4452,26 @@ def process_audio(
                     source_type=trigger_name,
                 )
                 if rr.outcome == RouteOutcome.CHATGPT:
-                    if _looks_like_joke_request(text):
+                    joke_request = _looks_like_joke_request(text)
+                    if joke_request:
                         response = (get_chatgpt_joke_response(text) or "").strip()
                     else:
+                        interaction_flow.clear_joke_turn()
                         response = (get_chatgpt_response(text) or "").strip()
                     if response:
-                        interaction_flow.mark_chatgpt_turn(now_ts=now_ts)
+                        if joke_request:
+                            interaction_flow.record_joke_turn(
+                                text,
+                                response,
+                                now_ts=now_ts,
+                            )
+                        else:
+                            interaction_flow.mark_chatgpt_turn(now_ts=now_ts)
                         action_result = ActionResult.CHATGPT
                         if ptt_session_active:
                             async_response_started = _speak_text_for_trigger(response, trigger)
+                else:
+                    interaction_flow.clear_joke_turn()
 
         # Event log: record every voiced command with outcome
         try:

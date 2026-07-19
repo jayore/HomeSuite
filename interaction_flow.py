@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from app_config import INTERACTION_CANCEL_PHRASES
+from app_config import CHATGPT_CONTINUATION_WINDOW_SECONDS, INTERACTION_CANCEL_PHRASES
 from dialogue_state import current_scope_id, forget_intent_frame, forget_referents
 from request_context import get_current_request_context
 from semantic_router import RouteOutcome, RouteResult, route_utterance
@@ -56,7 +56,35 @@ def is_interaction_cancel(text: str) -> bool:
     return normalized in phrases
 
 
+_EXPLICIT_JOKE_RE = re.compile(r"\b(?:joke|something\s+funny|make\s+me\s+laugh)\b")
+_JOKE_FOLLOWUP_RE = re.compile(
+    r"(?:(?:tell|give)\s+me\s+)?"
+    r"(?:another(?:\s+one)?|one\s+more|more|again|a\s+different\s+one)"
+)
+
+
+def _normalize_joke_text(text: str) -> str:
+    value = _clean_text(text).lower().replace("’", "'")
+    value = re.sub(r"[^a-z0-9'\s]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def looks_like_joke_request(text: str, *, now_ts: float | None = None) -> bool:
+    """Recognize explicit jokes and source-scoped immediate follow-ups."""
+    normalized = _normalize_joke_text(text)
+    if not normalized:
+        return False
+    if _EXPLICIT_JOKE_RE.search(normalized):
+        return True
+    return bool(
+        _JOKE_FOLLOWUP_RE.fullmatch(normalized)
+        and is_recent_joke_turn(now_ts=now_ts)
+    )
+
+
 def _looks_like_joke_request(gpio_ptt, text: str) -> bool:
+    if looks_like_joke_request(text):
+        return True
     try:
         fn = getattr(gpio_ptt, "_looks_like_joke_request", None)
         if callable(fn):
@@ -297,6 +325,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
         from clarification_controls import cancel_pending_clarification
         from confirmation_controls import cancel_pending_confirmation
 
+        clear_joke_turn()
         cancel_pending_clarification()
         cancel_pending_confirmation()
         forget_referents(capability="pending_interaction")
@@ -313,6 +342,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
         device_response = gpio_ptt.process_device_commands(text)
     except Exception as e:
         forget_intent_frame()
+        clear_joke_turn()
         return InteractionResult(
             handled=True,
             action_occurred=False,
@@ -331,6 +361,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
 
     # Informational / explicit text returned from device-command layer
     if response_text and _is_user_facing_device_text(response_text):
+        clear_joke_turn()
         inject_device_response_history(text, device_response)
         return InteractionResult(
             handled=True,
@@ -341,6 +372,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
 
     # Silent success (or suppressed dev-ish text) → generate readable text confirmation
     if action_occurred:
+        clear_joke_turn()
         confirmation_text = _effective_confirmation_text(gpio_ptt, text)
         if confirmation_text != text:
             logging.info(
@@ -362,13 +394,16 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
     # source-scoped semantic policy used by local voice interactions.
     route_result = route_unhandled_utterance(text)
     if route_result.outcome == RouteOutcome.CHATGPT:
+        joke_request = _looks_like_joke_request(gpio_ptt, text)
         try:
-            if _looks_like_joke_request(gpio_ptt, text):
+            if joke_request:
                 reply = _clean_text(gpio_ptt.get_chatgpt_joke_response(text))
             else:
+                clear_joke_turn()
                 reply = _clean_text(gpio_ptt.get_chatgpt_response(text))
         except Exception as e:
             forget_intent_frame()
+            clear_joke_turn()
             return InteractionResult(
                 handled=True,
                 action_occurred=False,
@@ -377,11 +412,14 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
             )
 
         if reply:
+            if joke_request:
+                record_joke_turn(text, reply)
+            else:
+                mark_chatgpt_turn()
             # Once a turn enters open-ended AI conversation, short phrases such
             # as "what about Thursday?" belong to that conversation rather than
             # an older deterministic intent frame. AI history remains intact.
             forget_intent_frame()
-            mark_chatgpt_turn()
             return InteractionResult(
                 handled=True,
                 action_occurred=False,
@@ -390,6 +428,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
             )
 
     forget_intent_frame()
+    clear_joke_turn()
     return InteractionResult(
         handled=False,
         action_occurred=False,
@@ -420,6 +459,7 @@ conversation_history: list = [_BASE_SYSTEM_MESSAGE.copy()]
 _HISTORY_LOCK = threading.RLock()
 _HISTORIES_BY_SCOPE: dict[str, list] = {"process": conversation_history}
 _LAST_CHATGPT_TS_BY_SCOPE: dict[str, float] = {}
+_LAST_JOKE_TS_BY_SCOPE: dict[str, float] = {}
 
 
 def _scope_key(scope_id: str | None = None) -> str:
@@ -441,6 +481,43 @@ def mark_chatgpt_turn(
     timestamp = time.time() if now_ts is None else float(now_ts)
     with _HISTORY_LOCK:
         _LAST_CHATGPT_TS_BY_SCOPE[_scope_key(scope_id)] = timestamp
+
+
+def get_last_joke_ts(scope_id: str | None = None) -> float | None:
+    """Return the most recent dedicated joke turn for one continuity scope."""
+    with _HISTORY_LOCK:
+        return _LAST_JOKE_TS_BY_SCOPE.get(_scope_key(scope_id))
+
+
+def mark_joke_turn(
+    *,
+    now_ts: float | None = None,
+    scope_id: str | None = None,
+) -> None:
+    timestamp = time.time() if now_ts is None else float(now_ts)
+    with _HISTORY_LOCK:
+        _LAST_JOKE_TS_BY_SCOPE[_scope_key(scope_id)] = timestamp
+
+
+def clear_joke_turn(scope_id: str | None = None) -> None:
+    with _HISTORY_LOCK:
+        _LAST_JOKE_TS_BY_SCOPE.pop(_scope_key(scope_id), None)
+
+
+def is_recent_joke_turn(
+    *,
+    now_ts: float | None = None,
+    scope_id: str | None = None,
+) -> bool:
+    now = time.time() if now_ts is None else float(now_ts)
+    last = get_last_joke_ts(scope_id)
+    if last is None:
+        return False
+    try:
+        window = max(0.0, float(CHATGPT_CONTINUATION_WINDOW_SECONDS))
+    except (TypeError, ValueError):
+        window = 120.0
+    return 0.0 <= now - last <= window
 
 
 def _current_source_type() -> str:
@@ -491,6 +568,21 @@ def append_history_message(role: str, content: str, scope_id: str | None = None)
         trim_history(scope_id)
 
 
+def record_joke_turn(
+    user_text: str,
+    assistant_text: str,
+    *,
+    now_ts: float | None = None,
+    scope_id: str | None = None,
+) -> None:
+    """Bridge a dedicated joke response into normal scoped conversation."""
+    append_history_message("user", user_text, scope_id)
+    append_history_message("assistant", assistant_text, scope_id)
+    mark_joke_turn(now_ts=now_ts, scope_id=scope_id)
+    mark_chatgpt_turn(now_ts=now_ts, scope_id=scope_id)
+    logging.info("JOKE_TURN_RECORDED scope=%r", _scope_key(scope_id))
+
+
 def trim_history(scope_id: str | None = None) -> None:
     with _HISTORY_LOCK:
         history = _history_for_scope(scope_id)
@@ -506,6 +598,7 @@ def reset_history(scope_id: str | None = None, *, all_scopes: bool = False) -> N
         if all_scopes:
             _HISTORIES_BY_SCOPE.clear()
             _LAST_CHATGPT_TS_BY_SCOPE.clear()
+            _LAST_JOKE_TS_BY_SCOPE.clear()
             conversation_history[:] = [_BASE_SYSTEM_MESSAGE.copy()]
             _HISTORIES_BY_SCOPE["process"] = conversation_history
             return
@@ -513,6 +606,7 @@ def reset_history(scope_id: str | None = None, *, all_scopes: bool = False) -> N
         history = _history_for_scope(scope)
         history[:] = [_BASE_SYSTEM_MESSAGE.copy()]
         _LAST_CHATGPT_TS_BY_SCOPE.pop(scope, None)
+        _LAST_JOKE_TS_BY_SCOPE.pop(scope, None)
 
 
 def inject_into_history(
