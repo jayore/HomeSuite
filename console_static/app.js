@@ -291,6 +291,24 @@
     window.renderLucideIcons(document);
   }
 
+  function consumeLoginResult() {
+    const url = new URL(window.location.href);
+    const result = url.searchParams.get("login") || "";
+    if (!result) return "";
+    url.searchParams.delete("login");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    return result;
+  }
+
+  function showLoginResult(result) {
+    if (!result) return;
+    const error = $("#login-error");
+    error.textContent = result === "bootstrap_required"
+      ? "Create the console passphrase before signing in."
+      : "That passphrase was not accepted.";
+    error.hidden = false;
+  }
+
   function showToast(message) {
     const toast = $("#toast");
     toast.textContent = message;
@@ -5168,37 +5186,6 @@
       }
     });
 
-    $("#login-form").addEventListener("submit", async function (event) {
-      event.preventDefault();
-      if (state.loginBusy) return;
-      const key = $("#console-key").value;
-      const error = $("#login-error");
-      const submit = $("#login-submit");
-      error.hidden = true;
-      state.loginBusy = true;
-      submit.disabled = true;
-      try {
-        await api("/api/login", { method: "POST", body: { key: key } });
-        showApp();
-        window.setTimeout(function () {
-          if ($("#login-screen").hidden) $("#console-key").value = "";
-        }, 1500);
-        await refreshAll();
-        if (!resumeSetupJourney() && (!state.setup || !state.setup.complete)) navigate("setup");
-      } catch (exception) {
-        error.textContent = exception.message === "invalid_key" ? "That passphrase was not accepted." : exception.message;
-        error.hidden = false;
-      } finally {
-        state.loginBusy = false;
-        submit.disabled = false;
-      }
-    });
-    $("#console-key").addEventListener("keydown", function (event) {
-      if (event.key !== "Enter" || event.isComposing) return;
-      event.preventDefault();
-      if (!state.loginBusy) $("#login-form").requestSubmit($("#login-submit"));
-    });
-
     $("#logout-button").addEventListener("click", async function () {
       if (state.audioCalibration.token) await releaseAudioCalibration("logout", true);
       try { await api("/api/logout", { method: "POST" }); } catch (_error) { /* session may already be gone */ }
@@ -5443,10 +5430,12 @@
   async function boot() {
     window.renderLucideIcons(document);
     bindEvents();
+    const loginResult = consumeLoginResult();
     try {
       const session = await api("/api/session");
       if (!session.authenticated) {
         showLogin(session.bootstrap_required);
+        showLoginResult(loginResult);
         return;
       }
       showApp();

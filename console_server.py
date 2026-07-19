@@ -372,9 +372,8 @@ def create_app(
             log.exception("CONSOLE_BOOTSTRAP_STATUS_FAIL")
             return False
 
-    def authenticated_response(request: web.Request) -> web.Response:
+    def add_authenticated_session(request: web.Request, response: web.StreamResponse) -> web.StreamResponse:
         token = app[SESSIONS_KEY].create()
-        response = web.json_response({"ok": True, "authenticated": True})
         response.set_cookie(
             SESSION_COOKIE,
             token,
@@ -392,6 +391,10 @@ def create_app(
             path="/",
         )
         return response
+
+    def authenticated_response(request: web.Request) -> web.Response:
+        response = web.json_response({"ok": True, "authenticated": True})
+        return add_authenticated_session(request, response)
 
     async def require_auth(request: web.Request) -> Optional[web.Response]:
         if not authenticated(request):
@@ -487,6 +490,24 @@ def create_app(
             await asyncio.sleep(0.25)
             return web.json_response({"ok": False, "error": "invalid_key"}, status=403)
         return authenticated_response(request)
+
+    async def browser_login(request: web.Request) -> web.StreamResponse:
+        """Handle a native form login so browser password managers see it."""
+        if not _same_origin(request):
+            return web.Response(status=403)
+        if bootstrap_pending():
+            return web.Response(status=303, headers={"Location": "/?login=bootstrap_required"})
+        try:
+            data = await request.post()
+        except Exception:
+            return web.Response(status=303, headers={"Location": "/?login=invalid"})
+        supplied = str(data.get("password", "")).strip()
+        expected = app[CONSOLE_KEY]["value"]
+        if not supplied or not hmac.compare_digest(supplied, expected):
+            await asyncio.sleep(0.25)
+            return web.Response(status=303, headers={"Location": "/?login=invalid"})
+        response = web.Response(status=303, headers={"Location": "/"})
+        return add_authenticated_session(request, response)
 
     async def logout(request: web.Request) -> web.Response:
         blocked = await require_auth(request)
@@ -1225,6 +1246,7 @@ def create_app(
     app.router.add_get("/docs/{name}", documentation)
     app.router.add_get("/api/session", session_status)
     app.router.add_post("/api/bootstrap", bootstrap_claim)
+    app.router.add_post("/login", browser_login)
     app.router.add_post("/api/login", login)
     app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/snapshot", snapshot)

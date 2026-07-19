@@ -67,6 +67,13 @@ browser responses never contain the configured passphrase or integration
 credential values during ordinary read-only use. Restarting the console signs
 out existing browser sessions.
 
+The sign-in screen uses a native username-and-password form with standard
+browser autocomplete metadata. Browsers and password managers can therefore
+offer to save and refill the console passphrase after a successful sign-in.
+Saved credentials belong to the exact browser origin, so use the same hostname
+and port consistently; `piphone.local:8766` and an IP-address URL are separate
+password-manager entries.
+
 `HOMESUITE_CONSOLE_KEY` and `HOMESUITE_HTTP_API_KEY` environment variables take
 precedence over the corresponding private-config values when a service manager
 or container supplies credentials that way.

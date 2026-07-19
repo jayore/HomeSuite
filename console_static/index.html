@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#03a9f4">
   <title>Home Suite Console</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260717b">
+  <link rel="stylesheet" href="/static/styles.css?v=20260718a">
 </head>
 <body>
   <div id="login-screen" class="login-screen" hidden>
@@ -17,9 +17,9 @@
         <h1 id="login-title">Management Console</h1>
         <p id="login-intro" class="login-intro" hidden></p>
       </div>
-      <form id="login-form" class="login-form" action="/api/login" method="post" autocomplete="on">
+      <form id="login-form" class="login-form" action="/login" method="post" autocomplete="on">
         <label class="sr-only" for="console-username">Username</label>
-        <input id="console-username" class="sr-only" name="username" type="text" value="homesuite-console" autocomplete="username" readonly tabindex="-1">
+        <input id="console-username" class="sr-only" name="username" type="text" value="homesuite-console" autocomplete="username" tabindex="-1">
         <label for="console-key">Console passphrase</label>
         <input id="console-key" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required autofocus>
         <p id="login-error" class="form-error" role="alert" hidden></p>
@@ -705,7 +705,7 @@
   <div id="room-datalists" hidden></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <script src="/static/icons.js?v=20260717b"></script>
-  <script src="/static/app.js?v=20260717b"></script>
+  <script src="/static/icons.js?v=20260718a"></script>
+  <script src="/static/app.js?v=20260718a"></script>
 </body>
 </html>

@@ -192,6 +192,52 @@ class ConsoleServerTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_native_browser_login_redirects_and_sets_session_cookie(self):
+        async def scenario():
+            runtime = mock.Mock()
+            app = console_server.create_app(
+                console_key="console-passphrase",
+                api_key="api-key",
+                live_api_url="http://127.0.0.1:8765/command",
+                runtime=runtime,
+            )
+            client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
+            await client.start_server()
+            try:
+                response = await client.post(
+                    "/login",
+                    data={"username": "homesuite-console", "password": "wrong"},
+                    allow_redirects=False,
+                )
+                self.assertEqual(response.status, 303)
+                self.assertEqual(response.headers["Location"], "/?login=invalid")
+                self.assertNotIn(
+                    console_server.SESSION_COOKIE,
+                    client.session.cookie_jar.filter_cookies(client.make_url("/")),
+                )
+
+                response = await client.post(
+                    "/login",
+                    data={
+                        "username": "homesuite-console",
+                        "password": "console-passphrase",
+                    },
+                    allow_redirects=False,
+                )
+                self.assertEqual(response.status, 303)
+                self.assertEqual(response.headers["Location"], "/")
+                self.assertIn(
+                    console_server.SESSION_COOKIE,
+                    client.session.cookie_jar.filter_cookies(client.make_url("/")),
+                )
+
+                response = await client.get("/api/session")
+                self.assertTrue((await response.json())["authenticated"])
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
     def test_authenticated_config_preview_and_apply_routes(self):
         async def scenario():
             runtime = mock.Mock()

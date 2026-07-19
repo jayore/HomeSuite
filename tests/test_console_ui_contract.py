@@ -60,7 +60,7 @@ class ConsoleUiContractTests(unittest.TestCase):
         self.assertIn('view !== state.setupJourneyView', javascript)
         self.assertIn('$("#exit-setup-journey").addEventListener', javascript)
         self.assertIn('window.sessionStorage.setItem(SETUP_JOURNEY_STORAGE_KEY', javascript)
-        self.assertEqual(javascript.count('(!state.setup || !state.setup.complete)'), 2)
+        self.assertEqual(javascript.count('(!state.setup || !state.setup.complete)'), 1)
 
     def test_setup_journey_owns_a_responsive_content_row(self):
         stylesheet = (ROOT / "console_static" / "styles.css").read_text(encoding="utf-8")
@@ -135,12 +135,14 @@ class ConsoleUiContractTests(unittest.TestCase):
         html = (ROOT / "console_static" / "index.html").read_text(encoding="utf-8")
         javascript = (ROOT / "console_static" / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn('action="/api/login" method="post" autocomplete="on"', html)
+        self.assertIn('action="/login" method="post" autocomplete="on"', html)
         self.assertIn('name="username" type="text" value="homesuite-console" autocomplete="username"', html)
+        self.assertNotIn('value="homesuite-console" autocomplete="username" readonly', html)
         self.assertIn('name="password" type="password" autocomplete="current-password"', html)
         self.assertIn('id="login-submit"', html)
-        self.assertIn('$("#login-form").requestSubmit($("#login-submit"));', javascript)
-        self.assertIn('if (state.loginBusy) return;', javascript)
+        self.assertNotIn('$("#login-form").addEventListener("submit"', javascript)
+        self.assertIn('const loginResult = consumeLoginResult();', javascript)
+        self.assertIn('showLoginResult(loginResult);', javascript)
 
     def test_physical_controls_and_detector_use_shared_config_editor(self):
         html = (ROOT / "console_static" / "index.html").read_text(encoding="utf-8")
