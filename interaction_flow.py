@@ -95,6 +95,19 @@ def _is_user_facing_device_text(text: str) -> bool:
     return True
 
 
+def _effective_confirmation_text(gpio_ptt, original_text: str) -> str:
+    """Prefer the command that routing actually executed over its short follow-up."""
+    try:
+        resolver = getattr(gpio_ptt, "get_effective_command_text", None)
+        if callable(resolver):
+            effective = _clean_text(resolver(original_text))
+            if effective:
+                return effective
+    except Exception:
+        pass
+    return _clean_text(original_text)
+
+
 def _make_context_aware_confirmation(gpio_ptt, text: str) -> str:
     try:
         ctx = getattr(gpio_ptt, "get_text_confirm_context", lambda: {})() or {}
@@ -171,10 +184,18 @@ def _make_text_confirmation(text: str) -> str:
         value = m.group(2).strip()
         return f"{target.title()} brightness set to {value}."
 
-    if tl == "volume up":
+    if re.fullmatch(
+        r"(?:volume\s+up|louder|make\s+.+?\s+louder|"
+        r"increase\s+(?:.+?\s+)?volume(?:\s+by\s+\d{1,3})?)",
+        tl,
+    ):
         return "Increased volume."
 
-    if tl == "volume down":
+    if re.fullmatch(
+        r"(?:volume\s+down|quieter|make\s+.+?\s+quieter|"
+        r"decrease\s+(?:.+?\s+)?volume(?:\s+by\s+\d{1,3})?)",
+        tl,
+    ):
         return "Decreased volume."
 
     if re.search(r"\b(?:toggle\s+mute|mute\s+toggle|mute\s+unmute|unmute\s+mute|toggle\s+muting)\b", tl):
@@ -317,7 +338,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
 
     # Informational / explicit text returned from device-command layer
     if response_text and _is_user_facing_device_text(response_text):
-        inject_into_history(text, response_text)
+        inject_device_response_history(text, device_response)
         return InteractionResult(
             handled=True,
             action_occurred=action_occurred,
@@ -327,10 +348,20 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
 
     # Silent success (or suppressed dev-ish text) → generate readable text confirmation
     if action_occurred:
+        confirmation_text = _effective_confirmation_text(gpio_ptt, text)
+        if confirmation_text != text:
+            logging.info(
+                "INTERACTION_CONFIRM_EFFECTIVE_TEXT input=%r effective=%r",
+                text,
+                confirmation_text,
+            )
         return InteractionResult(
             handled=True,
             action_occurred=True,
-            response_text=_make_context_aware_confirmation(gpio_ptt, text),
+            response_text=_make_context_aware_confirmation(
+                gpio_ptt,
+                confirmation_text,
+            ),
             source="device_confirm",
         )
 
@@ -476,4 +507,40 @@ def inject_into_history(
         "_FORCED" if force else "",
         user_text[:60],
         history_assistant_text[:60],
+    )
+
+
+def inject_device_response_history(user_text: str, assistant_text: str) -> None:
+    """Bridge deterministic information into AI history with domain-aware context."""
+    from response_context import consume_response_context
+
+    response_context = consume_response_context() or {}
+    context_kind = str(response_context.get("kind") or "").strip().lower()
+    context_data = response_context.get("data") or {}
+
+    try:
+        from now_playing_controls import (
+            format_now_playing_history_context,
+            is_now_playing_query,
+        )
+
+        now_playing = context_kind == "now_playing" or bool(is_now_playing_query(user_text))
+    except Exception:
+        now_playing = context_kind == "now_playing"
+
+    assistant_context_text = None
+    if now_playing:
+        try:
+            assistant_context_text = format_now_playing_history_context(
+                context_data,
+                str(assistant_text or "").strip(),
+            )
+        except Exception:
+            assistant_context_text = f"Currently playing: {assistant_text}"
+
+    inject_into_history(
+        user_text,
+        assistant_text,
+        force=now_playing,
+        assistant_context_text=assistant_context_text,
     )

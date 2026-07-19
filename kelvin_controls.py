@@ -9,6 +9,8 @@ before calling Home Assistant and leaves ordinary named colors to
 import re
 from typing import Optional
 
+from multi_target_utils import split_targets
+
 
 # --------------------------------------------------
 # Named color temperatures
@@ -71,12 +73,18 @@ def handle_kelvin_controls(
         # contextual handler below catches it. Must NOT 'return None' here —
         # that would exit the function entirely before m_now runs.
         if raw.lower() not in ("now",):
-            eid, used_ctx = resolve_light_target(raw)
-            if eid:
-                kelvin = int(kelvin_match.group(2))
-                kelvin = max(1500, min(9000, kelvin))
-                mired = int(round(1_000_000 / kelvin))
+            targets = split_targets(raw)
+            resolved = []
+            for target in targets:
+                eid, used_ctx = resolve_light_target(target)
+                if not eid:
+                    return None
+                resolved.append((eid, used_ctx))
 
+            kelvin = int(kelvin_match.group(2))
+            kelvin = max(1500, min(9000, kelvin))
+            mired = int(round(1_000_000 / kelvin))
+            for eid, _used_ctx in resolved:
                 success = try_light_turn_on(
                     eid,
                     [
@@ -85,14 +93,18 @@ def handle_kelvin_controls(
                         {"kelvin": kelvin},
                     ],
                 )
-                if success:
-                    remember_light(eid)
-                    return maybe_say(
-                        f"Setting it to {kelvin}K."
-                        if used_ctx
-                        else f"Setting {raw} to {kelvin}K."
-                    )
-                return None
+                if not success:
+                    return None
+                remember_light(eid)
+
+            if len(resolved) > 1:
+                return maybe_say("Okay.")
+            if resolved:
+                return maybe_say(
+                    f"Setting it to {kelvin}K."
+                    if resolved[0][1]
+                    else f"Setting {raw} to {kelvin}K."
+                )
 
     # --------------------------------------------------
     # Contextual shorthand: "now 3000k"
@@ -137,31 +149,39 @@ def handle_kelvin_controls(
         # Let the contextual "now <name>" path below own its case — skip the
         # targeted block without exiting the function.
         if raw.lower() not in ("now",):
-            eid, used_ctx = resolve_light_target(raw)
-            if not eid:
-                # Pattern matched — intent is clear. Don't fall through to
-                # other handlers (color_controls would mis-grab 'white').
-                return ""
+            targets = split_targets(raw)
+            resolved = []
+            for target in targets:
+                eid, used_ctx = resolve_light_target(target)
+                if not eid:
+                    # Pattern matched — intent is clear. Don't fall through to
+                    # other handlers (color_controls would mis-grab 'white').
+                    return ""
+                resolved.append((eid, used_ctx))
 
             kelvin = NAMED_TEMPS[name]
             mired = int(round(1_000_000 / kelvin))
 
-            success = try_light_turn_on(
-                eid,
-                [
-                    {"color_temp_kelvin": kelvin},
-                    {"color_temp": mired},
-                    {"kelvin": kelvin},
-                ],
-            )
-            if success:
-                remember_light(eid)
-                return maybe_say(
-                    f"Setting it to {name}."
-                    if used_ctx
-                    else f"Setting {raw} to {name}."
+            for eid, _used_ctx in resolved:
+                success = try_light_turn_on(
+                    eid,
+                    [
+                        {"color_temp_kelvin": kelvin},
+                        {"color_temp": mired},
+                        {"kelvin": kelvin},
+                    ],
                 )
-            return ""
+                if not success:
+                    return ""
+                remember_light(eid)
+
+            if len(resolved) > 1:
+                return maybe_say("Okay.")
+            return maybe_say(
+                f"Setting it to {name}."
+                if resolved[0][1]
+                else f"Setting {raw} to {name}."
+            )
 
     # --------------------------------------------------
     # Named color temperatures (contextual):

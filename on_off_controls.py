@@ -20,6 +20,7 @@ except Exception:
 import logging
 from typing import Optional, Tuple
 
+from multi_target_utils import split_targets
 from request_context import get_area_id_for_current_request
 from home_registry import (
     find_room_by_alias,
@@ -239,6 +240,109 @@ def _extract_explicit_room_lights_target(raw: str) -> Optional[str]:
 
     area_id = area_id.strip()
     return area_id or None
+
+
+def _run_targeted_binary_action(
+    raw: str,
+    action: str,
+    *,
+    states_snapshot,
+    call_ha_service,
+    maybe_say,
+    resolve_device_entity,
+    remember_entity=None,
+) -> Optional[str]:
+    """Run one binary intent against one or more fully validated targets."""
+    if _is_all_lights_target(raw):
+        return _run_all_lights_action(
+            action,
+            states_snapshot=states_snapshot,
+            call_ha_service=call_ha_service,
+            maybe_say=maybe_say,
+        )
+
+    targets = split_targets(raw)
+    if len(targets) <= 1:
+        explicit_area_id = _extract_explicit_room_lights_target(raw)
+        if explicit_area_id:
+            ok = _is_ok(
+                call_ha_service(
+                    f"light/turn_{action}",
+                    {"area_id": explicit_area_id},
+                )
+            )
+            return _say_or_blank(maybe_say, "Okay.") if ok else None
+
+        if _norm_target(raw) in ("light", "lights"):
+            area_id = get_area_id_for_current_request()
+            if area_id:
+                ok = _is_ok(
+                    call_ha_service(
+                        f"light/turn_{action}",
+                        {"area_id": area_id},
+                    )
+                )
+                return _say_or_blank(maybe_say, "Okay.") if ok else None
+
+        overrides = TURN_ON_PHRASE_OVERRIDES if action == "on" else TURN_OFF_PHRASE_OVERRIDES
+        forced = (overrides or {}).get(_norm_target(raw))
+        if forced:
+            ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
+            return _say_or_blank(maybe_say, "Okay.") if ok else None
+
+        return _run_resolved_binary_action(
+            raw,
+            action,
+            call_ha_service=call_ha_service,
+            maybe_say=maybe_say,
+            resolve_device_entity=resolve_device_entity,
+            remember_entity=remember_entity,
+        )
+
+    # Resolve every target before issuing the first write. This prevents a
+    # partly understood phrase from silently controlling only one device.
+    plans = []
+    overrides = TURN_ON_PHRASE_OVERRIDES if action == "on" else TURN_OFF_PHRASE_OVERRIDES
+    for target in targets:
+        area_id = _extract_explicit_room_lights_target(target)
+        if area_id:
+            plans.append((f"light/turn_{action}", {"area_id": area_id}, None, None))
+            continue
+
+        forced = (overrides or {}).get(_norm_target(target))
+        if forced:
+            if forced.startswith("scene."):
+                plans.append(("scene/turn_on", {"entity_id": forced}, None, None))
+                continue
+            if forced.startswith("script."):
+                plans.append(("script/turn_on", {"entity_id": forced}, None, None))
+                continue
+            return None
+
+        resolved = resolve_device_entity(target)
+        if not resolved:
+            return None
+        entity_id, domain = resolved[:2]
+        service = (_BINARY_ACTION_SERVICES.get(str(domain)) or {}).get(action)
+        if not service:
+            logging.warning(
+                "BINARY_ACTION_REJECT target=%r entity_id=%r domain=%r action=%r",
+                target,
+                entity_id,
+                domain,
+                action,
+            )
+            return f"I can't turn {target} {action}."
+        plans.append((service, {"entity_id": entity_id}, entity_id, domain))
+
+    for service, data, entity_id, domain in plans:
+        if not _is_ok(call_ha_service(service, data)):
+            return None
+        if entity_id and domain:
+            _remember_entity_safely(remember_entity, entity_id, domain)
+    return _say_or_blank(maybe_say, "Okay.")
+
+
 def handle_on_off_controls(
     *,
     tl: str,
@@ -269,37 +373,10 @@ def handle_on_off_controls(
     m_on = re.search(r"\bturn on (?:the )?(.+)\b", t)
     if m_on:
         raw = m_on.group(1).strip()
-
-        if _is_all_lights_target(raw):
-            return _run_all_lights_action(
-                "on",
-                states_snapshot=states_snapshot,
-                call_ha_service=call_ha_service,
-                maybe_say=maybe_say,
-            )
-
-        # Explicit room-wide lights via mapped HA area_id.
-        explicit_area_id = _extract_explicit_room_lights_target(raw)
-        if explicit_area_id:
-            ok = _is_ok(call_ha_service("light/turn_on", {"area_id": explicit_area_id}))
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        # Narrow room-local generic light control via current request context.
-        if _norm_target(raw) in ("light", "lights"):
-            area_id = get_area_id_for_current_request()
-            if area_id:
-                ok = _is_ok(call_ha_service("light/turn_on", {"area_id": area_id}))
-                return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        key = _norm_target(raw)
-        forced = (TURN_ON_PHRASE_OVERRIDES or {}).get(key)
-        if forced:
-            ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        return _run_resolved_binary_action(
+        return _run_targeted_binary_action(
             raw,
             "on",
+            states_snapshot=states_snapshot,
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
@@ -309,37 +386,10 @@ def handle_on_off_controls(
     m_off = re.search(r"\bturn off (?:the )?(.+)\b", t)
     if m_off:
         raw = m_off.group(1).strip()
-
-        if _is_all_lights_target(raw):
-            return _run_all_lights_action(
-                "off",
-                states_snapshot=states_snapshot,
-                call_ha_service=call_ha_service,
-                maybe_say=maybe_say,
-            )
-
-        # Explicit room-wide lights via mapped HA area_id.
-        explicit_area_id = _extract_explicit_room_lights_target(raw)
-        if explicit_area_id:
-            ok = _is_ok(call_ha_service("light/turn_off", {"area_id": explicit_area_id}))
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        # Narrow room-local generic light control via current request context.
-        if _norm_target(raw) in ("light", "lights"):
-            area_id = get_area_id_for_current_request()
-            if area_id:
-                ok = _is_ok(call_ha_service("light/turn_off", {"area_id": area_id}))
-                return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        key = _norm_target(raw)
-        forced = (TURN_OFF_PHRASE_OVERRIDES or {}).get(key)
-        if forced:
-            ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        return _run_resolved_binary_action(
+        return _run_targeted_binary_action(
             raw,
             "off",
+            states_snapshot=states_snapshot,
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
@@ -355,37 +405,10 @@ def handle_on_off_controls(
     m_bare_off = re.fullmatch(r"(?:the\s+)?(.+?)\s+off\b", t)
     if m_bare_off and not re.search(r"\bturn\s+off\b", t):
         raw = m_bare_off.group(1).strip()
-
-        if _is_all_lights_target(raw):
-            return _run_all_lights_action(
-                "off",
-                states_snapshot=states_snapshot,
-                call_ha_service=call_ha_service,
-                maybe_say=maybe_say,
-            )
-
-        # Explicit room-wide lights via mapped HA area_id.
-        explicit_area_id = _extract_explicit_room_lights_target(raw)
-        if explicit_area_id:
-            ok = _is_ok(call_ha_service("light/turn_off", {"area_id": explicit_area_id}))
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        # Narrow room-local generic light control via current request context.
-        if _norm_target(raw) in ("light", "lights"):
-            area_id = get_area_id_for_current_request()
-            if area_id:
-                ok = _is_ok(call_ha_service("light/turn_off", {"area_id": area_id}))
-                return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        key = _norm_target(raw)
-        forced = (TURN_OFF_PHRASE_OVERRIDES or {}).get(key)
-        if forced:
-            ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        return _run_resolved_binary_action(
+        return _run_targeted_binary_action(
             raw,
             "off",
+            states_snapshot=states_snapshot,
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
@@ -395,37 +418,10 @@ def handle_on_off_controls(
     m_bare_on = re.fullmatch(r"(?:the\s+)?(.+?)\s+on\b", t)
     if m_bare_on and not re.search(r"\bturn\s+on\b", t):
         raw = m_bare_on.group(1).strip()
-
-        if _is_all_lights_target(raw):
-            return _run_all_lights_action(
-                "on",
-                states_snapshot=states_snapshot,
-                call_ha_service=call_ha_service,
-                maybe_say=maybe_say,
-            )
-
-        # Explicit room-wide lights via mapped HA area_id.
-        explicit_area_id = _extract_explicit_room_lights_target(raw)
-        if explicit_area_id:
-            ok = _is_ok(call_ha_service("light/turn_on", {"area_id": explicit_area_id}))
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        # Narrow room-local generic light control via current request context.
-        if _norm_target(raw) in ("light", "lights"):
-            area_id = get_area_id_for_current_request()
-            if area_id:
-                ok = _is_ok(call_ha_service("light/turn_on", {"area_id": area_id}))
-                return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        key = _norm_target(raw)
-        forced = (TURN_ON_PHRASE_OVERRIDES or {}).get(key)
-        if forced:
-            ok = _run_runnable_entity(forced, call_ha_service=call_ha_service)
-            return _say_or_blank(maybe_say, "Okay.") if ok else None
-
-        return _run_resolved_binary_action(
+        return _run_targeted_binary_action(
             raw,
             "on",
+            states_snapshot=states_snapshot,
             call_ha_service=call_ha_service,
             maybe_say=maybe_say,
             resolve_device_entity=resolve_device_entity,
@@ -459,7 +455,7 @@ def handle_toggle_controls(
     resolve_device_entity,
     remember_entity=None,
 ) -> Optional[str]:
-    """Toggle one verified target when Home Assistant exposes toggle semantics."""
+    """Toggle one or more verified targets with Home Assistant semantics."""
     """
     Handles "toggle <thing>" — flips the entity to the opposite state via
     HA's native `<domain>/toggle` service. Atomic; no state read needed.
@@ -475,6 +471,35 @@ def handle_toggle_controls(
         return None
 
     raw = m.group(1).strip()
+
+    targets = split_targets(raw)
+    if len(targets) > 1:
+        plans = []
+        for target in targets:
+            area_id = _extract_explicit_room_lights_target(target)
+            if area_id:
+                plans.append(("light/toggle", {"area_id": area_id}, None, None))
+                continue
+
+            resolved = resolve_device_entity(target)
+            if not resolved:
+                return None
+            eid, domain = resolved[:2]
+            if domain not in _TOGGLEABLE_DOMAINS:
+                if os.environ.get("PIPHONE_LIVE") != "1":
+                    return (
+                        "CLAIM: toggle_controls - domain "
+                        f"'{domain}' has no toggle service ({eid})"
+                    )
+                return None
+            plans.append((f"{domain}/toggle", {"entity_id": eid}, eid, domain))
+
+        for service, data, eid, domain in plans:
+            if not _is_ok(call_ha_service(service, data)):
+                return None
+            if eid and domain:
+                _remember_entity_safely(remember_entity, eid, domain)
+        return _say_or_blank(maybe_say, "Okay.")
 
     # Explicit room-wide lights via mapped HA area_id — "toggle living room lights".
     explicit_area_id = _extract_explicit_room_lights_target(raw)

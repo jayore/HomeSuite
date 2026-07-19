@@ -237,7 +237,7 @@ def run_command(
         rv = runtime_module.process_device_commands(text)
 
         if rv:
-            interaction_flow.inject_into_history(text, rv)
+            interaction_flow.inject_device_response_history(text, rv)
 
         try:
             import command_dispatch as _cd

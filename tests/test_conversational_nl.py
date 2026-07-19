@@ -119,6 +119,12 @@ class IntentFrameTests(unittest.TestCase):
 
     def test_color_action_supports_target_transfer_and_correction(self):
         frame = build_intent_frame("color", "set stair light to red")
+        for phrase in ("side lamp too", "side lamp also", "now the side lamp"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(
+                    resolve_intent_followup(phrase, frame).rewritten_text,
+                    "set side lamp to red",
+                )
         self.assertEqual(
             resolve_intent_followup("same in the bedroom", frame).rewritten_text,
             "set bedroom to red",
@@ -152,6 +158,20 @@ class IntentFrameTests(unittest.TestCase):
             "set stair light to yellow",
         )
 
+    def test_now_value_prefers_typed_correction_over_target_transfer(self):
+        frame = build_intent_frame("color", "set stair light to red")
+        resolution = resolve_intent_followup("now blue", frame)
+        self.assertEqual(resolution.rewritten_text, "set stair light to blue")
+        self.assertEqual(resolution.kind, "value_correction")
+
+        brightness = build_intent_frame("brightness", "set stair light to 30%")
+        resolution = resolve_intent_followup("now half", brightness)
+        self.assertEqual(
+            resolution.rewritten_text,
+            "set stair light brightness to 50%",
+        )
+        self.assertEqual(resolution.kind, "value_correction")
+
     def test_brightness_action_accepts_human_level_corrections(self):
         frame = build_intent_frame("brightness", "set stair light to 30%")
         self.assertEqual(
@@ -178,6 +198,59 @@ class IntentFrameTests(unittest.TestCase):
         self.assertEqual(
             resolve_intent_followup("and the bedroom too", relative).rewritten_text,
             "make the bedroom quieter",
+        )
+
+    def test_more_continues_only_directional_adjustments(self):
+        cases = (
+            ("volume", "volume down", "quieter"),
+            ("volume", "volume up", "louder"),
+            ("brightness", "brightness down", "make it dimmer"),
+            ("brightness", "brightness up", "make it brighter"),
+            ("volume", "kitchen volume down", "make kitchen quieter"),
+            ("brightness", "make the stair light dimmer", "make stair light dimmer"),
+        )
+        for claim, command, expected in cases:
+            with self.subTest(command=command):
+                frame = build_intent_frame(claim, command)
+                self.assertIsNotNone(frame)
+                resolution = resolve_intent_followup("more", frame)
+                self.assertEqual(resolution.rewritten_text, expected)
+                self.assertEqual(resolution.kind, "continue_adjustment")
+
+        frame = build_intent_frame("volume", "volume down")
+        for phrase in ("a little more", "some more", "keep going", "again"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(
+                    resolve_intent_followup(phrase, frame).rewritten_text,
+                    "quieter",
+                )
+
+        absolute = build_intent_frame("volume", "set volume to 30%")
+        self.assertIsNone(resolve_intent_followup("more", absolute))
+        self.assertIsNone(resolve_intent_followup("tell me more", frame))
+
+    def test_directional_continuation_preserves_explicit_step_and_target(self):
+        volume = build_intent_frame("volume", "decrease kitchen volume by 12")
+        self.assertEqual(
+            resolve_intent_followup("more", volume).rewritten_text,
+            "decrease kitchen volume by 12",
+        )
+        self.assertEqual(
+            resolve_intent_followup("and the bedroom too", volume).rewritten_text,
+            "decrease bedroom volume by 12",
+        )
+
+        brightness = build_intent_frame(
+            "brightness",
+            "make the stair light dimmer by 20",
+        )
+        self.assertEqual(
+            resolve_intent_followup("more", brightness).rewritten_text,
+            "make stair light dimmer by 20",
+        )
+        self.assertEqual(
+            resolve_intent_followup("and the desk lamp too", brightness).rewritten_text,
+            "make the desk lamp dimmer by 20",
         )
 
     def test_weather_refinement_preserves_location(self):

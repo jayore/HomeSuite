@@ -8,6 +8,8 @@ phrases intentionally fall through to their dedicated handlers.
 import re
 from typing import Optional
 
+from multi_target_utils import split_targets
+
 
 def handle_rgb_hex_controls(
     *,
@@ -36,27 +38,35 @@ def handle_rgb_hex_controls(
     )
     if hex_match:
         raw = hex_match.group(1).strip()
-        eid, used_ctx = resolve_light_target(raw)
-        if not eid:
-            return None
+        targets = split_targets(raw)
+        resolved = []
+        for target in targets:
+            eid, used_ctx = resolve_light_target(target)
+            if not eid:
+                return None
+            resolved.append((eid, used_ctx))
 
         hx = hex_match.group(2)
         r = int(hx[0:2], 16)
         g = int(hx[2:4], 16)
         b = int(hx[4:6], 16)
 
-        success = try_light_turn_on(
-            eid,
-            [{"rgb_color": [r, g, b]}],
-        )
-        if success:
-            remember_light(eid)
-            return maybe_say(
-                "Setting it."
-                if used_ctx
-                else f"Setting {raw} color."
+        for eid, _used_ctx in resolved:
+            success = try_light_turn_on(
+                eid,
+                [{"rgb_color": [r, g, b]}],
             )
-        return None
+            if not success:
+                return None
+            remember_light(eid)
+
+        if len(resolved) > 1:
+            return maybe_say("Okay.")
+        return maybe_say(
+            "Setting it."
+            if resolved[0][1]
+            else f"Setting {raw} color."
+        )
 
     # --------------------------------------------------
     # Explicit RGB: "rgb 255 0 170"
@@ -67,25 +77,33 @@ def handle_rgb_hex_controls(
     )
     if rgb_match:
         raw = rgb_match.group(1).strip()
-        eid, used_ctx = resolve_light_target(raw)
-        if not eid:
-            return None
+        targets = split_targets(raw)
+        resolved = []
+        for target in targets:
+            eid, used_ctx = resolve_light_target(target)
+            if not eid:
+                return None
+            resolved.append((eid, used_ctx))
 
         r = max(0, min(255, int(rgb_match.group(2))))
         g = max(0, min(255, int(rgb_match.group(3))))
         b = max(0, min(255, int(rgb_match.group(4))))
 
-        success = try_light_turn_on(
-            eid,
-            [{"rgb_color": [r, g, b]}],
-        )
-        if success:
-            remember_light(eid)
-            return maybe_say(
-                "Setting it."
-                if used_ctx
-                else f"Setting {raw} color."
+        for eid, _used_ctx in resolved:
+            success = try_light_turn_on(
+                eid,
+                [{"rgb_color": [r, g, b]}],
             )
-        return None
+            if not success:
+                return None
+            remember_light(eid)
+
+        if len(resolved) > 1:
+            return maybe_say("Okay.")
+        return maybe_say(
+            "Setting it."
+            if resolved[0][1]
+            else f"Setting {raw} color."
+        )
 
     return None

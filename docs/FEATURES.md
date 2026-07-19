@@ -18,7 +18,9 @@ without handing device execution to AI. Successful commands can establish a
 typed intent for bounded follow-ups such as correcting a color or applying the
 same action to another target. Ambiguous short device names produce a scoped
 choice instead of silently selecting one entity; the answer is still resolved
-and validated through the normal command path.
+and validated through the normal command path. Explicit device lists can apply
+the same on/off, toggle, brightness, or color change to several verified lights
+in one command.
 
 ## Rooms, Focus, And Defaults
 

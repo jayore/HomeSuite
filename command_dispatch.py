@@ -116,6 +116,7 @@ from request_context import (
     get_current_source_id,
     get_room_default_for_request,
 )
+from response_context import clear_response_context
 from dialogue_state import (
     forget_intent_frame,
     forget_referent,
@@ -435,6 +436,15 @@ def get_text_confirm_context() -> Dict[str, Any]:
         return {}
 
 
+def get_effective_command_text(default: str = "") -> str:
+    """Return the normalized or rewritten command most recently dispatched."""
+    try:
+        value = str(globals().get("_LAST_STT_NORM_OUT") or "").strip()
+    except Exception:
+        value = ""
+    return value or str(default or "").strip()
+
+
 PIPHONE_DEBUG_FOCUS = os.getenv('PIPHONE_DEBUG_FOCUS', '0') == '1'
 
 
@@ -677,18 +687,19 @@ def _intent_target_keys(claim: str) -> tuple[str, ...]:
     """Return stable keys already verified by the successful claim."""
     claim_n = str(claim or "").strip().lower()
     refs = []
-    if claim_n in {"color", "brightness"}:
+    if claim_n in {"color", "brightness", "binary"}:
         group = resolve_referent(kinds={"light_group"}, capability="light_group_target")
-        if group:
-            refs.extend((group.get("data") or {}).get("entity_ids") or ())
-        if not refs:
+        group_data = (group or {}).get("data") or {}
+        if group_data.get("command_id") == _current_cmd_id:
+            refs.extend(group_data.get("entity_ids") or ())
+        if not refs and claim_n in {"color", "brightness"}:
             light = resolve_referent(kinds={"light"}, capability="light_target")
             if light:
                 refs.append(light.get("key"))
-    elif claim_n == "binary":
-        device = resolve_referent(kinds={"device"}, capability="binary_control")
-        if device:
-            refs.append(device.get("key"))
+        if not refs and claim_n == "binary":
+            device = resolve_referent(kinds={"device"}, capability="binary_control")
+            if device:
+                refs.append(device.get("key"))
     elif claim_n == "timer":
         timer = resolve_referent(kinds={"timer"}, capability="adjust_duration")
         if timer:
@@ -1888,7 +1899,7 @@ def _is_np_query(tl: str) -> bool:
     Must be available inside process_device_commands().
     """
     try:
-        from now_playing_controls import _is_now_playing_query as _npq_fn
+        from now_playing_controls import is_now_playing_query as _npq_fn
         return bool(_npq_fn(tl))
     except Exception:
         import re as _re
@@ -4874,6 +4885,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             try_light_turn_on=lambda entity_id, payloads: _try_light_turn_on(entity_id, payloads, call_ha_service=call_ha_service),
         )
         if kelvin_resp is not None:
+            _remember_claimed_intent("color", tl, kelvin_resp)
             logging.info("CLAIM: kelvin_controls")
             return kelvin_resp
 
@@ -4887,6 +4899,7 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
             try_light_turn_on=lambda entity_id, payloads: _try_light_turn_on(entity_id, payloads, call_ha_service=call_ha_service),
         )
         if rgbhex_resp is not None:
+            _remember_claimed_intent("color", tl, rgbhex_resp)
             logging.info("CLAIM: rgb_hex_controls")
             return rgbhex_resp
 
@@ -5033,6 +5046,8 @@ def _process_device_commands_impl(text: str, *, _repair_pass: int = 1) -> Option
 
 def process_device_commands(text: str, *, _repair_pass: int = 1) -> Optional[str]:
     """Run the ordered device pipeline, including at most one repair retry."""
+    if _repair_pass == 1:
+        clear_response_context()
     _dispatch_timing_begin(text, _repair_pass)
     intent_marker_before = _intent_frame_marker()
     result = None

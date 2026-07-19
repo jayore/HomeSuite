@@ -102,6 +102,178 @@ class ConversationalDispatchTests(unittest.TestCase):
             ],
         )
 
+    def test_bare_also_too_and_now_transfer_the_recent_light_action(self):
+        states = [
+            {"entity_id": "light.stair", "state": "on", "attributes": {"friendly_name": "Stair Light"}},
+            {"entity_id": "light.side_lamp", "state": "on", "attributes": {"friendly_name": "Side Lamp"}},
+        ]
+        with self._dispatch(states) as (dispatch, service):
+            dispatch.process_device_commands("set stair light to red")
+            dispatch.process_device_commands("side lamp too")
+            dispatch.process_device_commands("stair light also")
+            dispatch.process_device_commands("now the side lamp")
+
+        self.assertEqual(
+            service.call_args_list,
+            [
+                mock.call("light/turn_on", {"entity_id": "light.stair", "color_name": "red"}),
+                mock.call("light/turn_on", {"entity_id": "light.side_lamp", "color_name": "red"}),
+                mock.call("light/turn_on", {"entity_id": "light.stair", "color_name": "red"}),
+                mock.call("light/turn_on", {"entity_id": "light.side_lamp", "color_name": "red"}),
+            ],
+        )
+
+    def test_direct_multi_target_light_commands_reach_each_device(self):
+        states = [
+            {"entity_id": "light.stair", "state": "on", "attributes": {"friendly_name": "Stair Light"}},
+            {"entity_id": "light.side_lamp", "state": "on", "attributes": {"friendly_name": "Side Lamp"}},
+        ]
+        with self._dispatch(states) as (dispatch, service):
+            dispatch.process_device_commands("turn off stair light and side lamp")
+            dispatch.process_device_commands("set stair light and side lamp to red")
+            dispatch.process_device_commands("set stair light and side lamp to 30%")
+
+        self.assertEqual(
+            service.call_args_list,
+            [
+                mock.call("light/turn_off", {"entity_id": "light.stair"}),
+                mock.call("light/turn_off", {"entity_id": "light.side_lamp"}),
+                mock.call("light/turn_on", {"entity_id": "light.stair", "color_name": "red"}),
+                mock.call("light/turn_on", {"entity_id": "light.side_lamp", "color_name": "red"}),
+                mock.call("light/turn_on", {"entity_id": "light.stair", "brightness_pct": 30}),
+                mock.call("light/turn_on", {"entity_id": "light.side_lamp", "brightness_pct": 30}),
+            ],
+        )
+
+    def test_now_color_value_updates_every_target_from_the_prior_action(self):
+        states = [
+            {"entity_id": "light.stair", "state": "on", "attributes": {"friendly_name": "Stair Light"}},
+            {"entity_id": "light.side_lamp", "state": "on", "attributes": {"friendly_name": "Side Lamp"}},
+        ]
+        with self._dispatch(states) as (dispatch, service):
+            dispatch.process_device_commands(
+                "set side lamp and stair light to orange"
+            )
+            dispatch.process_device_commands("now white")
+
+        self.assertEqual(
+            service.call_args_list,
+            [
+                mock.call("light/turn_on", {"entity_id": "light.side_lamp", "color_name": "orange"}),
+                mock.call("light/turn_on", {"entity_id": "light.stair", "color_name": "orange"}),
+                mock.call("light/turn_on", {"entity_id": "light.side_lamp", "color_name": "white"}),
+                mock.call("light/turn_on", {"entity_id": "light.stair", "color_name": "white"}),
+            ],
+        )
+
+    def test_more_repeats_recent_volume_direction_through_normal_handler(self):
+        states = [
+            {
+                "entity_id": "number.living_room_volume",
+                "state": "50",
+                "attributes": {"friendly_name": "Living Room Volume"},
+            },
+        ]
+        with self._dispatch(states) as (dispatch, service):
+            first = dispatch.process_device_commands("volume down")
+            second = dispatch.process_device_commands("more")
+
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertEqual(
+            service.call_args_list,
+            [
+                mock.call(
+                    "number/set_value",
+                    {"entity_id": "number.living_room_volume", "value": 45},
+                ),
+                mock.call(
+                    "number/set_value",
+                    {"entity_id": "number.living_room_volume", "value": 45},
+                ),
+            ],
+        )
+
+    def test_more_volume_confirmation_describes_effective_command(self):
+        from interaction_flow import handle_text_interaction
+
+        states = [
+            {
+                "entity_id": "number.living_room_volume",
+                "state": "50",
+                "attributes": {"friendly_name": "Living Room Volume"},
+            },
+        ]
+        with self._dispatch(states) as (dispatch, service):
+            def mark_volume_action(*_args, **_kwargs):
+                dispatch._ACTION_OCCURRED = True
+                return True
+
+            service.side_effect = mark_volume_action
+            first = handle_text_interaction(dispatch, "volume down")
+            second = handle_text_interaction(dispatch, "more")
+
+        self.assertEqual(first.response_text, "Decreased volume.")
+        self.assertEqual(second.response_text, "Decreased volume.")
+        self.assertEqual(second.source, "device_confirm")
+
+    def test_more_repeats_recent_brightness_direction_through_normal_handler(self):
+        states = [
+            {
+                "entity_id": "light.living_room_brightness",
+                "state": "on",
+                "attributes": {"friendly_name": "Living Room Brightness"},
+            },
+        ]
+        with self._dispatch(states) as (dispatch, service):
+            first = dispatch.process_device_commands("brightness down")
+            second = dispatch.process_device_commands("more")
+
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertEqual(
+            service.call_args_list,
+            [
+                mock.call(
+                    "light/turn_on",
+                    {
+                        "entity_id": "light.living_room_brightness",
+                        "brightness_step_pct": -10,
+                    },
+                ),
+                mock.call(
+                    "light/turn_on",
+                    {
+                        "entity_id": "light.living_room_brightness",
+                        "brightness_step_pct": -10,
+                    },
+                ),
+            ],
+        )
+
+    def test_more_brightness_confirmation_describes_effective_command(self):
+        from interaction_flow import handle_text_interaction
+
+        states = [
+            {
+                "entity_id": "light.living_room_brightness",
+                "state": "on",
+                "attributes": {"friendly_name": "Living Room Brightness"},
+            },
+        ]
+        with self._dispatch(states) as (dispatch, service):
+            def mark_brightness_action(*_args, **_kwargs):
+                dispatch._ACTION_OCCURRED = True
+                return True
+
+            service.side_effect = mark_brightness_action
+            first = handle_text_interaction(dispatch, "brightness down")
+            second = handle_text_interaction(dispatch, "more")
+
+        self.assertEqual(first.response_text, "Decreased brightness.")
+        self.assertEqual(second.response_text, "Decreased brightness.")
+        self.assertEqual(second.source, "device_confirm")
+
     def test_weather_followup_reuses_location_and_changes_day(self):
         seen = []
 

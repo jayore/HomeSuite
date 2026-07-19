@@ -47,11 +47,17 @@ timing clauses or target words merely because they sound conversational.
 
 After a successful deterministic command, compatible short follow-ups can
 reuse its typed intent. For example, `make the stair light red` can be followed
-by `actually make it blue` and then `and the desk lamp too`. Weather,
+by `actually make it blue` and then `and the desk lamp too`. Target-only
+follow-ups also accept natural forms such as `side lamp too`, `side lamp also`,
+and `now the side lamp`. A typed value can change in the same cadence, such as
+`now white` after a color command or `now half` after a brightness command. Weather,
 astronomy, and calendar queries support similarly bounded refinements such as
 `what about Thursday?`, `what about Saturn?`, and `I meant Friday` when the
 immediately preceding intent makes the domain unambiguous. A complete new
-command always supersedes the old intent.
+command always supersedes the old intent. Directional adjustments can be
+continued naturally: `volume down` followed by `more`, or `make the stair light
+dimmer` followed by `a little more`. These short forms expire with the prior
+intent and never apply to an unrelated absolute setting or device action.
 
 When a short device name matches two to four live entities, Home Suite asks
 which one and accepts a distinguishing name such as `floor` or `desk`. The
@@ -65,9 +71,13 @@ These routes go through Home Assistant entities, areas, scenes, scripts, and ser
 
 * `turn on the kitchen lights`
 * `turn off the downstairs lights`
+* `turn off the stair light and side lamp`
 * `turn off all the lights`
 * `dim the living room to 40 percent`
 * `make the lamp blue`
+* `set the stair light and side lamp to red`
+* `set the stair light and side lamp to 30 percent`
+* `make the stair light and side lamp dimmer`
 * `set the bedroom lights to warm white`
 * `turn off the living room lights in 20 minutes`
 * `lock the front door`

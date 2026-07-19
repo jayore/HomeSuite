@@ -97,24 +97,44 @@ def handle_brightness_controls(
         )
         _explicit_target = (_target_m.group(1).strip() if _target_m else None)
 
-        resolved_eid = None
-        used_ctx = False
-
         _NON_TARGETS = {"it", "the", "a", "that", "this", "light", "lights"}
         if _explicit_target and _explicit_target not in _NON_TARGETS:
-            room_id = resolve_room_id(_explicit_target)
-            if room_id and get_room_brightness_target(room_id):
-                if apply_room_brightness_step(
-                    room_id,
-                    step,
-                    call_ha_service=call_ha_service,
-                    states_snapshot=states_snapshot,
-                    remember_light=remember_light,
-                ):
-                    direction = "brighter" if step > 0 else "dimmer"
-                    return maybe_say(f"Making it {direction}.")
-                return None
-            resolved_eid, used_ctx = resolve_light_target(_explicit_target)
+            plans = []
+            explicit_targets = split_targets(_explicit_target)
+            for target in explicit_targets:
+                room_id = resolve_room_id(target)
+                if room_id and get_room_brightness_target(room_id):
+                    plans.append(("room", room_id))
+                    continue
+                resolved_eid, _used_ctx = resolve_light_target(target)
+                if not resolved_eid:
+                    return None
+                plans.append(("light", resolved_eid))
+
+            for kind, value in plans:
+                if kind == "room":
+                    ok = apply_room_brightness_step(
+                        value,
+                        step,
+                        call_ha_service=call_ha_service,
+                        states_snapshot=states_snapshot,
+                        remember_light=remember_light,
+                    )
+                else:
+                    ok = call_ha_service(
+                        "light/turn_on",
+                        {"entity_id": value, "brightness_step_pct": step},
+                    )
+                    if ok:
+                        remember_light(value)
+                if not ok:
+                    return None
+
+            direction = "brighter" if step > 0 else "dimmer"
+            pronoun = "them" if len(plans) > 1 else "it"
+            return maybe_say(f"Making {pronoun} {direction}.")
+
+        resolved_eid = None
 
         if not resolved_eid:
             # Fall back: recent light, then the active room strategy.

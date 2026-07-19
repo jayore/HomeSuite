@@ -21,14 +21,15 @@ def split_targets(raw: str) -> List[str]:
 
     # Normalize separators into commas
     s = re.sub(r"\s*,\s*", ",", s)
-    s = re.sub(r"\s*,?\s*\band\b\s+", ",", s, flags=re.I)
+    s = re.sub(r"\s*,?\s*\band(?:\s+also)?\b\s+", ",", s, flags=re.I)
 
     parts = [p.strip() for p in s.split(",") if p.strip()]
     out: List[str] = []
     seen = set()
 
     for p in parts:
-        p = re.sub(r"^the\s+", "", p, flags=re.I)
+        p = re.sub(r"^(?:also\s+)?the\s+", "", p, flags=re.I)
+        p = re.sub(r"^also\s+", "", p, flags=re.I)
         p = re.sub(r"\s+", " ", p).strip()
         key = p.lower()
         if key and key not in seen:

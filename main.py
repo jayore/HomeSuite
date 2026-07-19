@@ -1605,6 +1605,7 @@ from command_dispatch import (
     clear_text_confirm_context,
     set_text_confirm_context,
     get_text_confirm_context,
+    get_effective_command_text,
 )
 
 # Wake-word prefix stripper for the "Option A" continuous-phrase UX.
@@ -4452,19 +4453,9 @@ def process_audio(
                 # Bridge the deterministic/AI seam: inject informational responses into
                 # conversation_history so follow-up AI queries have context
                 # ("what time is it there?" after a deterministic weather response).
-                force_history = False
-                assistant_context_text = None
-                try:
-                    force_history = command_dispatch._is_np_query(text)
-                    if force_history:
-                        assistant_context_text = f"Currently playing: {device_response}"
-                except Exception:
-                    force_history = False
-                interaction_flow.inject_into_history(
+                interaction_flow.inject_device_response_history(
                     text,
                     device_response,
-                    force=force_history,
-                    assistant_context_text=assistant_context_text,
                 )
 
             # Mark DEVICE only if something truly happened:

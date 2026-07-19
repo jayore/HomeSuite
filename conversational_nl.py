@@ -85,6 +85,10 @@ _FULL_COMMAND_PREFIX = re.compile(
     r"^(?:turn|set|switch|power|shut|toggle|lock|unlock|open|close|play|pause|"
     r"resume|stop|start|run|announce|say|remind|cancel|delete|create)\b"
 )
+_DIRECTIONAL_CONTINUATION = re.compile(
+    r"^(?:more|(?:just\s+)?(?:a\s+)?(?:little|bit)\s+more|some\s+more|"
+    r"even\s+more|one\s+more|keep\s+going)$"
+)
 
 
 @dataclass(frozen=True)
@@ -422,25 +426,49 @@ def build_intent_frame(
                 target_keys,
             )
 
-        if re.search(r"\bbrighter\b|\bbrighten\b", t):
+        if re.search(
+            r"\b(?:brighter|brighten(?:\s+up)?|brightness\s+up|"
+            r"increase\b.*\bbrightness|more\s+bright(?:er)?|get\s+bright(?:er)?|"
+            r"up\s+(?:the\s+)?brightness)\b",
+            t,
+        ):
             direction = "brighter"
-        elif re.search(r"\bdimmer\b|\bdim\b|\bdarker\b|\bless\s+bright\b|\bnot\s+so\s+bright\b", t):
+        elif re.search(
+            r"\b(?:dimmer|dim|darker|brightness\s+down|decrease\b.*\bbrightness|"
+            r"lower\b.*\bbrightness|less\s+bright(?:er)?|not\s+so\s+bright|"
+            r"more\s+dim(?:mer)?|get\s+dim(?:mer)?|down\s+(?:the\s+)?brightness)\b",
+            t,
+        ):
             direction = "dimmer"
         else:
             return None
-        target_match = re.search(r"(?:make|turn)\s+(?:the\s+)?(.+?)\s+(?:brighter|dimmer|darker)", t)
+        target_match = re.search(
+            r"(?:make|turn)\s+(?:the\s+)?(.+?)\s+"
+            r"(?:brighter|dimmer|darker|less\s+bright|not\s+so\s+bright)",
+            t,
+        )
         if not target_match:
             target_match = re.search(
-                r"(?:make|turn)\s+(?:the\s+)?(.+?)\s+(?:less\s+bright|not\s+so\s+bright)",
+                r"(?:increase|decrease|lower)\s+(?:the\s+)?(.+?)\s+brightness",
+                t,
+            )
+        if not target_match:
+            target_match = re.fullmatch(
+                r"(?:turn\s+)?(?:the\s+)?(.+?)\s+brightness\s+(?:up|down)",
                 t,
             )
         raw_target = _target(target_match.group(1)) if target_match else "it"
+        amount_match = re.search(r"\bby\s+(\d{1,3})\b", t)
+        amount = max(1, min(100, int(amount_match.group(1)))) if amount_match else None
+        command = f"make {raw_target} {direction}"
+        if amount is not None:
+            command += f" by {amount}"
         return _frame(
             "light",
             "adjust_brightness",
-            f"make {raw_target} {direction}",
-            {"target": raw_target, "direction": direction},
-            {"target_transfer"},
+            command,
+            {"target": raw_target, "direction": direction, "amount": amount},
+            {"target_transfer", "repeat", "continue_adjustment"},
             target_keys,
         )
 
@@ -484,14 +512,31 @@ def build_intent_frame(
             r"(?:louder|quieter|not\s+so\s+loud|less\s+loud)",
             t,
         ) or re.search(r"(?:increase|decrease)\s+(?:the\s+)?(.+?)\s+volume", t)
+        if not target_match:
+            target_match = re.fullmatch(
+                r"(?:turn\s+)?(?:the\s+)?(.+?)\s+volume\s+(?:up|down)",
+                t,
+            )
+        if not target_match:
+            target_match = re.fullmatch(
+                r"(?:volume\s+(?:up|down)|louder|quieter)\s+"
+                r"(?:in|on)\s+(?:the\s+)?(.+)",
+                t,
+            )
         raw_target = _target(target_match.group(1)) if target_match else ""
-        command = f"make {raw_target} {direction}" if raw_target else direction
+        amount_match = re.search(r"\bby\s+(\d{1,3})\b", t)
+        amount = max(1, min(100, int(amount_match.group(1)))) if amount_match else None
+        if amount is not None:
+            verb = "increase" if direction == "louder" else "decrease"
+            command = f"{verb} {raw_target + ' ' if raw_target else ''}volume by {amount}"
+        else:
+            command = f"make {raw_target} {direction}" if raw_target else direction
         return _frame(
             "media",
             "adjust_volume",
             command,
-            {"target": raw_target, "direction": direction},
-            {"target_transfer"},
+            {"target": raw_target, "direction": direction, "amount": amount},
+            {"target_transfer", "repeat", "continue_adjustment"},
             target_keys,
         )
 
@@ -615,10 +660,16 @@ def _render_target_transfer(
             return f"set {target} lights to {int(slots.get('value'))}%"
         return f"set {target} brightness to {int(slots.get('value'))}%"
     if frame.intent == "adjust_brightness":
-        return f"make the {target} {slots.get('direction')}"
+        command = f"make the {target} {slots.get('direction')}"
+        if slots.get("amount") is not None:
+            command += f" by {int(slots.get('amount'))}"
+        return command
     if frame.intent == "set_volume":
         return f"set {target} volume to {int(slots.get('value'))}%"
     if frame.intent == "adjust_volume":
+        if slots.get("amount") is not None:
+            verb = "increase" if slots.get("direction") == "louder" else "decrease"
+            return f"{verb} {target} volume by {int(slots.get('amount'))}"
         return f"make the {target} {slots.get('direction')}"
     return None
 
@@ -786,7 +837,30 @@ def resolve_intent_followup(
         return None
     rooms = frozenset(_target(room) for room in room_targets if _target(room))
 
+    # "Now <value>" and "now <target>" share the same conversational shell.
+    # Give a typed value correction first refusal; if the value is invalid for
+    # the prior intent, target-transfer rules below can still claim the phrase.
+    now_match = re.fullmatch(r"now\s+(?:the\s+)?(.+)", t)
+    if now_match and "value_correction" in frame.followups:
+        rewritten = _render_value_correction(frame, now_match.group(1))
+        if rewritten:
+            return FollowupResolution(rewritten, "value_correction")
+
     if "target_transfer" in frame.followups:
+        # Natural handoff after a completed action: "now the side lamp". Keep
+        # this narrower than a generic "now <word>" target rule so unrecognized
+        # values do not become fabricated device names.
+        if now_match:
+            candidate = _target(now_match.group(1))
+            if candidate in rooms or re.search(r"\b(?:light|lights|lamp|lamps)\b", candidate):
+                rewritten = _render_target_transfer(
+                    frame,
+                    candidate,
+                    room_targets=rooms,
+                )
+                if rewritten:
+                    return FollowupResolution(rewritten, "target_transfer")
+
         patterns = (
             re.compile(r"^(?:and\s+)?(?:do\s+)?(?:the\s+)?same(?:\s+thing)?\s+(?:in|for|to|with|on)\s+(?:the\s+)?(.+)$"),
             re.compile(r"^(?:(?:and|also)\s+)?(?:do\s+)?(?:that|it)\s+(?:in|for|to|with|on)\s+(?:the\s+)?(.+?)(?:\s+too)?$"),
@@ -871,6 +945,13 @@ def resolve_intent_followup(
             rewritten = _calendar_refinement(subject)
             if rewritten:
                 return FollowupResolution(rewritten, "query_refinement")
+
+    if (
+        "continue_adjustment" in frame.followups
+        and frame.intent in {"adjust_brightness", "adjust_volume"}
+        and _DIRECTIONAL_CONTINUATION.fullmatch(t)
+    ):
+        return FollowupResolution(frame.canonical_command, "continue_adjustment")
 
     if "repeat" in frame.followups and t in {
         "same",

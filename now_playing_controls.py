@@ -9,6 +9,8 @@ changes playback.
 import re
 from typing import Optional, Dict, Any, List, Tuple
 
+from response_context import set_response_context
+
 
 try:
     from app_config import (
@@ -53,6 +55,11 @@ def _is_now_playing_query(tl: str) -> bool:
     return any(re.search(p, t2) for p in patterns)
 
 
+def is_now_playing_query(text: str) -> bool:
+    """Public query matcher shared by routing and conversation continuity."""
+    return _is_now_playing_query(text)
+
+
 def _state_for_entity(states_snapshot: Optional[list], entity_id: str) -> Optional[dict]:
     if not states_snapshot or not entity_id:
         return None
@@ -78,6 +85,85 @@ def _is_activeish_entity(st: Optional[dict]) -> bool:
 
 def _clean(s: Any) -> str:
     return str(s).strip() if s is not None else ""
+
+
+def _remember_now_playing_context(**values: Any) -> None:
+    """Attach useful HA media facts to this deterministic response."""
+    context = {
+        key: value
+        for key, value in values.items()
+        if value is not None and (not isinstance(value, str) or value.strip())
+    }
+    if context:
+        set_response_context("now_playing", context)
+
+
+def format_now_playing_history_context(
+    media_context: Optional[dict[str, Any]],
+    fallback_text: str,
+) -> str:
+    """Turn structured HA metadata into a concise AI-history breadcrumb."""
+    context = dict(media_context or {})
+    kind = _clean(context.get("media_kind")).lower()
+    title = _clean(context.get("title"))
+    artist = _clean(context.get("artist"))
+    album = _clean(context.get("album"))
+    series = _clean(context.get("series"))
+    episode_title = _clean(context.get("episode_title"))
+    station = _clean(context.get("station"))
+    channel = _clean(context.get("channel"))
+    app = _clean(context.get("app"))
+    season = context.get("season")
+    episode = context.get("episode")
+
+    if not kind:
+        return f"Currently playing: {fallback_text}"
+
+    if kind == "song":
+        subject = f'song "{title}"' if title else "a song"
+        if artist:
+            subject += f" by {artist}"
+        if album:
+            subject += f', from the album "{album}"'
+    elif kind == "radio":
+        subject = f'radio station "{station}"' if station else "radio"
+        if title and title.casefold() != station.casefold():
+            subject += f', currently playing "{title}"'
+        if artist:
+            subject += f" by {artist}"
+    elif kind == "tv_episode":
+        subject = f'TV episode "{episode_title or title}"' if (episode_title or title) else "a TV episode"
+        if series:
+            subject += f' from the series "{series}"'
+        if season is not None and episode is not None:
+            subject += f", season {season}, episode {episode}"
+        elif season is not None:
+            subject += f", season {season}"
+        elif episode is not None:
+            subject += f", episode {episode}"
+    elif kind == "tv_show":
+        subject = f'TV show "{series or title}"' if (series or title) else "a TV show"
+    elif kind == "movie":
+        subject = f'movie "{title}"' if title else "a movie"
+    elif kind == "podcast_episode":
+        subject = f'podcast episode "{title}"' if title else "a podcast episode"
+        if artist:
+            subject += f" by {artist}"
+        if album:
+            subject += f', from "{album}"'
+    elif kind == "video":
+        subject = f'video "{title}"' if title else "a video"
+        if channel:
+            subject += f" from {channel}"
+    elif kind == "tv_audio":
+        subject = "TV audio"
+    else:
+        label = kind.replace("_", " ")
+        subject = f'{label} "{title}"' if title else label
+
+    if app:
+        subject += f" in {app}"
+    return f"Current media for follow-up questions: {subject}."
 
 
 def _pinned_station_name_from_content_id(content_id: str) -> Optional[str]:
@@ -116,6 +202,32 @@ def _format_sonos_now_playing(st: dict) -> str:
     station = _clean(attrs.get("media_station")) or _clean(attrs.get("media_channel"))
     source = _clean(attrs.get("source"))
     content_id = _clean(attrs.get("media_content_id"))
+    raw_content_type = _clean(attrs.get("media_content_type")).lower()
+
+    if "podcast" in raw_content_type:
+        media_kind = "podcast_episode"
+    elif title and (artist or album or raw_content_type in ("music", "track", "song")):
+        media_kind = "song"
+    elif station:
+        media_kind = "radio"
+    elif source.lower() == "tv":
+        media_kind = "tv_audio"
+    elif title:
+        media_kind = raw_content_type or "audio"
+    else:
+        media_kind = "unknown_audio"
+
+    _remember_now_playing_context(
+        media_kind=media_kind,
+        title=title,
+        artist=artist,
+        album=album,
+        station=station,
+        source=source,
+        raw_content_type=raw_content_type,
+        entity_id=_clean(st.get("entity_id")),
+        playback_state=state,
+    )
 
     # If we have proper track metadata
     if title and artist:
@@ -137,6 +249,14 @@ def _format_sonos_now_playing(st: dict) -> str:
     # Try pinned-station fallback from content id
     pinned = _pinned_station_name_from_content_id(content_id)
     if pinned:
+        _remember_now_playing_context(
+            media_kind="radio",
+            station=pinned,
+            source=source,
+            raw_content_type=raw_content_type,
+            entity_id=_clean(st.get("entity_id")),
+            playback_state=state,
+        )
         return f"You're listening to {pinned}."
 
     # Last resort
@@ -157,6 +277,10 @@ def _format_apple_tv_now_playing(st: dict) -> str:
     # Title-ish fields
     title = _clean(attrs.get("media_title"))
     series = _clean(attrs.get("media_series_title"))
+    explicit_series = bool(series)
+    raw_content_type = _clean(attrs.get("media_content_type")).lower()
+    artist = _clean(attrs.get("media_artist"))
+    album = _clean(attrs.get("media_album_name"))
 
     # Episode numbers (optional)
     season = attrs.get("media_season")
@@ -165,18 +289,20 @@ def _format_apple_tv_now_playing(st: dict) -> str:
     # Channel best-effort:
     # - For YouTube, HA commonly exposes channel as media_artist.
     # - Some integrations may put it in media_channel.
-    channel = _clean(attrs.get("media_artist")) or _clean(attrs.get("media_channel"))
+    channel = artist or _clean(attrs.get("media_channel"))
     # ---- Plex episodic normalization ----
     # In your HA snapshot for Plex-on-AppleTV, we often see:
     #   media_artist = Show name
     #   media_title  = "S2 · E3: Episode Title" (or similar)
     # We want: "Show, Episode Title" (no 'paused', no S/E prefix).
     app_l = (app or '').strip().lower()
-    series_fallback = series or channel  # media_artist commonly carries the series for Plex
+    series_fallback = series or (channel if "plex" in app_l else "")
     title_clean = title
+    episode_prefix_detected = False
     if 'plex' in app_l and title_clean:
         m_ep = re.match(r"^\s*S\d+\s*[·\.]?\s*E\d+\s*[:\-–—]\s*(.+?)\s*$", title_clean)
         if m_ep:
+            episode_prefix_detected = True
             title_clean = _clean(m_ep.group(1))
     # Prefer a non-empty series name when possible
     if not series and series_fallback:
@@ -203,6 +329,48 @@ def _format_apple_tv_now_playing(st: dict) -> str:
         title_norm = series
     else:
         title_norm = title
+
+    if "movie" in raw_content_type or "film" in raw_content_type:
+        media_kind = "movie"
+    elif (
+        explicit_series
+        or episode_prefix_detected
+        or season is not None
+        or episode is not None
+        or raw_content_type in ("episode", "tv_episode")
+        or (bool(series) and "plex" in app_l)
+    ):
+        media_kind = "tv_episode" if title else "tv_show"
+    elif raw_content_type in ("tvshow", "tv_show", "series"):
+        media_kind = "tv_show"
+    elif "podcast" in raw_content_type:
+        media_kind = "podcast_episode"
+    elif title and "plex" in app_l:
+        # Apple TV often flattens Plex movies to content_type="video". Plex
+        # episodic signals were handled above, so a remaining titled item is a
+        # movie rather than an untyped web video.
+        media_kind = "movie"
+    elif title and raw_content_type in ("audio", "music", "song", "track"):
+        media_kind = "song"
+    else:
+        media_kind = "video"
+
+    _remember_now_playing_context(
+        media_kind=media_kind,
+        title=(title if media_kind != "tv_episode" else title_clean),
+        artist=(artist if media_kind in ("song", "podcast_episode") else ""),
+        album=(album if media_kind in ("song", "podcast_episode") else ""),
+        series=series,
+        episode_title=(title_clean if media_kind == "tv_episode" else ""),
+        season=season,
+        episode=episode,
+        channel=channel,
+        app=app,
+        device=device,
+        raw_content_type=raw_content_type,
+        entity_id=_clean(st.get("entity_id")),
+        playback_state=state,
+    )
 
     # If no title at all but active, keep it short
     if not title_norm and state in ("playing", "paused"):
