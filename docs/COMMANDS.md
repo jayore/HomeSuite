@@ -280,7 +280,9 @@ also be used for scheduling; lunar and planetary events are query-only.
 
 These read-only requests require Alpaca market-data credentials:
 
+* `how's Apple stock?`
 * `what's Apple's stock price?`
+* `Apple stock price`
 * `what is AAPL trading at?`
 * `how is Nvidia stock doing today?`
 * `stock quote for Apple and Microsoft`

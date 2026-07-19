@@ -55,6 +55,31 @@ class StockQueryParserTests(unittest.TestCase):
         self.assertEqual((current.intent, current.symbols), ("quote", ("NVDA",)))
         self.assertEqual((close.intent, close.symbols), ("close", ("AAPL",)))
 
+    def test_natural_stock_contractions_and_word_orders(self):
+        cases = {
+            "How’s Apple stock?": ("AAPL",),
+            "What's Apple stock doing?": ("AAPL",),
+            "What's the price of Microsoft stock?": ("MSFT",),
+            "Check Nvidia stock": ("NVDA",),
+            "Apple stock price": ("AAPL",),
+            "How are Apple and Microsoft stocks doing?": ("AAPL", "MSFT"),
+        }
+
+        for phrase, symbols in cases.items():
+            with self.subTest(phrase=phrase):
+                query = stock_quote_controls.parse_stock_query(phrase)
+                self.assertIsNotNone(query)
+                self.assertEqual((query.intent, query.symbols), ("quote", symbols))
+
+    def test_company_conversation_without_market_language_is_not_claimed(self):
+        for phrase in (
+            "How's Apple doing as a company?",
+            "What's Apple known for?",
+            "Tell me about Nvidia",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(stock_quote_controls.parse_stock_query(phrase))
+
     def test_market_clock_forms(self):
         status = stock_quote_controls.parse_stock_query("Is the stock market open?")
         opening = stock_quote_controls.parse_stock_query(
@@ -88,7 +113,12 @@ class StockQueryParserTests(unittest.TestCase):
         self.assertTrue(query.too_many_symbols)
 
     def test_stock_queries_route_as_deterministic_utilities(self):
-        for phrase in ("quote MSFT", "is the stock market open"):
+        for phrase in (
+            "quote MSFT",
+            "is the stock market open",
+            "How’s Apple stock?",
+            "Apple stock price",
+        ):
             with self.subTest(phrase=phrase):
                 self.assertEqual(
                     route_utterance(text=phrase).outcome,

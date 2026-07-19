@@ -41,20 +41,21 @@ _SYMBOL_PATTERN = re.compile(r"^[a-z]{1,5}(?:\.[a-z]{1,2})?$")
 _TARGET_PATTERNS = (
     re.compile(
         r"^(?:(?:give|get|show)\s+me\s+)?(?:a\s+|the\s+)?"
-        r"(?:stock\s+)?quote(?:\s+(?:for|on|of))?\s+(?P<target>.+)$"
+        r"(?:stock\s+)?quotes?(?:\s+(?:for|on|of))?\s+(?P<target>.+)$"
     ),
     re.compile(
-        r"^(?:stock|share)\s+(?:price|quote)\s+(?:for|of|on)\s+"
+        r"^(?:stock|share)\s+(?:prices?|quotes?)\s+(?:for|of|on)\s+"
         r"(?P<target>.+)$"
     ),
     re.compile(
         r"^(?:what(?:'s|\s+is)|tell\s+me)\s+(?:the\s+)?"
-        r"(?:stock|share)\s+(?:price|quote)(?:\s+(?:for|of))?\s+"
+        r"(?:stock|share)\s+(?:prices?|quotes?)(?:\s+(?:for|of))?\s+"
         r"(?P<target>.+)$"
     ),
     re.compile(
         r"^(?:what(?:'s|\s+is)|how\s+much\s+is)\s+(?P<target>.+?)\s+"
-        r"(?:stock|shares?)(?:\s+(?:price|quote))?"
+        r"(?:stocks?|shares?)(?:\s+(?:prices?|quotes?))?"
+        r"(?:\s+(?:doing|performing|trading|looking))?"
         r"(?:\s+(?:today|now|right\s+now))?$"
     ),
     re.compile(
@@ -62,17 +63,29 @@ _TARGET_PATTERNS = (
         r"(?:\s+(?:today|now|right\s+now))?$"
     ),
     re.compile(
-        r"^how\s+(?:is|are)\s+(?P<target>.+?)\s+(?:stock|shares?)"
-        r"(?:\s+(?:doing|performing|trading))?"
+        r"^how(?:'s|\s+(?:is|are))\s+(?P<target>.+?)\s+(?:stocks?|shares?)"
+        r"(?:\s+(?:doing|performing|trading|looking))?"
         r"(?:\s+(?:today|now|right\s+now))?$"
     ),
-    re.compile(r"^(?P<target>.+?)\s+stock\s+quote$"),
+    re.compile(
+        r"^(?:what(?:'s|\s+is)\s+)?(?:the\s+)?(?:price|quote)\s+"
+        r"(?:for|of|on)\s+(?P<target>.+?)(?:\s+(?:stocks?|shares?))?$"
+    ),
+    re.compile(
+        r"^(?:check|look\s+up|pull\s+up|get|show\s+me|give\s+me|tell\s+me)\s+"
+        r"(?P<target>.+?)\s+(?:stocks?|shares?)"
+        r"(?:\s+(?:prices?|quotes?))?$"
+    ),
+    re.compile(
+        r"^(?P<target>.+?)\s+(?:stocks?|shares?)"
+        r"(?:\s+(?:prices?|quotes?))?$"
+    ),
 )
 _CLOSE_PATTERN = re.compile(
     r"^(?:how\s+did|what\s+did)\s+(?P<target>.+?)\s+close(?:\s+at)?$"
 )
 _TRAILING_TARGET_WORDS = re.compile(
-    r"\s+(?:stock|shares?|price|quote|today|currently|now|right\s+now)$"
+    r"\s+(?:stocks?|shares?|prices?|quotes?|today|currently|now|right\s+now)$"
 )
 _CACHE_LOCK = threading.Lock()
 _SNAPSHOT_CACHE: dict[tuple, tuple[float, tuple["StockQuote", ...]]] = {}
@@ -197,6 +210,23 @@ def _resolve_target_symbols(
     return symbols
 
 
+def _query_for_target(
+    intent: str,
+    target: str,
+    *,
+    aliases: Mapping[str, str],
+    limit: int,
+) -> Optional[StockQuery]:
+    resolved = _resolve_target_symbols(target, aliases=aliases)
+    if not resolved:
+        return None
+    return StockQuery(
+        intent=intent,
+        symbols=tuple(resolved[:limit]),
+        too_many_symbols=len(resolved) > limit,
+    )
+
+
 def parse_stock_query(
     text: str,
     *,
@@ -207,6 +237,9 @@ def parse_stock_query(
     normalized = _normalize(text)
     if not normalized:
         return None
+
+    configured_aliases = aliases if aliases is not None else _configured_aliases()
+    limit = max(1, int(max_symbols or STOCK_QUOTE_MAX_SYMBOLS))
 
     market_status = re.fullmatch(
         r"(?:is|are)\s+(?:the\s+)?(?:(?:u\.?\s*s\.?|american)\s+)?"
@@ -227,32 +260,30 @@ def parse_stock_query(
         intent = "market_open" if market_event.group("event") == "open" else "market_close"
         return StockQuery(intent=intent)
 
-    intent = "quote"
     close_match = _CLOSE_PATTERN.fullmatch(normalized)
-    target = close_match.group("target") if close_match else None
     if close_match:
-        intent = "close"
-    else:
-        for pattern in _TARGET_PATTERNS:
-            match = pattern.fullmatch(normalized)
-            if match:
-                target = match.group("target")
-                break
-    if target is None:
-        return None
+        return _query_for_target(
+            "close",
+            close_match.group("target"),
+            aliases=configured_aliases,
+            limit=limit,
+        )
 
-    resolved = _resolve_target_symbols(
-        target,
-        aliases=aliases if aliases is not None else _configured_aliases(),
-    )
-    if not resolved:
-        return None
-    limit = max(1, int(max_symbols or STOCK_QUOTE_MAX_SYMBOLS))
-    return StockQuery(
-        intent=intent,
-        symbols=tuple(resolved[:limit]),
-        too_many_symbols=len(resolved) > limit,
-    )
+    # Patterns intentionally overlap so natural word orders can coexist.
+    # Keep trying when one shape matches but its target does not resolve.
+    for pattern in _TARGET_PATTERNS:
+        match = pattern.fullmatch(normalized)
+        if not match:
+            continue
+        query = _query_for_target(
+            "quote",
+            match.group("target"),
+            aliases=configured_aliases,
+            limit=limit,
+        )
+        if query is not None:
+            return query
+    return None
 
 
 def looks_like_stock_query(text: str) -> bool:
