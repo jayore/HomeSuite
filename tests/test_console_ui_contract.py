@@ -8,6 +8,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ConsoleUiContractTests(unittest.TestCase):
+    def test_console_uses_the_home_suite_brand_logo(self):
+        html = (ROOT / "console_static" / "index.html").read_text(encoding="utf-8")
+        stylesheet = (ROOT / "console_static" / "styles.css").read_text(encoding="utf-8")
+        logo = ROOT / "console_static" / "home-suite-logo.png"
+
+        self.assertTrue(logo.is_file())
+        self.assertEqual(html.count('src="/static/home-suite-logo.png"'), 2)
+        self.assertIn('rel="icon" href="/static/home-suite-logo.png"', html)
+        self.assertNotIn("<span>HS</span>", html)
+        self.assertIn("object-fit: contain;", stylesheet)
+        self.assertEqual(stylesheet.count("--primary: #18bcf2;"), 2)
+        self.assertEqual(stylesheet.count("--focus: #18bcf2;"), 2)
+        self.assertNotIn("#03a9f4", stylesheet)
+        self.assertIn(
+            ".message.user .message-bubble { background: var(--primary); "
+            "border-color: var(--primary); color: var(--on-primary); }",
+            stylesheet,
+        )
+
     def test_setup_and_preview_controls_are_accessible(self):
         html = (ROOT / "console_static" / "index.html").read_text(encoding="utf-8")
 
