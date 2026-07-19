@@ -967,7 +967,6 @@ from kelvin_controls import handle_kelvin_controls
 from rgb_hex_controls import handle_rgb_hex_controls
 from applet_controls import handle_applet_controls, register_exclusive_audio_hooks
 from datetime import datetime
-from collections import deque
 from typing import Optional, Tuple, Dict, Any
 
 if not PIPHONE_LIGHT_IMPORT:
@@ -1446,7 +1445,6 @@ tts_proc_lock = threading.Lock()
 last_interaction_ts = 0
 
 # Joke memory (avoid repeats)
-from collections import deque
 from weather_utils import _ha_local_weather, _open_meteo_weather
 from transport_helpers import (
     get_transport_focus as _get_transport_focus,
@@ -1481,6 +1479,7 @@ from device_phrase_helpers import (
     try_light_turn_on as _try_light_turn_on,
     normalize_scene_phrase as _normalize_scene_phrase,
 )
+from joke_history import RecentJokeHistory
 from request_context import (
     build_request_context,
     replace_current_request_context,
@@ -1507,7 +1506,7 @@ command_dispatch.ha_get_calendar_events = ha_get_calendar_events
 command_dispatch.OPENAI_CLIENT = OPENAI_CLIENT
 
 RECENT_JOKES_MAX = 50
-recent_jokes = deque(maxlen=RECENT_JOKES_MAX)  # store full joke strings
+recent_jokes = RecentJokeHistory(max_entries=RECENT_JOKES_MAX)
 
 # _TEXT_CONFIRM_CONTEXT and helpers live in command_dispatch (imported below).
 
@@ -3634,7 +3633,7 @@ def get_chatgpt_joke_response(text: str) -> str:
     # Joke mode: higher variety + explicit no-repeat list
     try:
         # Keep the no-repeat constraint short-ish; last 50 as requested
-        recent = list(recent_jokes)[-RECENT_JOKES_MAX:]
+        recent = recent_jokes.snapshot()
         avoid = "\n".join([f"- {j}" for j in recent]) if recent else ""
 
         joke_system = {
@@ -3663,7 +3662,7 @@ def get_chatgpt_joke_response(text: str) -> str:
 
         joke = (response.choices[0].message.content or "").strip()
         if joke:
-            recent_jokes.append(joke)
+            recent_jokes.remember(joke)
         return joke or "I couldn't think of a joke right now."
     except Exception as e:
         logging.error(f"Joke mode error: {e}")

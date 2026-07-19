@@ -66,6 +66,9 @@ state/source_rooms.json
 state/youtube_*.json
 state/console_restart_required.json
 state/setup_complete.json
+state/recent_jokes.json
+state/recent_jokes.json.lock
+state/recent_jokes.json.tmp
 .scheduler.lock
 
 # ============================================================================
