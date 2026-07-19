@@ -238,6 +238,52 @@ class ConsoleServerTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_native_browser_login_handles_opaque_origin_but_rejects_cross_site(self):
+        async def scenario():
+            app = console_server.create_app(
+                console_key="console-passphrase",
+                api_key="api-key",
+                live_api_url="http://127.0.0.1:8765/command",
+                runtime=mock.Mock(),
+            )
+            client = TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True))
+            await client.start_server()
+            try:
+                response = await client.post(
+                    "/login",
+                    data={"password": "console-passphrase"},
+                    headers={
+                        "Origin": "http://unrelated.example",
+                        "Sec-Fetch-Site": "cross-site",
+                    },
+                    allow_redirects=False,
+                )
+                self.assertEqual(response.status, 403)
+                self.assertNotIn(
+                    console_server.SESSION_COOKIE,
+                    client.session.cookie_jar.filter_cookies(client.make_url("/")),
+                )
+
+                response = await client.post(
+                    "/login",
+                    data={"password": "console-passphrase"},
+                    headers={
+                        "Origin": "null",
+                        "Sec-Fetch-Site": "same-origin",
+                    },
+                    allow_redirects=False,
+                )
+                self.assertEqual(response.status, 303)
+                self.assertEqual(response.headers["Location"], "/")
+                self.assertIn(
+                    console_server.SESSION_COOKIE,
+                    client.session.cookie_jar.filter_cookies(client.make_url("/")),
+                )
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
     def test_authenticated_config_preview_and_apply_routes(self):
         async def scenario():
             runtime = mock.Mock()

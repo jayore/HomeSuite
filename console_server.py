@@ -173,6 +173,17 @@ def _same_origin(request: web.Request) -> bool:
     return hmac.compare_digest(parsed.netloc.lower(), request.host.lower())
 
 
+def _browser_login_origin_allowed(request: web.Request) -> bool:
+    """Accept native same-origin form navigation without relaxing API writes."""
+    fetch_site = str(request.headers.get("Sec-Fetch-Site", "") or "").strip().lower()
+    if fetch_site:
+        return fetch_site in {"same-origin", "none"}
+    origin = str(request.headers.get("Origin", "") or "").strip()
+    if origin.lower() == "null":
+        return True
+    return _same_origin(request)
+
+
 @web.middleware
 async def _security_headers(request: web.Request, handler):
     response = await handler(request)
@@ -493,7 +504,13 @@ def create_app(
 
     async def browser_login(request: web.Request) -> web.StreamResponse:
         """Handle a native form login so browser password managers see it."""
-        if not _same_origin(request):
+        if not _browser_login_origin_allowed(request):
+            log.warning(
+                "CONSOLE_BROWSER_LOGIN_ORIGIN_REJECT host=%r origin=%r fetch_site=%r",
+                request.host,
+                request.headers.get("Origin"),
+                request.headers.get("Sec-Fetch-Site"),
+            )
             return web.Response(status=403)
         if bootstrap_pending():
             return web.Response(status=303, headers={"Location": "/?login=bootstrap_required"})
