@@ -70,6 +70,9 @@ out existing browser sessions.
 The sign-in screen uses a native username-and-password form with standard
 browser autocomplete metadata. Browsers and password managers can therefore
 offer to save and refill the console passphrase after a successful sign-in.
+The visible account name is the fixed identifier `homesuite-console`; it gives
+password managers a stable username to associate with the saved passphrase and
+is not a second credential.
 Saved credentials belong to the exact browser origin, so use the same hostname
 and port consistently; `piphone.local:8766` and an IP-address URL are separate
 password-manager entries.
