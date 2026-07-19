@@ -17,7 +17,7 @@ import time
 from app_config import CHATGPT_CONTINUATION_WINDOW_SECONDS, ROOMS
 from astronomy_controls import looks_like_astronomy_query
 from date_controls import looks_like_date_query
-from homelab_controls import looks_like_homelab_query
+from homelab_controls import looks_like_homelab_intent
 from location_controls import looks_like_location_query
 from stock_quote_controls import looks_like_stock_query
 from weather_utils import looks_like_weather_query
@@ -206,7 +206,7 @@ def _looks_local_utility(t: str) -> bool:
 def _looks_deviceish(t: str) -> bool:
     if not t:
         return False
-    if looks_like_homelab_query(t):
+    if looks_like_homelab_intent(t):
         return True
     if _ACTION_LEAD_PAT.search(t):
         return True

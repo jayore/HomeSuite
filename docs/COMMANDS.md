@@ -309,6 +309,10 @@ YouTube features require pairing with the TV YouTube app. Digest and playlist-st
 
 Home Suite prefers Home Assistant for broad status portability. Optional direct APIs add richer qBittorrent, Seerr, and Uptime Kuma behavior.
 
+Homelab ownership requires explicit local action or live-status grammar. General
+conversation that merely mentions words such as `requests`, `services`,
+`internet`, or `cameras` remains available to the AI fallback.
+
 * `service status`
 * `is anything down?`
 * `how's the homelab?`

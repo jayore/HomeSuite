@@ -30,14 +30,33 @@ from runtime_mode import allow_real_effects
 MaybeSay = Callable[[str], str]
 
 
-_HOMELAB_RELEVANT_RE = re.compile(
-    r"\b(homelab|torrent|torrents|qbittorrent|download|downloads|downloading|"
-    r"overseerr|overseer|over\s+seer|seerr|seer|see\s+your|request|requests|"
-    r"radarr|sonarr|lidarr|speedtest|internet|camera|cameras|reolink|"
-    r"uptime\s*kuma|kuma|services?|service\s+status|anything\s+down|what'?s\s+down|"
-    r"what\s+(?:is|are)\s+down|broken|outages?|"
-    r"synology|nas|yore\s*nas|yorenas|diskstation|storage|drives|volumes?)\b"
+_QUERY_START_RE = re.compile(
+    r"^(?:please\s+)?(?:how|what|which|is|are|has|have|did|do|show|list|give|tell|any)\b"
 )
+_HOW_IS_RE = re.compile(r"^(?:please\s+)?how(?:'s|\s+is)\b")
+_STATUS_WORD_RE = re.compile(
+    r"\b(status|health|healthy|warning|warnings|alert|alerts|pending|processing|"
+    r"available|issue|issues|queue|queued|upcoming|active|completed|complete|"
+    r"finished|done|paused|errored|errors?|inactive|total|speed|speeds|doing|"
+    r"working|running|reachable|online|offline|up|down|broken|failing|outages?|"
+    r"space|usage|temperature|temp|hot|cpu|memory|ram|load|throughput|updates?)\b"
+)
+_SYSTEM_HEALTH_IDIOM_RE = re.compile(
+    r"^(?:please\s+)?(?:service\s+status|is\s+anything\s+down|anything\s+down|"
+    r"what(?:'s|\s+is)\s+down|what\s+are\s+down|what(?:'s|\s+is)\s+broken|"
+    r"any\s+outages?|outage\s+status)$"
+)
+_PLATFORM_RE = re.compile(
+    r"\b(qbittorrent|overseerr|overseer|over\s+seer|seerr|seer|see\s+your|"
+    r"radarr|sonarr|lidarr|uptime\s*kuma|kuma)\b"
+)
+_TORRENT_RE = re.compile(r"\b(torrent|torrents|download|downloads|downloading|qbittorrent)\b")
+_MEDIA_REQUEST_RE = re.compile(r"\b(request|requests)\b")
+_STORAGE_RE = re.compile(
+    r"\b(synology|nas|yore\s*nas|yorenas|diskstation|storage|drives?|volumes?)\b"
+)
+_INTERNET_RE = re.compile(r"\b(internet|speedtest|network\s+speed|connection\s+speed)\b")
+_CAMERA_RE = re.compile(r"\b(camera|cameras|reolink)\b")
 _SINGULAR_DRIVE_STATUS_RE = re.compile(
     r"\b(?:"
     r"drive\s+(?:status|health|temperature|temp|warning|alert|space|usage)|"
@@ -50,27 +69,128 @@ _SINGULAR_DRIVE_STATUS_RE = re.compile(
 
 
 def _norm(text: str) -> str:
-    s = (text or "").strip().lower()
+    s = (text or "").strip().lower().replace("’", "'")
     s = re.sub(r"[.!,?]+$", "", s).strip()
     s = re.sub(r"\s+", " ", s)
     return s
 
 
-def looks_like_homelab_query(text: str) -> bool:
-    """Return whether text explicitly belongs to the homelab command domain.
+def looks_like_homelab_intent(text: str) -> bool:
+    """Return whether text expresses an actionable local homelab intent.
 
-    Singular ``drive`` is intentionally ambiguous: travel questions use it
-    constantly, so it only counts when paired with storage-status language.
-    Explicit NAS terms and plural ``drives`` retain their existing behavior.
+    Domain vocabulary alone is deliberately insufficient. The deterministic
+    layer owns explicit mutations and live-status questions, while conceptual
+    discussion that merely mentions requests, services, cameras, or the
+    internet remains available to conversational fallback.
     """
     t = _norm(text)
-    return bool(
-        t
-        and (
-            _HOMELAB_RELEVANT_RE.search(t)
-            or _SINGULAR_DRIVE_STATUS_RE.search(t)
+    if not t:
+        return False
+
+    # Explicit mutation supported by this module.
+    if (
+        re.search(r"\bpause\b", t)
+        and re.search(r"\b(completed|complete|finished|done)\b", t)
+        and re.search(r"\b(download|downloads|torrent|torrents)\b", t)
+    ):
+        return True
+
+    if _SYSTEM_HEALTH_IDIOM_RE.fullmatch(t):
+        return True
+
+    if re.search(r"\bhomelab\b", t):
+        return bool(
+            re.fullmatch(r"(?:the\s+)?homelab", t)
+            or _HOW_IS_RE.search(t)
+            or _STATUS_WORD_RE.search(t)
         )
-    )
+
+    # Keep travel uses of singular "drive" out of storage ownership.
+    if _SINGULAR_DRIVE_STATUS_RE.search(t):
+        return True
+
+    # Named active-download queries and qBittorrent count/status shorthand.
+    if (
+        re.search(r"\bwhat\b.*\b(download|downloading|grabbing|processing)\b", t)
+        and re.search(r"\b(movie|movies|show|shows|episode|episodes|torrent|torrents|media)\b", t)
+    ):
+        return True
+    if _TORRENT_RE.search(t):
+        if _HOW_IS_RE.search(t):
+            return True
+        if _QUERY_START_RE.search(t) and (
+            re.search(r"\bhow\s+many\b", t) or _STATUS_WORD_RE.search(t)
+        ):
+            return True
+        if re.fullmatch(
+            r"(?:(?:active|completed|complete|finished|done|paused|errored|inactive|all|total)\s+"
+            r"(?:torrents?|downloads?)|(?:torrent|torrents|download|downloads|qbittorrent)\s+"
+            r"(?:status|speed|speeds|active|completed|paused|errored|inactive|total))",
+            t,
+        ):
+            return True
+
+    # Seerr-style request language needs either a named platform or explicit
+    # status grammar. A prose mention of ordinary "requests" is not enough.
+    if _PLATFORM_RE.search(t) and (
+        _HOW_IS_RE.search(t) or _STATUS_WORD_RE.search(t)
+    ):
+        return True
+    if _MEDIA_REQUEST_RE.search(t):
+        if _QUERY_START_RE.search(t) and _STATUS_WORD_RE.search(t):
+            return True
+        if re.fullmatch(
+            r"(?:(?:media\s+)?request(?:s)?\s+(?:status|health)|"
+            r"(?:pending|processing|available)\s+(?:media\s+)?requests?)",
+            t,
+        ):
+            return True
+
+    if _STORAGE_RE.search(t):
+        if _HOW_IS_RE.search(t):
+            return True
+        if _QUERY_START_RE.search(t) and _STATUS_WORD_RE.search(t):
+            return True
+        if re.fullmatch(
+            r"(?:nas|synology|diskstation|storage|drives?|volumes?)\s+"
+            r"(?:status|health|space|usage|temperature|temp|warnings?|alerts?)",
+            t,
+        ):
+            return True
+
+    if _INTERNET_RE.search(t):
+        if _HOW_IS_RE.search(t):
+            return True
+        if re.search(
+            r"\b(internet|speedtest|network\s+speed|connection\s+speed)\b.*"
+            r"\b(status|speed|ping|working|running|online|offline|up|down)\b",
+            t,
+        ):
+            return True
+        if _QUERY_START_RE.search(t) and re.search(
+            r"\b(status|speed|ping|working|running|online|offline|up|down)\b",
+            t,
+        ):
+            return True
+
+    if _CAMERA_RE.search(t):
+        if _QUERY_START_RE.search(t) and re.search(
+            r"\b(status|alerts?|motion|person|vehicle|package|visitor)\b",
+            t,
+        ):
+            return True
+        if re.fullmatch(
+            r"(?:any\s+)?(?:camera|cameras|reolink)\s+(?:status|alerts?|motion)",
+            t,
+        ):
+            return True
+
+    return False
+
+
+def looks_like_homelab_query(text: str) -> bool:
+    """Backward-compatible name for the canonical homelab intent predicate."""
+    return looks_like_homelab_intent(text)
 
 
 def _say(maybe_say: Optional[MaybeSay], text: str) -> str:
@@ -909,7 +1029,7 @@ def handle_homelab_controls(
     if not t:
         return None
 
-    if not looks_like_homelab_query(t):
+    if not looks_like_homelab_intent(t):
         return None
 
     try:
