@@ -136,11 +136,8 @@ class ConsoleUiContractTests(unittest.TestCase):
         javascript = (ROOT / "console_static" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn('action="/login" method="post" autocomplete="on"', html)
-        self.assertIn('<label for="console-username">Account</label>', html)
-        self.assertIn('name="username" type="text" value="homesuite-console" autocomplete="username"', html)
-        self.assertEqual(html.count('autocomplete="username"'), 1)
-        self.assertNotIn('id="console-username" class="sr-only"', html)
-        self.assertNotIn('id="console-username" name="username" type="text" value="homesuite-console" autocomplete="username" tabindex="-1"', html)
+        self.assertNotIn('name="username"', html)
+        self.assertNotIn('autocomplete="username"', html)
         self.assertIn('name="password" type="password" autocomplete="current-password"', html)
         self.assertIn('name="passphrase" type="password" autocomplete="new-password"', html)
         self.assertIn('id="login-submit"', html)
