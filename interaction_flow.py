@@ -12,10 +12,13 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass
 
 from app_config import INTERACTION_CANCEL_PHRASES
 from dialogue_state import current_scope_id, forget_intent_frame, forget_referents
+from request_context import get_current_request_context
+from semantic_router import RouteOutcome, RouteResult, route_utterance
 
 
 @dataclass
@@ -56,16 +59,6 @@ def is_interaction_cancel(text: str) -> bool:
 def _looks_like_joke_request(gpio_ptt, text: str) -> bool:
     try:
         fn = getattr(gpio_ptt, "_looks_like_joke_request", None)
-        if callable(fn):
-            return bool(fn(text))
-    except Exception:
-        pass
-    return False
-
-
-def _looks_like_chatgpt_intent(gpio_ptt, text: str) -> bool:
-    try:
-        fn = getattr(gpio_ptt, "_looks_like_chatgpt_intent", None)
         if callable(fn):
             return bool(fn(text))
     except Exception:
@@ -365,8 +358,10 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
             source="device_confirm",
         )
 
-    # ChatGPT fallback path
-    if _looks_like_chatgpt_intent(gpio_ptt, text):
+    # Deterministic handlers have declined the request. Apply the same shared,
+    # source-scoped semantic policy used by local voice interactions.
+    route_result = route_unhandled_utterance(text)
+    if route_result.outcome == RouteOutcome.CHATGPT:
         try:
             if _looks_like_joke_request(gpio_ptt, text):
                 reply = _clean_text(gpio_ptt.get_chatgpt_joke_response(text))
@@ -386,6 +381,7 @@ def handle_text_interaction(gpio_ptt, text: str) -> InteractionResult:
             # as "what about Thursday?" belong to that conversation rather than
             # an older deterministic intent frame. AI history remains intact.
             forget_intent_frame()
+            mark_chatgpt_turn()
             return InteractionResult(
                 handled=True,
                 action_occurred=False,
@@ -412,7 +408,9 @@ _BASE_SYSTEM_MESSAGE = {
     "role": "system",
     "content": (
         "You are a helpful voice assistant that can answer questions concisely "
-        "and control smart home devices. Keep answers natural when spoken aloud. "
+        "after Home Suite's deterministic command handlers have declined a request. "
+        "You cannot execute or confirm smart-home, media, scheduling, or service "
+        "actions; never imply that an action occurred. Keep answers natural when spoken aloud. "
         "When web search is available, use it for current or time-sensitive facts. "
         "Do not read URLs aloud; name important publications briefly when useful."
     ),
@@ -421,6 +419,53 @@ _BASE_SYSTEM_MESSAGE = {
 conversation_history: list = [_BASE_SYSTEM_MESSAGE.copy()]
 _HISTORY_LOCK = threading.RLock()
 _HISTORIES_BY_SCOPE: dict[str, list] = {"process": conversation_history}
+_LAST_CHATGPT_TS_BY_SCOPE: dict[str, float] = {}
+
+
+def _scope_key(scope_id: str | None = None) -> str:
+    return str(scope_id or current_scope_id()).strip() or "process"
+
+
+def get_last_chatgpt_ts(scope_id: str | None = None) -> float | None:
+    """Return the most recent successful AI turn for one continuity scope."""
+    with _HISTORY_LOCK:
+        return _LAST_CHATGPT_TS_BY_SCOPE.get(_scope_key(scope_id))
+
+
+def mark_chatgpt_turn(
+    *,
+    now_ts: float | None = None,
+    scope_id: str | None = None,
+) -> None:
+    """Record an AI turn without leaking recency into another source."""
+    timestamp = time.time() if now_ts is None else float(now_ts)
+    with _HISTORY_LOCK:
+        _LAST_CHATGPT_TS_BY_SCOPE[_scope_key(scope_id)] = timestamp
+
+
+def _current_source_type() -> str:
+    ctx = get_current_request_context()
+    return str(
+        getattr(ctx, "source_type", None)
+        or getattr(ctx, "origin", None)
+        or "text"
+    ).strip().lower()
+
+
+def route_unhandled_utterance(
+    text: str,
+    *,
+    now_ts: float | None = None,
+    source_type: str | None = None,
+) -> RouteResult:
+    """Apply shared fallback policy using this source's own AI recency."""
+    timestamp = time.time() if now_ts is None else float(now_ts)
+    return route_utterance(
+        text=text,
+        now_ts=timestamp,
+        last_chatgpt_ts=get_last_chatgpt_ts(),
+        source_type=source_type or _current_source_type(),
+    )
 
 
 def _history_for_scope(scope_id: str | None = None) -> list:
@@ -460,11 +505,14 @@ def reset_history(scope_id: str | None = None, *, all_scopes: bool = False) -> N
     with _HISTORY_LOCK:
         if all_scopes:
             _HISTORIES_BY_SCOPE.clear()
+            _LAST_CHATGPT_TS_BY_SCOPE.clear()
             conversation_history[:] = [_BASE_SYSTEM_MESSAGE.copy()]
             _HISTORIES_BY_SCOPE["process"] = conversation_history
             return
-        history = _history_for_scope(scope_id)
+        scope = _scope_key(scope_id)
+        history = _history_for_scope(scope)
         history[:] = [_BASE_SYSTEM_MESSAGE.copy()]
+        _LAST_CHATGPT_TS_BY_SCOPE.pop(scope, None)
 
 
 def inject_into_history(

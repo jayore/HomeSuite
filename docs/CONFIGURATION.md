@@ -110,6 +110,16 @@ commands; disabling it avoids web-search tool-call charges. Override
 `CHATGPT_WEB_SEARCH_MODEL` only when search should use a different model from
 `CHATGPT_MODEL`. Older OpenAI SDKs automatically fall back to non-web chat.
 
+After deterministic handlers decline a request, meaningful unclaimed language
+can use the conversational fallback. Imperative home, media, and scheduling
+language remains deterministic even when its target cannot be resolved, so the
+AI cannot claim that an action occurred. `CHATGPT_CONTINUATION_WINDOW_SECONDS`
+defaults to 120 seconds and lets short fragments such as `the one with Neo` or
+`Neo` continue the latest AI exchange. Recency and conversation history are
+scoped to the requesting source or its explicitly configured continuity group.
+Voice input also rejects empty filler and isolated capture debris; typed
+surfaces are intentionally more permissive.
+
 Home Suite uses OpenAI for conversational fallback and, depending on configuration, transcription or media breadcrumb extraction. Home commands first go through Home Suite's deterministic natural-language processing and handlers; OpenAI is mainly for open-ended conversation and interpretation.
 
 Most routine home-control commands should not call OpenAI. This keeps common actions faster and conservative with token usage, while preserving AI for cases where language understanding or conversation actually helps.

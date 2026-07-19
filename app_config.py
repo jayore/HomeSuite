@@ -570,6 +570,11 @@ TTS_TLD = "ie"
 #   "gpt-5.5"      = stronger model for deeper reasoning/conversation
 CHATGPT_MODEL = "gpt-5.4-mini"
 
+# Keep short, source-scoped conversational follow-ups attached to the most
+# recent AI exchange. Deterministic device/service handlers still run first,
+# and this window never authorizes an action or shares context across sources.
+CHATGPT_CONTINUATION_WINDOW_SECONDS = 2 * 60
+
 # Allow the conversational fallback to use OpenAI's hosted web-search tool for
 # current questions such as news, scores, schedules, and recent events. Device
 # commands still run through deterministic handlers first and never require

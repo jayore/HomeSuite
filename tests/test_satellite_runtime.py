@@ -156,7 +156,10 @@ class SatelliteVoiceRuntimeTests(unittest.TestCase):
             self._base_environment("what time is it"),
             mock.patch.object(main, "_forward_voice_command_to_brain", return_value=result) as forward,
             mock.patch.object(main, "process_device_commands") as local_route,
-            mock.patch.object(main, "route_utterance") as local_semantic_route,
+            mock.patch.object(
+                main.interaction_flow,
+                "route_unhandled_utterance",
+            ) as local_semantic_route,
             mock.patch.object(main, "_speak_text_for_trigger", return_value=False) as speak,
             mock.patch.object(main, "play_error_sound") as error_tone,
             mock.patch.object(main, "play_sound") as success_tone,
@@ -244,7 +247,10 @@ class SatelliteVoiceRuntimeTests(unittest.TestCase):
                 side_effect=SatelliteRuntimeError("offline"),
             ),
             mock.patch.object(main, "process_device_commands") as local_route,
-            mock.patch.object(main, "route_utterance") as local_semantic_route,
+            mock.patch.object(
+                main.interaction_flow,
+                "route_unhandled_utterance",
+            ) as local_semantic_route,
             mock.patch.object(main, "_speak_text_for_trigger") as speak,
             mock.patch.object(main, "play_error_sound") as error_tone,
             mock.patch.object(main, "play_sound") as success_tone,

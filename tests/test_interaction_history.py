@@ -25,6 +25,22 @@ class _NowPlayingRuntime:
         return "The Matrix is about a hacker who discovers his reality is simulated."
 
 
+class _ChatRuntime:
+    def __init__(self):
+        self._ACTION_OCCURRED = False
+        self.ai_requests = []
+
+    def process_device_commands(self, _text):
+        return None
+
+    def _looks_like_joke_request(self, _text):
+        return False
+
+    def get_chatgpt_response(self, text):
+        self.ai_requests.append(text)
+        return f"AI: {text}"
+
+
 class InteractionHistoryTests(unittest.TestCase):
     def setUp(self):
         from interaction_flow import reset_history
@@ -100,6 +116,85 @@ class InteractionHistoryTests(unittest.TestCase):
                 ),
             },
         )
+
+    def test_matrix_answer_accepts_the_one_with_neo_as_ai_followup(self):
+        from interaction_flow import handle_text_interaction
+
+        runtime = _ChatRuntime()
+
+        first = handle_text_interaction(
+            runtime,
+            "what's the movie where everyone lives in a simulation?",
+        )
+        second = handle_text_interaction(runtime, "the one with neo")
+
+        self.assertEqual(first.source, "chatgpt")
+        self.assertEqual(second.source, "chatgpt")
+        self.assertEqual(
+            runtime.ai_requests,
+            [
+                "what's the movie where everyone lives in a simulation?",
+                "the one with neo",
+            ],
+        )
+
+    def test_one_word_ai_followup_uses_only_the_current_source_recency(self):
+        from interaction_flow import handle_text_interaction
+        from request_context import RequestContext, set_current_request_context
+
+        runtime = _ChatRuntime()
+        set_current_request_context(
+            RequestContext(
+                source_id="telegram",
+                source_type="telegram",
+                origin="telegram",
+            )
+        )
+        handle_text_interaction(runtime, "tell me about simulated reality")
+        telegram_followup = handle_text_interaction(runtime, "Neo")
+
+        set_current_request_context(
+            RequestContext(
+                source_id="default_piphone",
+                source_type="wakeword",
+                origin="wakeword",
+            )
+        )
+        other_source_followup = handle_text_interaction(runtime, "Neo")
+
+        self.assertEqual(telegram_followup.source, "chatgpt")
+        self.assertEqual(other_source_followup.source, "fallback")
+        self.assertEqual(runtime.ai_requests[-1], "Neo")
+        self.assertEqual(runtime.ai_requests.count("Neo"), 1)
+
+    def test_unresolved_imperative_never_falls_through_to_ai(self):
+        from interaction_flow import handle_text_interaction
+
+        runtime = _ChatRuntime()
+        result = handle_text_interaction(runtime, "activate the mystery lamp")
+
+        self.assertEqual(result.source, "fallback")
+        self.assertEqual(runtime.ai_requests, [])
+
+    def test_typed_language_is_permissive_but_voice_debris_is_rejected(self):
+        from interaction_flow import handle_text_interaction
+        from request_context import RequestContext, set_current_request_context
+
+        runtime = _ChatRuntime()
+        typed = handle_text_interaction(runtime, "photosynthesis")
+
+        set_current_request_context(
+            RequestContext(
+                source_id="default_piphone",
+                source_type="wakeword",
+                origin="wakeword",
+            )
+        )
+        debris = handle_text_interaction(runtime, "um")
+
+        self.assertEqual(typed.source, "chatgpt")
+        self.assertEqual(debris.source, "fallback")
+        self.assertEqual(runtime.ai_requests, ["photosynthesis"])
 
 
 if __name__ == "__main__":

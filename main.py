@@ -990,7 +990,7 @@ from sonos_source_controls import handle_sonos_source_controls
 import sonos_controls as _sonos_controls_mod
 logging.info(f"SONOS_CONTROLS_MODULE_FILE: {_sonos_controls_mod.__file__}")
 from spotify_controls import handle_spotify_controls, resolve_play_request, resolve_typed_play_request
-from semantic_router import route_utterance, RouteOutcome
+from semantic_router import RouteOutcome
 from normalize_helpers import (
     _looks_like_device_command,
     _parse_number_words,
@@ -1508,9 +1508,6 @@ command_dispatch.OPENAI_CLIENT = OPENAI_CLIENT
 
 RECENT_JOKES_MAX = 50
 recent_jokes = deque(maxlen=RECENT_JOKES_MAX)  # store full joke strings
-
-# Semantic-router ChatGPT continuation memory
-last_chatgpt_ts: Optional[float] = None
 
 # _TEXT_CONFIRM_CONTEXT and helpers live in command_dispatch (imported below).
 
@@ -4213,16 +4210,6 @@ def _looks_like_failure_response(text: str) -> bool:
     )
 
 
-def _looks_like_chatgpt_intent(text: str) -> bool:
-    t = (text or "").strip().lower()
-    if not t:
-        return False
-    if "?" in t:
-        return True
-    if re.search(r"\b(what|why|how|when|where|who|explain|tell me|do you know|can you|could you)\b", t):
-        return True
-    return False
-
 # =========================
 # FLOW CONTROL
 # =========================
@@ -4373,7 +4360,6 @@ def process_audio(
         device_response = None
         satellite_result = None
         async_response_started = False
-        global last_chatgpt_ts
         if satellite_mode:
             try:
                 satellite_result = _forward_voice_command_to_brain(
@@ -4466,14 +4452,18 @@ def process_audio(
             # Semantic router (DEVICE vs CHATGPT vs ERROR)
             if action_result == ActionResult.NONE and ptt_session_active:
                 now_ts = _now_ts()
-                rr = route_utterance(text=text, now_ts=now_ts, last_chatgpt_ts=last_chatgpt_ts)
+                rr = interaction_flow.route_unhandled_utterance(
+                    text,
+                    now_ts=now_ts,
+                    source_type=trigger_name,
+                )
                 if rr.outcome == RouteOutcome.CHATGPT:
                     if _looks_like_joke_request(text):
                         response = (get_chatgpt_joke_response(text) or "").strip()
                     else:
                         response = (get_chatgpt_response(text) or "").strip()
                     if response:
-                        last_chatgpt_ts = now_ts
+                        interaction_flow.mark_chatgpt_turn(now_ts=now_ts)
                         action_result = ActionResult.CHATGPT
                         if ptt_session_active:
                             async_response_started = _speak_text_for_trigger(response, trigger)

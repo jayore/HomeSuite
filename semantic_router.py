@@ -1,10 +1,9 @@
-"""Classify text as deterministic device work or general conversation.
+"""Classify unclaimed text as deterministic work, conversation, or noise.
 
-The router is intentionally conservative: recognizable local-control language
-goes to the device pipeline, clearly conversational language goes to ChatGPT,
-and ambiguous cases retain enough context for the caller to choose a fallback.
-It does not resolve entities or execute actions; those guarantees belong to
-``command_dispatch``.
+Recognizable local-control language always stays with the deterministic
+pipeline. Meaningful language that remains unclaimed can use ChatGPT, while a
+small voice-specific debris guard avoids turning stray capture fragments into
+conversation. This module never resolves entities or executes actions.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from typing import Optional
 import re
 import time
 
-from app_config import ROOMS
+from app_config import CHATGPT_CONTINUATION_WINDOW_SECONDS, ROOMS
 from astronomy_controls import looks_like_astronomy_query
 from date_controls import looks_like_date_query
 from homelab_controls import looks_like_homelab_query
@@ -38,8 +37,6 @@ class RouteOutcome(str, Enum):
 class RouteResult:
     outcome: RouteOutcome
 
-
-CHATGPT_CONTINUATION_WINDOW_SECONDS = 60.0
 
 _GREETING_PAT = re.compile(r"^(hi|hello|hey|greetings|yo|sup|what's up|whats up)$")
 _FAREWELL_PAT = re.compile(r"^(bye|goodbye|see you|see ya|later|good night|night)$")
@@ -98,6 +95,16 @@ _DEVICEISH_PATTERNS = [
     re.compile(r"\bhow\s+(hot|cold)\b"),
     re.compile(r"\btemperature\b"),
 ]
+
+# Imperative verbs remain deterministic even when entity resolution fails.
+# This prevents an open-ended model from claiming that an unknown action ran.
+_ACTION_LEAD_PAT = re.compile(
+    r"^(?:please\s+)?(?:"
+    r"activate|deactivate|enable|disable|turn|switch|set|dim|brighten|"
+    r"lock|unlock|open|close|start|stop|pause|resume|play|watch|"
+    r"mute|unmute|increase|decrease|raise|lower|run|announce|say"
+    r")\b"
+)
 
 
 _DEVICE_STATE_PATTERNS = [
@@ -158,7 +165,21 @@ _LOCAL_UTILITY_PATTERNS = [
     re.compile(r"\bforecast\b"),
 ]
 
-_CONTINUATION_PAT = re.compile(r"^(another one|another|one more|more|again|why|really|go on)$")
+_VOICE_SOURCE_TYPES = {
+    "audio",
+    "microphone",
+    "piphone",
+    "ptt",
+    "satellite",
+    "voice",
+    "wakeword",
+}
+_DEBRIS_TOKENS = {
+    "a", "ah", "an", "and", "but", "eh", "er", "err", "hal",
+    "hm", "hmm", "huh", "mm", "mmm", "oh", "or", "please", "so",
+    "the", "uh", "um", "umm", "well",
+}
+_WORD_PAT = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)?")
 
 
 def _norm(s: str) -> str:
@@ -187,6 +208,8 @@ def _looks_deviceish(t: str) -> bool:
         return False
     if looks_like_homelab_query(t):
         return True
+    if _ACTION_LEAD_PAT.search(t):
+        return True
     for p in _DEVICEISH_PATTERNS:
         if p.search(t):
             return True
@@ -212,8 +235,37 @@ def _looks_conversational(t: str) -> bool:
     return False
 
 
-def _looks_chatgpt_continuation(t: str) -> bool:
-    return bool(_CONTINUATION_PAT.fullmatch(t))
+def _word_tokens(t: str) -> list[str]:
+    return _WORD_PAT.findall(t)
+
+
+def _meaningful_tokens(t: str) -> list[str]:
+    return [token for token in _word_tokens(t) if token not in _DEBRIS_TOKENS]
+
+
+def _looks_like_capture_debris(t: str) -> bool:
+    tokens = _word_tokens(t)
+    return not tokens or not _meaningful_tokens(t)
+
+
+def _is_voice_source(source_type: Optional[str]) -> bool:
+    source = str(source_type or "").strip().lower().replace("-", "_")
+    if not source:
+        return False
+    return source in _VOICE_SOURCE_TYPES or any(
+        marker in source for marker in ("wakeword", "satellite", "microphone")
+    )
+
+
+def _is_recent_chatgpt_turn(now_ts: float, last_chatgpt_ts: Optional[float]) -> bool:
+    if last_chatgpt_ts is None:
+        return False
+    age = now_ts - float(last_chatgpt_ts)
+    try:
+        window = max(0.0, float(CHATGPT_CONTINUATION_WINDOW_SECONDS))
+    except (TypeError, ValueError):
+        window = 120.0
+    return 0.0 <= age <= window
 
 
 def route_utterance(
@@ -221,8 +273,9 @@ def route_utterance(
     text: str,
     now_ts: Optional[float] = None,
     last_chatgpt_ts: Optional[float] = None,
+    source_type: Optional[str] = None,
 ) -> RouteResult:
-    """Classify one utterance using lexical intent and recent conversation."""
+    """Classify one utterance after deterministic handlers have declined it."""
     if now_ts is None:
         now_ts = time.time()
 
@@ -236,11 +289,24 @@ def route_utterance(
     if _looks_deviceish(t):
         return RouteResult(RouteOutcome.DEVICE)
 
+    if _looks_like_capture_debris(t):
+        return RouteResult(RouteOutcome.ERROR)
+
     if _looks_conversational(t):
         return RouteResult(RouteOutcome.CHATGPT)
 
-    if last_chatgpt_ts and (now_ts - last_chatgpt_ts) <= CHATGPT_CONTINUATION_WINDOW_SECONDS:
-        if _looks_chatgpt_continuation(t):
-            return RouteResult(RouteOutcome.CHATGPT)
+    # Within an AI exchange, even a one-word fragment can be meaningful. The
+    # timestamp is supplied by the caller's source-scoped conversation state.
+    if _is_recent_chatgpt_turn(now_ts, last_chatgpt_ts):
+        return RouteResult(RouteOutcome.CHATGPT)
+
+    # Typed surfaces can safely be permissive because they do not contain VAD
+    # tails or wake-word capture debris. For voice, require at least a short
+    # phrase unless the utterance is explicitly conversational or continues a
+    # recent AI exchange.
+    if not _is_voice_source(source_type):
+        return RouteResult(RouteOutcome.CHATGPT)
+    if len(_word_tokens(t)) >= 2:
+        return RouteResult(RouteOutcome.CHATGPT)
 
     return RouteResult(RouteOutcome.ERROR)

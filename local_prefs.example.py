@@ -132,6 +132,7 @@ usually describes one specific Pi, room, audio device, or speaker target.
 
 # Conversational fallback model.
 # CHATGPT_MODEL = "gpt-5.4-mini"
+# CHATGPT_CONTINUATION_WINDOW_SECONDS = 120
 # CHATGPT_WEB_SEARCH_ENABLED = True
 # CHATGPT_WEB_SEARCH_MODEL = CHATGPT_MODEL
 

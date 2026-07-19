@@ -60,6 +60,47 @@ class ConversationalDispatchTests(unittest.TestCase):
             RouteOutcome.CHATGPT,
         )
 
+    def test_router_keeps_voice_fragments_bounded_by_ai_recency(self):
+        import semantic_router
+
+        window = float(semantic_router.CHATGPT_CONTINUATION_WINDOW_SECONDS)
+
+        self.assertEqual(
+            route_utterance(text="Neo", source_type="wakeword").outcome,
+            RouteOutcome.ERROR,
+        )
+        self.assertEqual(
+            route_utterance(
+                text="Neo",
+                source_type="wakeword",
+                now_ts=100.0 + window,
+                last_chatgpt_ts=100.0,
+            ).outcome,
+            RouteOutcome.CHATGPT,
+        )
+        self.assertEqual(
+            route_utterance(
+                text="Neo",
+                source_type="wakeword",
+                now_ts=100.001 + window,
+                last_chatgpt_ts=100.0,
+            ).outcome,
+            RouteOutcome.ERROR,
+        )
+
+    def test_router_rejects_voice_debris_and_protects_unknown_actions(self):
+        for phrase in ("um", "uh", "and the"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(
+                    route_utterance(text=phrase, source_type="ptt").outcome,
+                    RouteOutcome.ERROR,
+                )
+
+        self.assertEqual(
+            route_utterance(text="activate the mystery lamp").outcome,
+            RouteOutcome.DEVICE,
+        )
+
     def test_polite_binary_command_then_target_transfer(self):
         states = [
             {"entity_id": "light.floor_lamp", "state": "on", "attributes": {"friendly_name": "Floor Lamp"}},
